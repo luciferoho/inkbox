@@ -38,6 +38,7 @@ export type MenuCommand =
   | 'file:openFolder'
   | 'file:save'
   | 'file:saveAs'
+  | 'file:export'
   | 'file:closeTab'
   | 'view:toggleSidebar'
   | 'view:toggleTheme'
@@ -46,6 +47,17 @@ export type MenuCommand =
   | 'edit:find'
   | 'app:settings'
   | 'help:sample'
+
+/** 草稿（userData/drafts/<tabId>.json）：未落盘文档的崩溃保险 */
+export interface DraftPayload {
+  /** 原文件路径；null = 从未保存过的未命名文档 */
+  path: string | null
+  name: string
+  content: string
+  /** 草稿写入时间（epoch ms） */
+  ts: number
+}
+
 
 /** 文件树条目（fs:readDir 返回） */
 export interface DirEntry {

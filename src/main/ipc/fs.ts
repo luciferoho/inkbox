@@ -21,6 +21,11 @@ export function registerFsIpc(): void {
     }
   )
 
+  /** 二进制读取（HTML 导出内联本地图片），返回 base64 */
+  ipcMain.handle('fs:readBinary', async (_e, path: string): Promise<string> => {
+    return (await readFile(path)).toString('base64')
+  })
+
   /** 新建文件（空内容）或目录 */
   ipcMain.handle('fs:create', async (_e, path: string, isDir: boolean): Promise<void> => {
     if (isDir) await mkdir(path, { recursive: true })

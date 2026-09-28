@@ -8,6 +8,7 @@ import { replaceAll } from '@milkdown/kit/utils'
 import { TextSelection, type EditorState } from '@milkdown/kit/prose/state'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { useDocumentsStore } from '@/stores/documents'
+import { useUiStore } from '@/stores/ui'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
 import '@milkdown/kit/prose/gapcursor/style/gapcursor.css'
 import '@milkdown/kit/prose/tables/style/tables.css'
@@ -21,6 +22,7 @@ import '@/assets/wysiwyg.css'
  * 组件按需挂载（v-if），进入即显模式时天然读取最新内容。
  */
 const docs = useDocumentsStore()
+const ui = useUiStore()
 const host = ref<HTMLElement | null>(null)
 
 let editor: Editor | null = null
@@ -161,6 +163,16 @@ watch(
   () => docs.activeId,
   (id) => {
     tabId = id
+    const markdown = docs.active?.content ?? ''
+    if (editor) applyReplace(markdown)
+    else pending = markdown
+  }
+)
+
+/* 外部修改重载：store 内容已被写回，即显面板整档替换 */
+watch(
+  () => ui.extReloadSeq,
+  () => {
     const markdown = docs.active?.content ?? ''
     if (editor) applyReplace(markdown)
     else pending = markdown

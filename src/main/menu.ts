@@ -22,6 +22,7 @@ export function createMenu(win: BrowserWindow): void {
         { type: 'separator' },
         { label: '保存', accelerator: 'CmdOrCtrl+S', click: cmd('file:save') },
         { label: '另存为…', accelerator: 'CmdOrCtrl+Shift+S', click: cmd('file:saveAs') },
+        { label: '导出…', accelerator: 'CmdOrCtrl+E', click: cmd('file:export') },
         { label: '关闭标签页', accelerator: 'CmdOrCtrl+W', click: cmd('file:closeTab') },
         { type: 'separator' },
         { role: 'quit', label: '退出' }

@@ -27,7 +27,7 @@ export function createMainWindow(): BrowserWindow {
   win.on('ready-to-show', () => {
     // 诊断：窗口实际尺寸 / 屏幕工作区 / 页面缩放（排查初始布局溢出）
     console.log(
-      '[luci] bounds =',
+      '[inkbox] bounds =',
       JSON.stringify(win.getBounds()),
       'workArea =',
       JSON.stringify(screen.getPrimaryDisplay().workArea),

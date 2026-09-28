@@ -13,6 +13,7 @@ import { formattingKeymap } from '@/editor/cm-commands'
 import { luciFocusMode, luciTypewriterMode } from '@/editor/cm-focus'
 import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
+import { htmlToMarkdown } from '@/services/richPaste'
 
 const emit = defineEmits<{ (e: 'scroll-sync', line: number, frac: number): void }>()
 
@@ -52,7 +53,7 @@ function makeState(content: string): EditorState {
         }
       }),
       EditorView.domEventHandlers({
-        paste: (event, view) => void insertImagesFrom(event.clipboardData, view, event),
+        paste: (event, view) => handlePaste(event, view),
         drop: (event, view) => void insertImagesFrom(event.dataTransfer, view, event)
       })
     ]
@@ -77,15 +78,15 @@ async function insertImagesFrom(
   dt: DataTransfer | null,
   view: EditorView,
   event: Event
-): Promise<void> {
+): Promise<boolean> {
   const files = [...(dt?.files ?? [])].filter((f) => f.type.startsWith('image/'))
-  if (files.length === 0) return
+  if (files.length === 0) return false
   event.preventDefault()
 
   const tab = docs.tabs.find((t) => t.id === tabId)
   if (!tab?.path) {
     ui.showToast('请先保存文档，再粘贴图片')
-    return
+    return true
   }
   const docPath = tab.path
   const sepIdx = Math.max(docPath.lastIndexOf('/'), docPath.lastIndexOf('\\'))
@@ -114,12 +115,36 @@ async function insertImagesFrom(
       ui.showToast(`图片保存失败：${name}`)
     }
   }
-  if (links.length === 0) return
+  if (links.length === 0) return true
   const pos = view.state.selection.main.head
   view.dispatch({
     changes: { from: pos, insert: links.join('\n') + '\n' }
   })
   ui.showToast(`已插入 ${links.length} 张图片到 ${assetsDir}/`)
+  return true
+}
+
+/**
+ * 粘贴分流：图片文件 → 自动落盘；富文本（text/html）→ 转 Markdown；
+ * 其余（纯文本）→ 编辑器默认粘贴。返回 true 表示已接管该事件。
+ */
+function handlePaste(event: ClipboardEvent, view: EditorView): boolean {
+  const dt = event.clipboardData
+  if (!dt) return false
+  if ([...dt.files].some((f) => f.type.startsWith('image/'))) {
+    void insertImagesFrom(dt, view, event)
+    return true
+  }
+  const html = dt.getData('text/html')
+  // 没有标签结构（或只有 <meta> 碎片）的纯文本复制不接管
+  if (!html || !/<[a-z!][^>]*>/i.test(html)) return false
+  const plain = dt.getData('text/plain') ?? ''
+  const md = htmlToMarkdown(html)
+  if (md === null || md === plain.trim()) return false
+  event.preventDefault()
+  const { from, to } = view.state.selection.main
+  view.dispatch({ changes: { from, to, insert: md }, scrollIntoView: true })
+  return true
 }
 
 /* 编辑器滚动 → 通知预览：视口顶行的行号（setTimeout 节流，不依赖渲染帧） */
@@ -218,6 +243,19 @@ watch(
       selection: { anchor: pos },
       effects: EditorView.scrollIntoView(pos, { y: 'center' })
     })
+  }
+)
+
+/* 外部修改重载：store 内容已被写回（静默重载或用户确认），整档重新同步 */
+watch(
+  () => ui.extReloadSeq,
+  () => {
+    if (!view) return
+    const target = docs.active?.content ?? ''
+    if (view.state.doc.toString() === target) return
+    applying = true
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: target } })
+    applying = false
   }
 )
 

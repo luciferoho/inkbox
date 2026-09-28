@@ -6,6 +6,11 @@ const MD_OPEN_FILTERS = [
   { name: '所有文件', extensions: ['*'] }
 ]
 
+const SAVE_FILTERS: Record<string, { name: string; extensions: string[] }[]> = {
+  md: MD_OPEN_FILTERS.slice(0, 1),
+  html: [{ name: 'HTML', extensions: ['html'] }]
+}
+
 function parentWindow(e: IpcMainInvokeEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(e.sender)
 }
@@ -32,14 +37,17 @@ export function registerDialogIpc(): void {
     return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
   })
 
-  ipcMain.handle('dialog:saveFile', async (e, defaultName = '未命名.md'): Promise<string | null> => {
-    const win = parentWindow(e)
-    const opts: SaveDialogOptions = {
-      title: '保存 Markdown 文件',
-      defaultPath: defaultName,
-      filters: MD_OPEN_FILTERS.slice(0, 1)
+  ipcMain.handle(
+    'dialog:saveFile',
+    async (e, defaultName = '未命名.md', kind: 'md' | 'html' = 'md'): Promise<string | null> => {
+      const win = parentWindow(e)
+      const opts: SaveDialogOptions = {
+        title: kind === 'html' ? '导出 HTML' : '保存 Markdown 文件',
+        defaultPath: defaultName,
+        filters: SAVE_FILTERS[kind] ?? SAVE_FILTERS.md
+      }
+      const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
+      return r.canceled || !r.filePath ? null : r.filePath
     }
-    const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
-    return r.canceled || !r.filePath ? null : r.filePath
-  })
+  )
 }

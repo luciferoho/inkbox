@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppConfig, DirEntry, MenuCommand } from '@shared/types'
+import type { AppConfig, DirEntry, DraftPayload, MenuCommand } from '@shared/types'
 
 /**
  * 渲染进程唯一入口 API。全部走 invoke/on 白名单频道，
@@ -12,6 +12,7 @@ const api = {
       ipcRenderer.invoke('fs:writeFile', path, content),
     writeFileBinary: (path: string, base64: string): Promise<void> =>
       ipcRenderer.invoke('fs:writeBinary', path, base64),
+    readBinary: (path: string): Promise<string> => ipcRenderer.invoke('fs:readBinary', path),
     create: (path: string, isDir: boolean): Promise<void> =>
       ipcRenderer.invoke('fs:create', path, isDir),
     rename: (oldPath: string, newPath: string): Promise<void> =>
@@ -22,8 +23,35 @@ const api = {
   dialog: {
     openFile: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFile'),
     openFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFolder'),
-    saveFile: (defaultName?: string): Promise<string | null> =>
-      ipcRenderer.invoke('dialog:saveFile', defaultName)
+    saveFile: (defaultName?: string, kind: 'md' | 'html' = 'md'): Promise<string | null> =>
+      ipcRenderer.invoke('dialog:saveFile', defaultName, kind)
+  },
+  export: {
+    pdf: (
+      html: string,
+      opts: { margin: 'normal' | 'narrow' | 'none'; landscape: boolean },
+      defaultName?: string
+    ): Promise<string | null> => ipcRenderer.invoke('export:pdf', html, opts, defaultName),
+    previewPdf: (html: string, opts: { margin: 'normal' | 'narrow' | 'none'; landscape: boolean }): Promise<string> =>
+      ipcRenderer.invoke('export:previewPdf', html, opts)
+  },
+  drafts: {
+    save: (id: number, payload: DraftPayload): Promise<void> =>
+      ipcRenderer.invoke('drafts:save', id, payload),
+    list: (): Promise<DraftPayload[]> => ipcRenderer.invoke('drafts:list'),
+    clear: (id: number): Promise<void> => ipcRenderer.invoke('drafts:clear', id),
+    clearAll: (): Promise<void> => ipcRenderer.invoke('drafts:clearAll')
+  },
+  /** 打开文档的外部修改监听（fire-and-forget 注册，变更经 fs:fileChanged 广播） */
+  watch: {
+    watch: (path: string): void => ipcRenderer.send('fs:watch', path),
+    unwatch: (path: string): void => ipcRenderer.send('fs:unwatch', path),
+    onFileChanged: (cb: (payload: { path: string }) => void): (() => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, payload: { path: string }): void =>
+        cb(payload)
+      ipcRenderer.on('fs:fileChanged', listener)
+      return () => ipcRenderer.removeListener('fs:fileChanged', listener)
+    }
   },
   app: {
     getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('app:getConfig'),

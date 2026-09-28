@@ -13,9 +13,11 @@ import EditorArea from '@/components/editor/EditorArea.vue'
 import StatusBar from '@/components/chrome/StatusBar.vue'
 import ImageViewer from '@/components/chrome/ImageViewer.vue'
 import SettingsDialog from '@/components/chrome/SettingsDialog.vue'
+import ExportDialog from '@/components/chrome/ExportDialog.vue'
 import ConfirmDialog from '@/components/chrome/ConfirmDialog.vue'
 import Toast from '@/components/chrome/Toast.vue'
 import { useAutosave } from '@/composables/useAutosave'
+import { useDrafts } from '@/composables/useDrafts'
 
 const ui = useUiStore()
 const docs = useDocumentsStore()
@@ -37,6 +39,13 @@ function dispatch(cmd: MenuCommand): void {
       break
     case 'file:saveAs':
       void docs.save(true)
+      break
+    case 'file:export':
+      if (!docs.active || docs.active.isHome) {
+        ui.showToast('请先打开要导出的文档')
+      } else {
+        ui.openExport()
+      }
       break
     case 'file:closeTab':
       docs.closeActive()
@@ -70,11 +79,14 @@ function dispatch(cmd: MenuCommand): void {
 }
 
 useAutosave()
+useDrafts()
 
 onMounted(() => {
   void ui.init()
   window.api.onWinState((s) => (ui.maximized = s.maximized))
   window.api.onMenuCommand(dispatch)
+  // 打开文档的外部修改检测（内容比对在 documents store 里做）
+  window.api.watch.onFileChanged(({ path }) => void docs.handleExternalChange(path))
 })
 </script>
 
@@ -97,6 +109,7 @@ onMounted(() => {
     <StatusBar />
     <ImageViewer />
     <SettingsDialog />
+    <ExportDialog />
     <ConfirmDialog />
     <Toast />
   </div>

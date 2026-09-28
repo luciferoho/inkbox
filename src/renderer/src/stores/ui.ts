@@ -25,7 +25,10 @@ export const useUiStore = defineStore('ui', {
     currentLine: 1,
     /* 弹层 */
     settingsOpen: false,
+    exportOpen: false,
     viewerImage: null as string | null,
+    /* 外部修改重载信号：编辑器 watch 该序号后从 store 重新整档同步 */
+    extReloadSeq: 0,
     /* 右侧快捷键面板 */
     shortcutPanelOpen: false,
     /* 保存状态（状态栏实时展示，替代易过期的"已保存"文本提示） */
@@ -153,6 +156,13 @@ export const useUiStore = defineStore('ui', {
     },
     openSettings(): void {
       this.settingsOpen = true
+    },
+    openExport(): void {
+      this.exportOpen = true
+    },
+    /** 外部修改已写回 store：通知挂载中的编辑器整档重新同步 */
+    notifyReload(): void {
+      this.extReloadSeq++
     },
     toggleShortcutPanel(): void {
       this.shortcutPanelOpen = !this.shortcutPanelOpen

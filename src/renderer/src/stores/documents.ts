@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { useUiStore } from './ui'
+import type { DraftPayload } from '@shared/types'
 import sampleDoc from '@samples/示例.md?raw'
 
 /** 主页（欢迎页）标签的固定 id */
@@ -89,6 +90,7 @@ export const useDocumentsStore = defineStore('documents', {
         const tab: DocTab = { id: nextId++, path, name: basename(path), content, dirty: false }
         this.tabs.push(tab)
         this.activeId = tab.id
+        window.api.watch.watch(path)
         const cfg = await window.api.app.getConfig()
         const recent = [
           { path, ts: Date.now() },
@@ -109,11 +111,16 @@ export const useDocumentsStore = defineStore('documents', {
         path = await window.api.dialog.saveFile(tab.name)
         if (!path) return
       }
+      const prevPath = tab.path
       try {
         await window.api.fs.writeFile(path, tab.content)
         tab.path = path
         tab.name = basename(path)
         tab.dirty = false
+        // 另存 = 换了被监听文件；草稿已落盘，清掉
+        if (prevPath && prevPath !== path) window.api.watch.unwatch(prevPath)
+        window.api.watch.watch(path)
+        void window.api.drafts.clear(tab.id)
         const ui = useUiStore()
         ui.saveState = 'saved'
         ui.savedAt = Date.now()
@@ -196,7 +203,9 @@ export const useDocumentsStore = defineStore('documents', {
       if (id === HOME_ID) return // 主页不可关闭
       const i = this.tabs.findIndex((t) => t.id === id)
       if (i < 0) return
-      this.tabs.splice(i, 1)
+      const [tab] = this.tabs.splice(i, 1)
+      if (tab.path) window.api.watch.unwatch(tab.path)
+      void window.api.drafts.clear(id)
       if (this.activeId === id) {
         // 关掉最后一个真实标签时回落到主页
         this.activeId = this.tabs[Math.min(i, this.tabs.length - 1)]?.id ?? HOME_ID
@@ -218,6 +227,61 @@ export const useDocumentsStore = defineStore('documents', {
       // 切换标签时同步保存状态：脏 → 未保存；否则清空（"已保存 HH:mm" 只属于刚保存的那次）
       const tab = this.tabs.find((t) => t.id === id)
       useUiStore().saveState = tab && !tab.isHome && tab.dirty ? 'dirty' : 'clean'
+    },
+
+    /** 外部修改（fs:fileChanged）：内容比对后决定静默重载 / 询问 / 忽略自身保存 */
+    async handleExternalChange(path: string): Promise<void> {
+      const tab = this.tabs.find((t) => t.path === path)
+      if (!tab) return
+      const ui = useUiStore()
+      let disk: string
+      try {
+        disk = await window.api.fs.readFile(path)
+      } catch {
+        ui.showToast(`文件已被外部删除或移动：${tab.name}`)
+        return
+      }
+      if (disk === tab.content) return // 自身自动保存或无实质变化
+      if (!tab.dirty) {
+        tab.content = disk
+        tab.dirty = false
+        ui.notifyReload()
+        ui.showToast(`已重新加载外部修改：${tab.name}`)
+        return
+      }
+      const ok = await ui.askConfirm(
+        '文件已被外部修改',
+        `「${tab.name}」在磁盘上已被其他程序修改。\n重新加载将覆盖当前未保存的修改。`,
+        { okText: '重新加载', danger: true }
+      )
+      if (ok) {
+        tab.content = disk
+        tab.dirty = false
+        ui.notifyReload()
+        ui.showToast(`已重新加载外部修改：${tab.name}`)
+      }
+    },
+
+    /** 启动时恢复草稿（未落盘/有未保存修改的文档） */
+    restoreDrafts(list: DraftPayload[]): void {
+      let last = -1
+      for (const d of list) {
+        if (d.path && this.tabs.some((t) => t.path === d.path)) continue // 同文件已打开
+        const tab: DocTab = {
+          id: nextId++,
+          path: d.path,
+          name: d.name,
+          content: d.content,
+          dirty: true
+        }
+        this.tabs.push(tab)
+        last = tab.id
+        if (d.path) window.api.watch.watch(d.path)
+      }
+      if (last >= 0) {
+        this.activeId = last
+        useUiStore().showToast('草稿已恢复，请检查后保存')
+      }
     }
   }
 })

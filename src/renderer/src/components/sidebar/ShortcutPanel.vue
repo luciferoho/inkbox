@@ -13,6 +13,7 @@ const GROUPS: { title: string; items: { k: string; d: string }[] }[] = [
       { k: 'Ctrl+Shift+O', d: '打开文件夹' },
       { k: 'Ctrl+S', d: '保存' },
       { k: 'Ctrl+Shift+S', d: '另存为' },
+      { k: 'Ctrl+E', d: '导出 HTML / PDF' },
       { k: 'Ctrl+W', d: '关闭标签页' },
       { k: 'Ctrl+\\', d: '折叠/展开侧栏' },
       { k: 'Ctrl+,', d: '偏好设置' }

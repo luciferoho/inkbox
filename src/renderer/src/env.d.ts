@@ -13,6 +13,7 @@ interface Window {
       readFile(path: string): Promise<string>
       writeFile(path: string, content: string): Promise<void>
       writeFileBinary(path: string, base64: string): Promise<void>
+      readBinary(path: string): Promise<string>
       create(path: string, isDir: boolean): Promise<void>
       rename(oldPath: string, newPath: string): Promise<void>
       delete(path: string): Promise<void>
@@ -21,7 +22,29 @@ interface Window {
     dialog: {
       openFile(): Promise<string | null>
       openFolder(): Promise<string | null>
-      saveFile(defaultName?: string): Promise<string | null>
+      saveFile(defaultName?: string, kind?: 'md' | 'html'): Promise<string | null>
+    }
+    export: {
+      pdf(
+        html: string,
+        opts: { margin: 'normal' | 'narrow' | 'none'; landscape: boolean },
+        defaultName?: string
+      ): Promise<string | null>
+      previewPdf(
+        html: string,
+        opts: { margin: 'normal' | 'narrow' | 'none'; landscape: boolean }
+      ): Promise<string>
+    }
+    drafts: {
+      save(id: number, payload: import('@shared/types').DraftPayload): Promise<void>
+      list(): Promise<import('@shared/types').DraftPayload[]>
+      clear(id: number): Promise<void>
+      clearAll(): Promise<void>
+    }
+    watch: {
+      watch(path: string): void
+      unwatch(path: string): void
+      onFileChanged(cb: (payload: { path: string }) => void): () => void
     }
     app: {
       getConfig(): Promise<import('@shared/types').AppConfig>
