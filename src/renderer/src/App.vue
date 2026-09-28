@@ -1,0 +1,103 @@
+<script setup lang="ts">
+import { onMounted } from 'vue'
+import type { MenuCommand } from '@shared/types'
+import { useUiStore } from '@/stores/ui'
+import { useDocumentsStore } from '@/stores/documents'
+import { useWorkspaceStore } from '@/stores/workspace'
+import TitleBar from '@/components/chrome/TitleBar.vue'
+import TabsBar from '@/components/chrome/TabsBar.vue'
+import ActivityRail from '@/components/sidebar/ActivityRail.vue'
+import SidePanel from '@/components/sidebar/SidePanel.vue'
+import ShortcutPanel from '@/components/sidebar/ShortcutPanel.vue'
+import EditorArea from '@/components/editor/EditorArea.vue'
+import StatusBar from '@/components/chrome/StatusBar.vue'
+import ImageViewer from '@/components/chrome/ImageViewer.vue'
+import SettingsDialog from '@/components/chrome/SettingsDialog.vue'
+import ConfirmDialog from '@/components/chrome/ConfirmDialog.vue'
+import Toast from '@/components/chrome/Toast.vue'
+import { useAutosave } from '@/composables/useAutosave'
+
+const ui = useUiStore()
+const docs = useDocumentsStore()
+const ws = useWorkspaceStore()
+
+function dispatch(cmd: MenuCommand): void {
+  switch (cmd) {
+    case 'file:new':
+      docs.newDoc()
+      break
+    case 'file:open':
+      void docs.openFile()
+      break
+    case 'file:openFolder':
+      void ws.openFolder()
+      break
+    case 'file:save':
+      void docs.save()
+      break
+    case 'file:saveAs':
+      void docs.save(true)
+      break
+    case 'file:closeTab':
+      docs.closeActive()
+      break
+    case 'view:toggleSidebar':
+      ui.toggleSidebar()
+      break
+    case 'view:toggleTheme':
+      void ui.toggleTheme()
+      break
+    case 'view:toggleFocus':
+      ui.toggleFocus()
+      break
+    case 'view:toggleTypewriter':
+      ui.toggleTypewriter()
+      break
+    case 'edit:find':
+      // 即显/预览模式没有源码编辑器实例，先切回双栏再开查找面板
+      if (ui.editorMode === 'preview' || ui.editorMode === 'wysiwyg') {
+        ui.setEditorMode('split')
+      }
+      ui.requestFind()
+      break
+    case 'app:settings':
+      ui.openSettings()
+      break
+    case 'help:sample':
+      docs.openSample()
+      break
+  }
+}
+
+useAutosave()
+
+onMounted(() => {
+  void ui.init()
+  window.api.onWinState((s) => (ui.maximized = s.maximized))
+  window.api.onMenuCommand(dispatch)
+})
+</script>
+
+<template>
+  <div class="app">
+    <TitleBar />
+    <TabsBar />
+    <div class="app-body">
+      <ActivityRail />
+      <Transition name="sidebar">
+        <div v-if="ui.sidebarOpen" class="sidebar-wrap">
+          <SidePanel />
+        </div>
+      </Transition>
+      <EditorArea />
+      <Transition name="scpanel">
+        <ShortcutPanel v-if="ui.shortcutPanelOpen" />
+      </Transition>
+    </div>
+    <StatusBar />
+    <ImageViewer />
+    <SettingsDialog />
+    <ConfirmDialog />
+    <Toast />
+  </div>
+</template>

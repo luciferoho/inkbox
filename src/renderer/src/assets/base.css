@@ -1,0 +1,222 @@
+/* ============================================================
+   Luci · 「墨匣纸面」设计令牌与基础样式（详见 DESIGN.md）
+   ============================================================ */
+
+:root {
+  /* 纸面 Light（默认） */
+  --bg: #f6f2ec;
+  --bg-rail: #26201a;
+  --surface: #ffffff;
+  --surface-2: #efe9e0;
+  --border: #e4dcd0;
+  --text: #2b2420;
+  --text-2: #7c7267;
+  --accent: #c9701f;
+  --accent-strong: #b16014;
+  --accent-soft: rgba(201, 112, 31, 0.12);
+  --danger: #c2503e;
+  --ok: #2e7f72;
+
+  /* 墨脊上的固定色（不随主题翻转） */
+  --rail-icon: rgba(255, 244, 230, 0.72);
+  --rail-icon-hover: #f4c67f;
+
+  /* 形状与阴影 */
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: 14px;
+  --shadow-card: 0 1px 3px rgba(38, 32, 25, 0.06), 0 10px 28px rgba(38, 32, 25, 0.06);
+  --shadow-pop: 0 2px 6px rgba(38, 32, 25, 0.08), 0 16px 40px rgba(38, 32, 25, 0.12);
+
+  /* 字体 */
+  --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  --font-serif: Georgia, 'Source Serif SC', 'Noto Serif SC', 'Times New Roman', serif;
+
+  /* 排版偏好（设置页实时覆盖：ui.applyEditorPrefs） */
+  --preview-font-size: 16px;
+  --preview-line-height: 1.7;
+  --editor-font-size: 13.5px;
+  --editor-line-height: 1.75;
+  /* 纸面宽度：可用宽度百分比 */
+  --paper-width: 80%;
+}
+
+[data-theme='dark'] {
+  --bg: #1d1814;
+  --bg-rail: #14100c;
+  --surface: #272019;
+  --surface-2: #332a21;
+  --border: #3b3128;
+  --text: #eae2d6;
+  --text-2: #a89d8e;
+  --accent: #e6a054;
+  --accent-strong: #f0b26e;
+  --accent-soft: rgba(230, 160, 84, 0.14);
+  --danger: #d66a55;
+  --ok: #5bb8a8;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.25), 0 10px 28px rgba(0, 0, 0, 0.22);
+  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.4);
+}
+
+/* ---------- Reset ---------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-2);
+}
+
+/* ---------- 滚动条 ---------- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-2);
+}
+
+/* ---------- 应用骨架 ---------- */
+.app {
+  display: grid;
+  /* 关键：隐式列强制为视口宽（minmax(0,1fr)），子内容 min-content/max-content
+     不得把整个网格撑宽——否则标题栏跟随变宽，窗口三键被裁出视口 */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 44px 38px 1fr 28px;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app-body {
+  display: flex;
+  min-height: 0; /* 允许子面板独立滚动 */
+  flex: 1;
+}
+
+/* ---------- 通用控件 ---------- */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border-radius: var(--radius-s);
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+.btn-primary:hover {
+  background: var(--accent-strong);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.btn-ghost:hover {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
+.dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+/* 侧栏容器：宽度由 --sidebar-width 控制（拖拽/持久化） */
+.sidebar-wrap {
+  width: var(--sidebar-width, 264px);
+  flex-shrink: 0;
+  display: flex;
+  min-width: 0;
+}
+
+/* 侧栏折叠/展开：宽度过渡，内容区随之同步变宽 */
+.sidebar-enter-active,
+.sidebar-leave-active {
+  transition: width 0.18s ease-out, opacity 0.15s ease-out;
+  overflow: hidden;
+}
+
+.sidebar-enter-from,
+.sidebar-leave-to {
+  width: 0;
+  opacity: 0;
+}
+
+/* 右侧快捷键面板折叠/展开 */
+.scpanel-enter-active,
+.scpanel-leave-active {
+  transition: width 0.18s ease-out, opacity 0.15s ease-out;
+  overflow: hidden;
+}
+
+.scpanel-enter-from,
+.scpanel-leave-to {
+  width: 0;
+  opacity: 0;
+}

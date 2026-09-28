@@ -1,0 +1,172 @@
+/* ============================================================
+   即显模式（Milkdown/ProseMirror）· 「墨匣纸面」主题
+   与 preview.css 同一套排版语言，作用于 .luci-prose 内容区
+   ============================================================ */
+
+.wysiwyg-host .milkdown {
+  min-height: 100%;
+}
+
+.wysiwyg-host .luci-prose {
+  font-family: var(--font-serif);
+  font-size: var(--preview-font-size, 16px);
+  line-height: var(--preview-line-height, 1.7);
+  color: var(--text);
+  padding: 16px 20px 40vh;
+  min-height: 100%;
+  outline: none;
+  caret-color: var(--accent);
+  word-break: break-word;
+  user-select: text;
+}
+
+.wysiwyg-host .luci-prose ::selection {
+  background: var(--accent-soft);
+}
+
+.wysiwyg-host .luci-prose p {
+  margin: 0.75em 0;
+}
+
+/* 标题 */
+.wysiwyg-host .luci-prose h1,
+.wysiwyg-host .luci-prose h2,
+.wysiwyg-host .luci-prose h3,
+.wysiwyg-host .luci-prose h4,
+.wysiwyg-host .luci-prose h5,
+.wysiwyg-host .luci-prose h6 {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  line-height: 1.4;
+  margin: 1.3em 0 0.6em;
+}
+.wysiwyg-host .luci-prose h1 {
+  font-size: 1.7em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+}
+.wysiwyg-host .luci-prose h2 {
+  font-size: 1.42em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--border);
+}
+.wysiwyg-host .luci-prose h3 {
+  font-size: 1.22em;
+}
+.wysiwyg-host .luci-prose h4 {
+  font-size: 1.08em;
+}
+.wysiwyg-host .luci-prose h5,
+.wysiwyg-host .luci-prose h6 {
+  font-size: 1em;
+  color: var(--text-2);
+}
+
+/* 链接 */
+.wysiwyg-host .luci-prose a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* 行内代码与代码块（墨块） */
+.wysiwyg-host .luci-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 0.13em 0.4em;
+}
+
+.wysiwyg-host .luci-prose pre {
+  background: #26201a;
+  color: #ece4d8;
+  border-radius: 10px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  margin: 1em 0;
+  line-height: 1.6;
+  box-shadow: inset 0 0 0 1px rgba(255, 244, 230, 0.07);
+}
+
+.wysiwyg-host .luci-prose pre code {
+  background: none;
+  padding: 0;
+  font-size: 13px;
+  color: inherit;
+}
+
+/* 引用 */
+.wysiwyg-host .luci-prose blockquote {
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 0 8px 8px 0;
+  color: var(--text-2);
+}
+
+/* 列表 */
+.wysiwyg-host .luci-prose ul,
+.wysiwyg-host .luci-prose ol {
+  padding-left: 1.5em;
+  margin: 0.75em 0;
+}
+
+.wysiwyg-host .luci-prose li {
+  margin: 0.28em 0;
+}
+
+.wysiwyg-host .luci-prose li p {
+  margin: 0;
+}
+
+.wysiwyg-host .luci-prose input[type='checkbox'] {
+  accent-color: var(--accent);
+  margin-right: 7px;
+}
+
+/* 表格 */
+.wysiwyg-host .luci-prose table {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+  font-size: 0.94em;
+}
+
+.wysiwyg-host .luci-prose th,
+.wysiwyg-host .luci-prose td {
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  text-align: left;
+  position: relative;
+}
+
+.wysiwyg-host .luci-prose th {
+  background: var(--surface-2);
+  font-family: var(--font-ui);
+  font-weight: 600;
+}
+
+/* 分隔线 / 图片 */
+.wysiwyg-host .luci-prose hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2em auto;
+  width: 62%;
+}
+
+.wysiwyg-host .luci-prose img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+/* ProseMirror 交互态 */
+.wysiwyg-host .luci-prose .ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+  border-radius: 6px;
+}
+
+.wysiwyg-host .luci-prose span[data-type='hard-break'] + br {
+  content: '';
+}
