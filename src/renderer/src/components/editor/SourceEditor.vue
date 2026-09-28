@@ -8,6 +8,7 @@ import { languages } from '@codemirror/language-data'
 import { search, openSearchPanel } from '@codemirror/search'
 import { indentWithTab } from '@codemirror/commands'
 import { luciTheme } from '@/editor/cm-theme'
+import { cmZhPhrases } from '@/editor/cm-i18n'
 import { formattingKeymap } from '@/editor/cm-commands'
 import { luciFocusMode, luciTypewriterMode } from '@/editor/cm-focus'
 import { useUiStore } from '@/stores/ui'
@@ -36,6 +37,7 @@ function makeState(content: string): EditorState {
       basicSetup,
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       search({ top: true }),
+      cmZhPhrases,
       keymap.of([indentWithTab, ...formattingKeymap]),
       luciTheme,
       focusComp.of(ui.focusMode ? luciFocusMode : []),

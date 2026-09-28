@@ -3,6 +3,8 @@
    ============================================================ */
 
 :root {
+  color-scheme: light;
+
   /* 纸面 Light（默认） */
   --bg: #f6f2ec;
   --bg-rail: #26201a;
@@ -43,6 +45,8 @@
 }
 
 [data-theme='dark'] {
+  color-scheme: dark;
+
   --bg: #1d1814;
   --bg-rail: #14100c;
   --surface: #272019;
