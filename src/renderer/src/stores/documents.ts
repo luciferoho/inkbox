@@ -48,6 +48,13 @@ export const useDocumentsStore = defineStore('documents', {
     draftKey(id: number): string {
       return `${this.windowKey}-${id}`
     },
+
+    /** 会话快照：本窗口当前打开的文件标签（sessions/<窗口键>.json） */
+    persistSession(): void {
+      const tabs = this.tabs.filter((t) => t.path).map((t) => t.path as string)
+      const active = this.active?.path ?? null
+      window.api.session.save(this.windowKey, { tabs, active }).catch(() => undefined)
+    },
     newDoc(): void {
       const n = this.tabs.filter((t) => t.path === null && !t.isHome).length + 1
       const tab: DocTab = {
@@ -107,6 +114,7 @@ export const useDocumentsStore = defineStore('documents', {
           ...cfg.recent.filter((r) => r.path !== path)
         ].slice(0, 10)
         await window.api.app.setConfig({ recent })
+        this.persistSession()
       } catch (err) {
         useUiStore().showToast(`打开失败：${path}`)
         console.error('[documents] open failed:', err)
@@ -142,6 +150,7 @@ export const useDocumentsStore = defineStore('documents', {
           ...cfg.recent.filter((r) => r.path !== path)
         ].slice(0, 10)
         await window.api.app.setConfig({ recent })
+        this.persistSession()
       } catch (err) {
         useUiStore().showToast(`保存失败：${tab.name}`)
         console.error('[documents] save failed:', err)
@@ -220,6 +229,7 @@ export const useDocumentsStore = defineStore('documents', {
         // 关掉最后一个真实标签时回落到主页
         this.activeId = this.tabs[Math.min(i, this.tabs.length - 1)]?.id ?? HOME_ID
       }
+      this.persistSession()
     },
 
     /** 编辑器内容变更（来自 CodeMirror/Milkdown updateListener） */
@@ -237,6 +247,7 @@ export const useDocumentsStore = defineStore('documents', {
       // 切换标签时同步保存状态：脏 → 未保存；否则清空（"已保存 HH:mm" 只属于刚保存的那次）
       const tab = this.tabs.find((t) => t.id === id)
       useUiStore().saveState = tab && !tab.isHome && tab.dirty ? 'dirty' : 'clean'
+      this.persistSession()
     },
 
     /** 外部修改（fs:fileChanged）：内容比对后决定静默重载 / 询问 / 忽略自身保存 */
@@ -306,6 +317,7 @@ export const useDocumentsStore = defineStore('documents', {
       this.tabs.push(tab)
       this.activeId = tab.id
       if (doc.path) window.api.watch.watch(doc.path)
+      this.persistSession()
     },
 
     /** 跨窗口拖入：把别的窗口拖来的标签接到本窗口（index 为空 = 追加到最后）。
@@ -332,6 +344,7 @@ export const useDocumentsStore = defineStore('documents', {
       this.tabs.splice(at, 0, tab)
       this.activeId = tab.id
       if (doc.path) window.api.watch.watch(doc.path)
+      this.persistSession()
     },
 
     /** 上一/下一标签（Ctrl+Shift+Tab / Ctrl+Tab），按标签栏顺序循环 */
@@ -341,6 +354,33 @@ export const useDocumentsStore = defineStore('documents', {
       const i = real.findIndex((t) => t.id === this.activeId)
       const next = real[(i + delta + real.length) % real.length]
       this.activate(next.id)
+    },
+
+    /** 启动恢复上次会话的文件标签（仅首窗口；多窗口的标签并入本窗口）。
+     *  有未保存草稿的文件跳过——交给草稿恢复流程，避免磁盘版盖掉未保存修改 */
+    async restoreSession(enabled: boolean): Promise<void> {
+      if (!enabled || this.windowKey !== 'w1') return
+      try {
+        const entries = await window.api.session.load()
+        if (entries.length === 0) return
+        const draftPaths = new Set(
+          (await window.api.drafts.list()).map((e) => e.draft.path).filter((p): p is string => !!p)
+        )
+        const ordered = [...entries].sort((a, b) => a.key.localeCompare(b.key))
+        const firstActive = ordered[0]?.session.active ?? null
+        for (const { session } of ordered) {
+          for (const p of session.tabs) {
+            if (draftPaths.has(p)) continue
+            if (this.tabs.some((t) => t.path === p)) continue
+            await this.openPath(p)
+          }
+        }
+        const activeTab = firstActive ? this.tabs.find((t) => t.path === firstActive) : null
+        if (activeTab) this.activate(activeTab.id)
+        await window.api.session.clearOthers(this.windowKey)
+      } catch (err) {
+        console.error('[documents] session restore failed:', err)
+      }
     }
   }
 })

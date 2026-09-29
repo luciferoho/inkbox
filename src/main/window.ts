@@ -1,9 +1,13 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'node:path'
 import type { DetachDoc, InitialDoc } from '@shared/types'
+import { clearSession } from './session'
 
 /** 窗口键（w1、w2…）：草稿按窗口隔离；重启后从 1 重新计数，旧草稿归首个窗口接管 */
 let nextWindowSeq = 1
+
+/** webContentsId → 窗口键（窗口关闭时清会话文件用） */
+const windowKeys = new Map<number, string>()
 
 /** 拖出标签新窗口的待交付文档：webContentsId → 初始载荷 */
 const pendingDocs = new Map<number, InitialDoc>()
@@ -41,6 +45,15 @@ export function createAppWindow(doc?: DetachDoc): BrowserWindow {
 
   // 渲染层启动时经 win:takeInitialDoc 取走（拖出标签的文档与窗口键）
   pendingDocs.set(win.webContents.id, { windowKey, doc: doc ?? null })
+  windowKeys.set(win.webContents.id, windowKey)
+
+  // 正常关闭：清掉本窗口的会话快照（标签随窗口关闭，重启后不再恢复）
+  const closedWcId = win.webContents.id
+  win.on('closed', () => {
+    const key = windowKeys.get(closedWcId)
+    windowKeys.delete(closedWcId)
+    if (key) void clearSession(key)
+  })
 
   win.on('ready-to-show', () => {
     // Electron 会按 origin 持久化页面缩放（Ctrl+滚轮/Ctrl+= 后记忆），启动时重置，

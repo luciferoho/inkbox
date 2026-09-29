@@ -18,6 +18,8 @@ export const useUiStore = defineStore('ui', {
     typewriterMode: false,
     autosaveEnabled: true,
     autosaveIntervalMs: 15000,
+    /* 再次打开窗口时恢复上次打开的文件标签（默认开） */
+    restoreTabs: true,
     statusMessage: '就绪',
     /* 编辑器跨组件请求（计数器/序列号触发 watch） */
     findRequest: 0,
@@ -70,6 +72,7 @@ export const useUiStore = defineStore('ui', {
       this.themePref = cfg.theme
       this.autosaveEnabled = cfg.autosave.enabled
       this.autosaveIntervalMs = Math.max(3000, cfg.autosave.intervalMs)
+      this.restoreTabs = cfg.restoreTabs ?? true
       this.editorPrefs = { ...cfg.editor }
       this.sidebarWidth = Math.min(440, Math.max(200, cfg.sidebarWidth ?? 264))
       this.applyTheme()
@@ -119,6 +122,10 @@ export const useUiStore = defineStore('ui', {
       await window.api.app.setConfig({
         autosave: { enabled: this.autosaveEnabled, intervalMs: this.autosaveIntervalMs }
       })
+    },
+    async setRestoreTabs(v: boolean): Promise<void> {
+      this.restoreTabs = v
+      await window.api.app.setConfig({ restoreTabs: v })
     },
     async setThemePref(pref: ThemePref): Promise<void> {
       this.themePref = pref

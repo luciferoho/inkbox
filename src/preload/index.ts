@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppConfig, DetachDoc, DirEntry, DraftPayload, InitialDoc, MenuCommand } from '@shared/types'
+import type { AppConfig, DetachDoc, DirEntry, DraftPayload, InitialDoc, MenuCommand, SessionPayload } from '@shared/types'
 
 /**
  * 渲染进程唯一入口 API。全部走 invoke/on 白名单频道，
@@ -52,6 +52,15 @@ const api = {
       ipcRenderer.on('drag:consumed', listener)
       return () => ipcRenderer.removeListener('drag:consumed', listener)
     }
+  },
+  /** 窗口会话快照（启动恢复上次打开的文件标签） */
+  session: {
+    save: (key: string, payload: SessionPayload): Promise<void> =>
+      ipcRenderer.invoke('session:save', key, payload),
+    load: (): Promise<{ key: string; session: SessionPayload }[]> =>
+      ipcRenderer.invoke('session:load'),
+    clearOthers: (keepKey: string): Promise<void> =>
+      ipcRenderer.invoke('session:clearOthers', keepKey)
   },
   /** 打开文档的外部修改监听（fire-and-forget 注册，变更经 fs:fileChanged 广播） */
   watch: {

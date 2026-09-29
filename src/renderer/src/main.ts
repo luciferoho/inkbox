@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import type { AppConfig } from '@shared/types'
 import App from './App.vue'
 import './assets/base.css'
 
@@ -9,12 +10,20 @@ import './assets/base.css'
  * 内存虚拟文件系统 + 可手动触发的外部修改回调，便于浏览器里做端到端验证。
  */
 function installBrowserMock(): void {
-  const cfg = {
+  // config 持久化到 localStorage：浏览器里验证设置开关跨重载生效
+  const cfg: AppConfig & Record<string, unknown> = {
     theme: 'light' as const,
     editor: { fontSize: 16, lineHeight: 1.7, pageWidthPct: 80 },
     autosave: { enabled: true, intervalMs: 15000 },
+    restoreTabs: true,
     sidebarWidth: 264,
     recent: [] as { path: string; ts: number }[]
+  }
+  try {
+    const saved = localStorage.getItem('mock-cfg')
+    if (saved) Object.assign(cfg, JSON.parse(saved))
+  } catch {
+    /* 损坏即用默认值 */
   }
   const files = new Map<string, string>()
   const fileChangedListeners = new Set<(p: { path: string }) => void>()
@@ -82,6 +91,22 @@ function installBrowserMock(): void {
       },
       onConsumed: () => () => undefined
     },
+    session: {
+      // localStorage 背书，浏览器里可端到端验证启动恢复
+      save: async (key: string, payload: unknown) =>
+        localStorage.setItem(`mock-session-${key}`, JSON.stringify(payload)),
+      load: async () =>
+        Object.entries(localStorage)
+          .filter(([k]) => k.startsWith("mock-session-"))
+          .map(([k, v]) => ({
+            key: k.slice("mock-session-".length),
+            session: JSON.parse(v) as import('@shared/types').SessionPayload
+          })),
+      clearOthers: async (keepKey: string) => {
+        for (const k of Object.keys(localStorage).filter((k) => k.startsWith("mock-session-")))
+          if (k !== `mock-session-${keepKey}`) localStorage.removeItem(k)
+      }
+    },
     watch: {
       watch: () => undefined,
       unwatch: () => undefined,
@@ -92,7 +117,11 @@ function installBrowserMock(): void {
     },
     app: {
       getConfig: async () => cfg,
-      setConfig: async (patch: Record<string, unknown>) => Object.assign(cfg, patch) as typeof cfg
+      setConfig: async (patch: Partial<AppConfig>) => {
+        Object.assign(cfg, patch)
+        localStorage.setItem('mock-cfg', JSON.stringify(cfg))
+        return cfg as AppConfig
+      }
     },
     win: {
       minimize: () => undefined,

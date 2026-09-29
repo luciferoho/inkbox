@@ -88,12 +88,13 @@ useAutosave()
 useDrafts()
 
 onMounted(() => {
-  // 启动：应用偏好 → 取走初始文档（拖出标签的新窗口）与窗口键 → 订阅
+  // 启动：应用偏好 → 取走初始文档（拖出标签的新窗口）与窗口键 → 恢复会话 → 订阅
   void (async () => {
     await ui.init()
     const init = await window.api.win.takeInitialDoc()
     docs.setWindowKey(init.windowKey)
     if (init.doc) docs.restoreDetached(init.doc)
+    await docs.restoreSession(ui.restoreTabs)
   })()
   window.api.onWinState((s) => (ui.maximized = s.maximized))
   window.api.onMenuCommand(dispatch)

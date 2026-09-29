@@ -96,6 +96,19 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             <!-- 编辑 -->
             <h3 class="group-title">编辑</h3>
             <div class="row">
+              <span class="label">恢复标签</span>
+              <button
+                class="switch"
+                role="switch"
+                :aria-checked="ui.restoreTabs"
+                :class="{ on: ui.restoreTabs }"
+                @click="ui.setRestoreTabs(!ui.restoreTabs)"
+              >
+                <i class="knob" />
+              </button>
+            </div>
+            <p class="row-hint">再次打开窗口时，恢复上次打开的文件标签。</p>
+            <div class="row">
               <span class="label">自动保存</span>
               <button
                 class="switch"

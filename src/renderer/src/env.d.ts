@@ -47,6 +47,11 @@ interface Window {
       take(): Promise<import('@shared/types').DetachDoc | null>
       onConsumed(cb: () => void): () => void
     }
+    session: {
+      save(key: string, payload: import('@shared/types').SessionPayload): Promise<void>
+      load(): Promise<{ key: string; session: import('@shared/types').SessionPayload }[]>
+      clearOthers(keepKey: string): Promise<void>
+    }
     watch: {
       watch(path: string): void
       unwatch(path: string): void

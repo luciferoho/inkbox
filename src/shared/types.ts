@@ -11,6 +11,8 @@ export interface AppConfig {
     enabled: boolean
     intervalMs: number
   }
+  /** 再次打开窗口时恢复上次打开的文件标签 */
+  restoreTabs: boolean
   /** 侧栏（大纲/文件面板）宽度 px */
   sidebarWidth: number
   /** 最近文件，新的在前 */
@@ -27,8 +29,17 @@ export const defaultConfig: AppConfig = {
   theme: 'system',
   editor: { fontSize: 16, lineHeight: 1.7, pageWidthPct: 80 },
   autosave: { enabled: true, intervalMs: 15000 },
+  restoreTabs: true,
   sidebarWidth: 264,
   recent: []
+}
+
+/** 窗口会话快照（userData/sessions/<窗口键>.json）：打开的文件标签与激活项 */
+export interface SessionPayload {
+  /** 打开的文件标签路径（按标签栏顺序，不含主页/未落盘文档） */
+  tabs: string[]
+  /** 激活标签的路径；null = 主页或未落盘文档在前 */
+  active: string | null
 }
 
 /** 主进程菜单/快捷键转发到渲染进程的命令 */
