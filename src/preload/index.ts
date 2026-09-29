@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppConfig, DirEntry, DraftPayload, MenuCommand } from '@shared/types'
+import type { AppConfig, DetachDoc, DirEntry, DraftPayload, InitialDoc, MenuCommand } from '@shared/types'
 
 /**
  * 渲染进程唯一入口 API。全部走 invoke/on 白名单频道，
@@ -36,11 +36,22 @@ const api = {
       ipcRenderer.invoke('export:previewPdf', html, opts)
   },
   drafts: {
-    save: (id: number, payload: DraftPayload): Promise<void> =>
-      ipcRenderer.invoke('drafts:save', id, payload),
-    list: (): Promise<DraftPayload[]> => ipcRenderer.invoke('drafts:list'),
-    clear: (id: number): Promise<void> => ipcRenderer.invoke('drafts:clear', id),
+    save: (key: string, payload: DraftPayload): Promise<void> =>
+      ipcRenderer.invoke('drafts:save', key, payload),
+    list: (): Promise<{ key: string; draft: DraftPayload }[]> => ipcRenderer.invoke('drafts:list'),
+    clear: (key: string): Promise<void> => ipcRenderer.invoke('drafts:clear', key),
     clearAll: (): Promise<void> => ipcRenderer.invoke('drafts:clearAll')
+  },
+  /** 跨窗口标签拖拽：主进程登记中转（dataTransfer 跨窗口不可靠） */
+  drag: {
+    begin: (doc: DetachDoc): void => ipcRenderer.send('drag:begin', doc),
+    end: (): void => ipcRenderer.send('drag:end'),
+    take: (): Promise<DetachDoc | null> => ipcRenderer.invoke('drag:take'),
+    onConsumed: (cb: () => void): (() => void) => {
+      const listener = (): void => cb()
+      ipcRenderer.on('drag:consumed', listener)
+      return () => ipcRenderer.removeListener('drag:consumed', listener)
+    }
   },
   /** 打开文档的外部修改监听（fire-and-forget 注册，变更经 fs:fileChanged 广播） */
   watch: {
@@ -61,7 +72,11 @@ const api = {
   win: {
     minimize: (): void => ipcRenderer.send('win:minimize'),
     toggleMaximize: (): void => ipcRenderer.send('win:toggleMaximize'),
-    close: (): void => ipcRenderer.send('win:close')
+    close: (): void => ipcRenderer.send('win:close'),
+    /** 拖出标签到新窗口 */
+    openDoc: (doc: DetachDoc): void => ipcRenderer.send('win:openDoc', doc),
+    /** 启动时一次性取走初始文档与窗口键 */
+    takeInitialDoc: (): Promise<InitialDoc> => ipcRenderer.invoke('win:takeInitialDoc')
   },
   /** 订阅主进程菜单/快捷键命令；返回取消订阅函数 */
   onMenuCommand: (cb: (cmd: MenuCommand) => void): (() => void) => {

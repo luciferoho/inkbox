@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { useUiStore } from './ui'
-import type { DraftPayload } from '@shared/types'
+import type { DetachDoc, DraftPayload } from '@shared/types'
 import sampleDoc from '@samples/示例.md?raw'
 
 /** 主页（欢迎页）标签的固定 id */
@@ -30,7 +30,9 @@ function basename(p: string): string {
 export const useDocumentsStore = defineStore('documents', {
   state: () => ({
     tabs: [makeHomeTab()] as DocTab[],
-    activeId: HOME_ID as number | null
+    activeId: HOME_ID as number | null,
+    /** 窗口键（主进程分配，w1/w2…）：草稿文件按窗口隔离，重启后首个窗口接管历史草稿 */
+    windowKey: 'w1'
   }),
   getters: {
     active(state): DocTab | null {
@@ -38,6 +40,14 @@ export const useDocumentsStore = defineStore('documents', {
     }
   },
   actions: {
+    setWindowKey(key: string): void {
+      this.windowKey = key
+    },
+
+    /** 草稿存储键：窗口键 + 标签 id（跨窗口不冲突） */
+    draftKey(id: number): string {
+      return `${this.windowKey}-${id}`
+    },
     newDoc(): void {
       const n = this.tabs.filter((t) => t.path === null && !t.isHome).length + 1
       const tab: DocTab = {
@@ -120,7 +130,7 @@ export const useDocumentsStore = defineStore('documents', {
         // 另存 = 换了被监听文件；草稿已落盘，清掉
         if (prevPath && prevPath !== path) window.api.watch.unwatch(prevPath)
         window.api.watch.watch(path)
-        void window.api.drafts.clear(tab.id)
+        void window.api.drafts.clear(this.draftKey(tab.id))
         const ui = useUiStore()
         ui.saveState = 'saved'
         ui.savedAt = Date.now()
@@ -205,7 +215,7 @@ export const useDocumentsStore = defineStore('documents', {
       if (i < 0) return
       const [tab] = this.tabs.splice(i, 1)
       if (tab.path) window.api.watch.unwatch(tab.path)
-      void window.api.drafts.clear(id)
+      void window.api.drafts.clear(this.draftKey(id))
       if (this.activeId === id) {
         // 关掉最后一个真实标签时回落到主页
         this.activeId = this.tabs[Math.min(i, this.tabs.length - 1)]?.id ?? HOME_ID
@@ -282,6 +292,55 @@ export const useDocumentsStore = defineStore('documents', {
         this.activeId = last
         useUiStore().showToast('草稿已恢复，请检查后保存')
       }
+    },
+
+    /** 拖出标签的新窗口启动：直接把转移来的文档开成标签 */
+    restoreDetached(doc: DetachDoc): void {
+      const tab: DocTab = {
+        id: nextId++,
+        path: doc.path,
+        name: doc.name,
+        content: doc.content,
+        dirty: doc.dirty
+      }
+      this.tabs.push(tab)
+      this.activeId = tab.id
+      if (doc.path) window.api.watch.watch(doc.path)
+    },
+
+    /** 跨窗口拖入：把别的窗口拖来的标签接到本窗口（index 为空 = 追加到最后）。
+     *  同文件已在本窗口时更新其内容并激活（拖动编辑版优先），不再开重复标签 */
+    adoptDoc(doc: DetachDoc, index: number | null): void {
+      const existing = doc.path ? this.tabs.find((t) => t.path === doc.path) : undefined
+      if (existing) {
+        if (existing.content !== doc.content) {
+          existing.content = doc.content
+          existing.dirty = existing.dirty || doc.dirty
+          useUiStore().notifyReload()
+        }
+        this.activate(existing.id)
+        return
+      }
+      const tab: DocTab = {
+        id: nextId++,
+        path: doc.path,
+        name: doc.name,
+        content: doc.content,
+        dirty: doc.dirty
+      }
+      const at = index === null ? this.tabs.length : Math.min(Math.max(1, index), this.tabs.length)
+      this.tabs.splice(at, 0, tab)
+      this.activeId = tab.id
+      if (doc.path) window.api.watch.watch(doc.path)
+    },
+
+    /** 上一/下一标签（Ctrl+Shift+Tab / Ctrl+Tab），按标签栏顺序循环 */
+    cycleTab(delta: 1 | -1): void {
+      const real = this.tabs.filter((t) => !t.isHome)
+      if (real.length === 0) return
+      const i = real.findIndex((t) => t.id === this.activeId)
+      const next = real[(i + delta + real.length) % real.length]
+      this.activate(next.id)
     }
   }
 })

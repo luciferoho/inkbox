@@ -1,7 +1,22 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'node:path'
+import type { DetachDoc, InitialDoc } from '@shared/types'
 
-export function createMainWindow(): BrowserWindow {
+/** 窗口键（w1、w2…）：草稿按窗口隔离；重启后从 1 重新计数，旧草稿归首个窗口接管 */
+let nextWindowSeq = 1
+
+/** 拖出标签新窗口的待交付文档：webContentsId → 初始载荷 */
+const pendingDocs = new Map<number, InitialDoc>()
+
+/** 渲染层启动时一次性取走初始文档与窗口键（未交付的普通窗口返回 null 文档） */
+export function consumeInitialDoc(wcId: number): InitialDoc {
+  const pending = pendingDocs.get(wcId)
+  pendingDocs.delete(wcId)
+  return pending ?? { windowKey: 'w1', doc: null }
+}
+
+export function createAppWindow(doc?: DetachDoc): BrowserWindow {
+  const windowKey = `w${nextWindowSeq++}`
   const wa = screen.getPrimaryDisplay().workArea
   const win = new BrowserWindow({
     // 初始尺寸不超过屏幕工作区（小屏时收缩；最小尺寸保持产品要求）
@@ -24,16 +39,10 @@ export function createMainWindow(): BrowserWindow {
     }
   })
 
+  // 渲染层启动时经 win:takeInitialDoc 取走（拖出标签的文档与窗口键）
+  pendingDocs.set(win.webContents.id, { windowKey, doc: doc ?? null })
+
   win.on('ready-to-show', () => {
-    // 诊断：窗口实际尺寸 / 屏幕工作区 / 页面缩放（排查初始布局溢出）
-    console.log(
-      '[inkbox] bounds =',
-      JSON.stringify(win.getBounds()),
-      'workArea =',
-      JSON.stringify(screen.getPrimaryDisplay().workArea),
-      'zoom =',
-      win.webContents.getZoomFactor()
-    )
     // Electron 会按 origin 持久化页面缩放（Ctrl+滚轮/Ctrl+= 后记忆），启动时重置，
     // 避免放大态下 CSS 视口小于布局最小宽度导致右侧截断
     win.webContents.setZoomFactor(1)
@@ -60,4 +69,8 @@ export function createMainWindow(): BrowserWindow {
   }
 
   return win
+}
+
+export function createMainWindow(): BrowserWindow {
+  return createAppWindow()
 }

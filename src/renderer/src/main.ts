@@ -50,17 +50,37 @@ function installBrowserMock(): void {
     },
     drafts: {
       // localStorage 背书：草稿恢复的端到端验证可跨页面重载
-      save: async (id: number, payload: unknown) =>
-        localStorage.setItem(`mock-draft-${id}`, JSON.stringify(payload)),
+      save: async (key: string, payload: unknown) =>
+        localStorage.setItem(`mock-draft-${key}`, JSON.stringify(payload)),
       list: async () =>
         Object.entries(localStorage)
           .filter(([k]) => k.startsWith("mock-draft-"))
-          .map(([, v]) => JSON.parse(v) as import('@shared/types').DraftPayload),
-      clear: async (id: number) => localStorage.removeItem(`mock-draft-${id}`),
+          .map(([k, v]) => ({
+            key: k.slice("mock-draft-".length),
+            draft: JSON.parse(v) as import('@shared/types').DraftPayload
+          })),
+      clear: async (key: string) => localStorage.removeItem(`mock-draft-${key}`),
       clearAll: async () => {
         for (const k of Object.keys(localStorage).filter((k) => k.startsWith("mock-draft-")))
           localStorage.removeItem(k)
       }
+    },
+    drag: {
+      begin: (doc: import('@shared/types').DetachDoc) => {
+        ;(window as unknown as { __mockDrag: import('@shared/types').DetachDoc | null })
+          .__mockDrag = doc
+      },
+      end: () => {
+        ;(window as unknown as { __mockDrag: import('@shared/types').DetachDoc | null })
+          .__mockDrag = null
+      },
+      take: async () => {
+        const w = window as unknown as { __mockDrag: import('@shared/types').DetachDoc | null }
+        const doc = w.__mockDrag ?? null
+        w.__mockDrag = null
+        return doc
+      },
+      onConsumed: () => () => undefined
     },
     watch: {
       watch: () => undefined,
@@ -77,7 +97,15 @@ function installBrowserMock(): void {
     win: {
       minimize: () => undefined,
       toggleMaximize: () => undefined,
-      close: () => undefined
+      close: () => undefined,
+      // 浏览器验证：记录 detach 载荷（window.__mockDetached）
+      openDoc: (doc: import('@shared/types').DetachDoc) => {
+        ;(window as unknown as { __mockDetached: import('@shared/types').DetachDoc[] })
+          .__mockDetached ??= []
+        ;(window as unknown as { __mockDetached: import('@shared/types').DetachDoc[] })
+          .__mockDetached.push(doc)
+      },
+      takeInitialDoc: async () => ({ windowKey: 'w1', doc: null })
     },
     onMenuCommand: () => () => undefined,
     onWinState: () => () => undefined

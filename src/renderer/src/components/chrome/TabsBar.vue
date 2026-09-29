@@ -1,22 +1,48 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useDocumentsStore } from '@/stores/documents'
+import { useUiStore } from '@/stores/ui'
 
 const docs = useDocumentsStore()
+const ui = useUiStore()
 
-/* ---------- 拖拽排序（鼠标与标签中点比较决定插前/插后，支持拖到最后；主页不可越过） ---------- */
+/* ---------- 拖拽：窗口内排序 + 跨窗口移动 + 拖出拆分新窗 ----------
+   跨窗口时 dataTransfer 数据不可靠，载荷走主进程登记（drag:begin/take），
+   目标窗口 take 成功后主进程向源窗口广播 drag:consumed 移除原标签。 */
 const dragId = ref<number | null>(null)
 const dropIndex = ref<number | null>(null)
+/** 源窗口判定辅助 */
+let activeDragTabId: number | null = null
+let localHandled = false
+let consumedByOtherWindow = false
+let detachTimer: number | undefined
+
+/** 别的窗口拖来的标签（自定义 MIME 标记，排除外部应用的纯文本拖拽） */
+function hasTabMarker(e: DragEvent): boolean {
+  return e.dataTransfer?.types.includes('application/x-inkbox-tab') ?? false
+}
 
 function onDragStart(id: number, e: DragEvent): void {
-  if (docs.tabs.find((t) => t.id === id)?.isHome) return
+  const tab = docs.tabs.find((t) => t.id === id)
+  if (!tab || tab.isHome) return
+  window.clearTimeout(detachTimer) // 上一次拖拽的仲裁若还挂着，作废
   dragId.value = id
+  activeDragTabId = id
+  localHandled = false
+  consumedByOtherWindow = false
+  e.dataTransfer?.setData('application/x-inkbox-tab', '1')
   e.dataTransfer?.setData('text/plain', String(id))
   if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+  window.api.drag.begin({
+    path: tab.path,
+    name: tab.name,
+    content: tab.content,
+    dirty: tab.dirty
+  })
 }
 
 function onDragOver(index: number, e: DragEvent): void {
-  if (dragId.value === null) return
+  if (dragId.value === null && !hasTabMarker(e)) return
   e.preventDefault()
   e.stopPropagation()
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
@@ -28,8 +54,12 @@ function onDragOver(index: number, e: DragEvent): void {
 function onDrop(e: DragEvent): void {
   e.preventDefault()
   e.stopPropagation()
-  if (dragId.value !== null && dropIndex.value !== null) {
-    docs.moveTab(dragId.value, dropIndex.value)
+  if (dragId.value !== null) {
+    localHandled = true
+    if (dropIndex.value !== null) docs.moveTab(dragId.value, dropIndex.value)
+  } else if (hasTabMarker(e)) {
+    localHandled = true // 源窗口仲裁视角：已被本窗口接住
+    void adoptFromOtherWindow(dropIndex.value)
   }
   dragId.value = null
   dropIndex.value = null
@@ -37,26 +67,77 @@ function onDrop(e: DragEvent): void {
 
 /* 容器尾部区域（＋按钮附近）也允许放置 = 拖到最后一格 */
 function onTrailingDragOver(e: DragEvent): void {
-  if (dragId.value === null) return
-  const tabs = (e.currentTarget as HTMLElement).querySelectorAll('.tab:not(.home)')
-  const last = tabs[tabs.length - 1] as HTMLElement | undefined
-  if (last && e.clientX < last.getBoundingClientRect().right - 2) return
+  const cross = dragId.value === null && hasTabMarker(e)
+  if (dragId.value === null && !cross) return
+  if (!cross) {
+    const tabs = (e.currentTarget as HTMLElement).querySelectorAll('.tab:not(.home)')
+    const last = tabs[tabs.length - 1] as HTMLElement | undefined
+    if (last && e.clientX < last.getBoundingClientRect().right - 2) return
+  }
   e.preventDefault()
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
   dropIndex.value = docs.tabs.length
 }
 
 function onTrailingDrop(e: DragEvent): void {
-  if (dropIndex.value !== docs.tabs.length) return
-  e.preventDefault()
-  if (dragId.value !== null) docs.moveTab(dragId.value, docs.tabs.length)
+  if (dragId.value !== null) {
+    if (dropIndex.value !== docs.tabs.length) return
+    e.preventDefault()
+    docs.moveTab(dragId.value, docs.tabs.length)
+  } else if (hasTabMarker(e)) {
+    e.preventDefault()
+    const at = dropIndex.value === docs.tabs.length ? null : dropIndex.value
+    void adoptFromOtherWindow(at)
+  }
   dragId.value = null
   dropIndex.value = null
 }
 
-function onDragEnd(): void {
+/** 从别的窗口接住标签：向主进程取载荷（并触发源窗口移除原标签） */
+async function adoptFromOtherWindow(index: number | null): Promise<void> {
+  const doc = await window.api.drag.take()
+  if (doc) docs.adoptDoc(doc, index)
+}
+
+/** 标签拆分到新窗口：内容整体转移，本窗直接移除（无需脏确认） */
+function detachToWindow(id: number): void {
+  const tab = docs.tabs.find((t) => t.id === id)
+  if (!tab || tab.isHome) return
+  window.api.win.openDoc({
+    path: tab.path,
+    name: tab.name,
+    content: tab.content,
+    dirty: tab.dirty
+  })
+  const name = tab.name
+  docs.closeTab(id)
+  ui.showToast(`已在新窗口打开「${name}」`)
+}
+
+function onDragEnd(e: DragEvent): void {
   dragId.value = null
   dropIndex.value = null
+  if (activeDragTabId === null) return
+  // consumed 先到：标签已在 onDragConsumed 里移除，收尾即可
+  if (consumedByOtherWindow) {
+    activeDragTabId = null
+    return
+  }
+  const outside =
+    e.clientX < 0 || e.clientY < 0 || e.clientX > window.innerWidth || e.clientY > window.innerHeight
+  // 重叠窗口间 drop 时 dragend 坐标会映射回源窗口内，inside/outside 不可靠，
+  // 因此删除只认 consumed：两种收尾都留 300ms 竞态窗口——
+  // 被接住 → onDragConsumed 处理；没被接住 → 明确拖出边界才拆新窗，否则仅清理
+  const id = activeDragTabId
+  const mayDetach = outside && !localHandled
+  window.clearTimeout(detachTimer)
+  detachTimer = window.setTimeout(() => {
+    activeDragTabId = null
+    if (mayDetach && !consumedByOtherWindow) {
+      detachToWindow(id)
+    }
+    window.api.drag.end()
+  }, 300)
 }
 
 /* ---------- 横向滚动：滚轮换向 + 激活标签滚入视野 ---------- */
@@ -108,13 +189,24 @@ function onKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape') closeMenu()
 }
 
+/** 主进程广播：本窗口拖出的标签被另一个窗口接住 → 移除原标签 */
+function onDragConsumed(): void {
+  consumedByOtherWindow = true
+  window.clearTimeout(detachTimer)
+  const id = activeDragTabId
+  activeDragTabId = null
+  if (id !== null) docs.closeTab(id)
+}
+
 onMounted(() => {
   window.addEventListener('mousedown', onMousedown)
   window.addEventListener('keydown', onKeydown)
+  window.api.drag.onConsumed(onDragConsumed)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('mousedown', onMousedown)
   window.removeEventListener('keydown', onKeydown)
+  window.clearTimeout(detachTimer)
 })
 
 function run(action: () => void): void {
@@ -130,6 +222,7 @@ function menuItems(id: number): MenuItem[] {
   const realCount = docs.tabs.length - 1 // 除去主页
   return [
     { label: '关闭标签页', act: () => void docs.closeIfClean(docs.tabs[idx]) },
+    { label: '移到新窗口', act: () => detachToWindow(id) },
     { label: `关闭左侧（${idx - 1}）`, act: () => void docs.closeToLeft(id), disabled: idx <= 1 },
     {
       label: `关闭右侧（${docs.tabs.length - idx - 1}）`,
@@ -181,7 +274,7 @@ function menuItems(id: number): MenuItem[] {
         @dragstart="onDragStart(tab.id, $event)"
         @dragover="onDragOver(index + 1, $event)"
         @drop="onDrop($event)"
-        @dragend="onDragEnd"
+        @dragend="onDragEnd($event)"
         @contextmenu.prevent="openMenu(tab.id, $event)"
       >
         <span class="tab-label">{{ tab.name }}</span>

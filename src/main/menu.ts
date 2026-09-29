@@ -1,12 +1,14 @@
 import { BrowserWindow, Menu, app, dialog, type MenuItemConstructorOptions } from 'electron'
 
 /**
- * 菜单命令统一转发到聚焦窗口的渲染进程（menu:command），
+ * 菜单命令转发到渲染进程（menu:command），
  * 文档级操作（新建/保存等）由渲染进程的 documents store 决定行为。
+ * 多窗口：命令始终路由到当前焦点窗口（无焦点时退回创建菜单的窗口）。
  */
 function send(win: BrowserWindow, cmd: string): void {
-  if (win.isDestroyed()) return
-  win.webContents.send('menu:command', cmd)
+  const target = BrowserWindow.getFocusedWindow() ?? win
+  if (target.isDestroyed()) return
+  target.webContents.send('menu:command', cmd)
 }
 
 export function createMenu(win: BrowserWindow): void {
@@ -24,6 +26,8 @@ export function createMenu(win: BrowserWindow): void {
         { label: '另存为…', accelerator: 'CmdOrCtrl+Shift+S', click: cmd('file:saveAs') },
         { label: '导出…', accelerator: 'CmdOrCtrl+E', click: cmd('file:export') },
         { label: '关闭标签页', accelerator: 'CmdOrCtrl+W', click: cmd('file:closeTab') },
+        { label: '下一标签', accelerator: 'CmdOrCtrl+Tab', click: cmd('file:nextTab') },
+        { label: '上一标签', accelerator: 'CmdOrCtrl+Shift+Tab', click: cmd('file:prevTab') },
         { type: 'separator' },
         { role: 'quit', label: '退出' }
       ]

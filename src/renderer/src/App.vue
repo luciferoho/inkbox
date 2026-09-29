@@ -50,6 +50,12 @@ function dispatch(cmd: MenuCommand): void {
     case 'file:closeTab':
       docs.closeActive()
       break
+    case 'file:nextTab':
+      docs.cycleTab(1)
+      break
+    case 'file:prevTab':
+      docs.cycleTab(-1)
+      break
     case 'view:toggleSidebar':
       ui.toggleSidebar()
       break
@@ -82,7 +88,13 @@ useAutosave()
 useDrafts()
 
 onMounted(() => {
-  void ui.init()
+  // 启动：应用偏好 → 取走初始文档（拖出标签的新窗口）与窗口键 → 订阅
+  void (async () => {
+    await ui.init()
+    const init = await window.api.win.takeInitialDoc()
+    docs.setWindowKey(init.windowKey)
+    if (init.doc) docs.restoreDetached(init.doc)
+  })()
   window.api.onWinState((s) => (ui.maximized = s.maximized))
   window.api.onMenuCommand(dispatch)
   // 打开文档的外部修改检测（内容比对在 documents store 里做）

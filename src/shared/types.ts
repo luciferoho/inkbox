@@ -40,6 +40,8 @@ export type MenuCommand =
   | 'file:saveAs'
   | 'file:export'
   | 'file:closeTab'
+  | 'file:nextTab'
+  | 'file:prevTab'
   | 'view:toggleSidebar'
   | 'view:toggleTheme'
   | 'view:toggleFocus'
@@ -47,6 +49,23 @@ export type MenuCommand =
   | 'edit:find'
   | 'app:settings'
   | 'help:sample'
+
+/** 拖出标签到新窗口时转移的文档载荷 */
+export interface DetachDoc {
+  /** 原文件路径；null = 未落盘文档 */
+  path: string | null
+  name: string
+  content: string
+  dirty: boolean
+}
+
+/** 新窗口启动时一次性取走的初始载荷（win:takeInitialDoc） */
+export interface InitialDoc {
+  /** 窗口键（w1、w2…）：草稿文件按窗口隔离 */
+  windowKey: string
+  /** 拖出标签带来的文档；普通启动为 null */
+  doc: DetachDoc | null
+}
 
 /** 草稿（userData/drafts/<tabId>.json）：未落盘文档的崩溃保险 */
 export interface DraftPayload {

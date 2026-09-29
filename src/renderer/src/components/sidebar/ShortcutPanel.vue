@@ -15,6 +15,7 @@ const GROUPS: { title: string; items: { k: string; d: string }[] }[] = [
       { k: 'Ctrl+Shift+S', d: '另存为' },
       { k: 'Ctrl+E', d: '导出 HTML / PDF' },
       { k: 'Ctrl+W', d: '关闭标签页' },
+      { k: 'Ctrl+Tab / Ctrl+Shift+Tab', d: '下一 / 上一标签' },
       { k: 'Ctrl+\\', d: '折叠/展开侧栏' },
       { k: 'Ctrl+,', d: '偏好设置' }
     ]

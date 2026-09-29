@@ -36,10 +36,16 @@ interface Window {
       ): Promise<string>
     }
     drafts: {
-      save(id: number, payload: import('@shared/types').DraftPayload): Promise<void>
-      list(): Promise<import('@shared/types').DraftPayload[]>
-      clear(id: number): Promise<void>
+      save(key: string, payload: import('@shared/types').DraftPayload): Promise<void>
+      list(): Promise<{ key: string; draft: import('@shared/types').DraftPayload }[]>
+      clear(key: string): Promise<void>
       clearAll(): Promise<void>
+    }
+    drag: {
+      begin(doc: import('@shared/types').DetachDoc): void
+      end(): void
+      take(): Promise<import('@shared/types').DetachDoc | null>
+      onConsumed(cb: () => void): () => void
     }
     watch: {
       watch(path: string): void
@@ -54,6 +60,8 @@ interface Window {
       minimize(): void
       toggleMaximize(): void
       close(): void
+      openDoc(doc: import('@shared/types').DetachDoc): void
+      takeInitialDoc(): Promise<import('@shared/types').InitialDoc>
     }
     onMenuCommand(cb: (cmd: import('@shared/types').MenuCommand) => void): () => void
     onWinState(cb: (state: { maximized: boolean }) => void): () => void
