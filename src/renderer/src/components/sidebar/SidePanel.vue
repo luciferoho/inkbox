@@ -66,6 +66,12 @@ const activeLine = computed(() => {
 async function openFolder(): Promise<void> {
   await ws.openFolder()
 }
+
+/** 关闭工作区：清空文件树（已打开的标签保留），会话快照同步清除文件夹记录 */
+function closeWorkspace(): void {
+  ws.closeFolder()
+  ui.showToast('已关闭工作区')
+}
 </script>
 
 <template>
@@ -82,7 +88,7 @@ async function openFolder(): Promise<void> {
           大纲
         </button>
         <button :class="{ on: ui.sidebarMode === 'files' }" @click="ui.setSidebarMode('files')">
-          文件
+          工作区
         </button>
       </div>
       <button class="collapse-btn" title="折叠侧栏 (Ctrl+\)" @click="ui.toggleSidebar()">
@@ -120,7 +126,7 @@ async function openFolder(): Promise<void> {
       <template v-else>
         <div v-if="!ws.root" class="empty">
           <p>将文件夹设为工作区，在此浏览与管理笔记。</p>
-          <button class="btn-ghost" @click="openFolder">打开文件夹</button>
+          <button class="mini-btn" @click="openFolder">打开文件夹</button>
         </div>
         <template v-else>
           <div class="ws-root" :title="ws.root">
@@ -129,8 +135,28 @@ async function openFolder(): Promise<void> {
             </svg>
             <span class="ws-name">{{ ws.root.split(/[\\/]/).pop() }}</span>
             <span class="ws-acts" @click.stop>
-              <button class="ws-act" title="新建文档" @click="ws.beginCreate(ws.root, false)">＋</button>
-              <button class="ws-act" title="新建文件夹" @click="ws.beginCreate(ws.root, true)">⊞</button>
+              <button class="ws-act" title="新建文档" @click="ws.beginCreate(ws.root, false)">
+                <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                  <path d="M7 3v8M3 7h8" />
+                </svg>
+              </button>
+              <button class="ws-act" title="新建文件夹" @click="ws.beginCreate(ws.root, true)">
+                <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+                  <path d="M2.5 5.5a1.5 1.5 0 0 1 1.5-1.5h3.2l1.6 2H16a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5z" />
+                  <path d="M10.5 8.5v5M8 11h5" stroke-linecap="round" />
+                </svg>
+              </button>
+              <button class="ws-act" title="打开其他文件夹" @click="openFolder">
+                <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+                  <path d="M2.5 5.5a1.5 1.5 0 0 1 1.5-1.5h3.2l1.6 2H16a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5z" />
+                  <path d="M10.5 9.5h5M13 7v5" stroke-linecap="round" />
+                </svg>
+              </button>
+              <button class="ws-act" title="关闭工作区（保留已打开的标签）" @click="closeWorkspace">
+                <svg viewBox="0 0 10 10" width="10" height="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+                  <path d="M1 1l8 8M9 1L1 9" />
+                </svg>
+              </button>
             </span>
           </div>
           <div v-if="ws.draft && ws.draft.mode !== 'rename' && ws.draft.parentPath === ws.root" class="draft-row">
@@ -263,6 +289,7 @@ async function openFolder(): Promise<void> {
 }
 
 .ws-root {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -280,14 +307,26 @@ async function openFolder(): Promise<void> {
   white-space: nowrap;
 }
 
+/* 悬浮操作：绝对定位覆盖右缘（布局恒定不抖动），实色底保证文字不透出 */
 .ws-acts {
-  display: none;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
   align-items: center;
   gap: 2px;
+  padding: 2px 2px 2px 12px;
+  background: var(--surface);
+  border-radius: var(--radius-s);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
 }
 
 .ws-root:hover .ws-acts {
-  display: inline-flex;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .ws-act {
@@ -304,6 +343,22 @@ async function openFolder(): Promise<void> {
 .ws-act:hover {
   color: var(--accent-strong);
   background: var(--accent-soft);
+}
+
+/* 空态紧凑按钮（侧栏窄，不用全局大按钮） */
+.mini-btn {
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.mini-btn:hover {
+  border-color: var(--accent);
+  background: var(--surface-2);
 }
 
 .draft-row {

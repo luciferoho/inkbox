@@ -1,5 +1,5 @@
 import { app, ipcMain } from 'electron'
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defaultConfig, type AppConfig, type RecentFile } from '@shared/types'
 
@@ -39,10 +39,19 @@ function load(): AppConfig {
   return cache
 }
 
+/** 主进程内读取当前配置（窗口关闭行为等原生逻辑用，与渲染层 IPC 共享缓存） */
+export function getConfig(): AppConfig {
+  return load()
+}
+
 function persist(): void {
   const dir = app.getPath('userData')
   mkdirSync(dir, { recursive: true })
-  writeFileSync(configPath(), JSON.stringify(cache, null, 2), 'utf-8')
+  // 原子写（tmp + rename）：避免退出瞬间截断 config.json
+  const final = configPath()
+  const tmp = final + '.tmp'
+  writeFileSync(tmp, JSON.stringify(cache, null, 2), 'utf-8')
+  renameSync(tmp, final)
 }
 
 export function registerConfigIpc(): void {

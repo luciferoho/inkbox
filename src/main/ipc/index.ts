@@ -5,6 +5,7 @@ import { registerWinIpc } from './win'
 import { registerExportIpc } from './export'
 import { registerDraftsIpc } from './drafts'
 import { registerSessionIpc } from '../session'
+import { registerDocRegistryIpc } from '../docRegistry'
 import { registerFileWatcherIpc } from '../fileWatcher'
 
 export function registerIpcHandlers(): void {
@@ -15,5 +16,6 @@ export function registerIpcHandlers(): void {
   registerExportIpc()
   registerDraftsIpc()
   registerSessionIpc()
+  registerDocRegistryIpc()
   registerFileWatcherIpc()
 }

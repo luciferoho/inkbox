@@ -27,7 +27,7 @@ function pick(mode: 'outline' | 'files'): void {
     <button
       class="rail-btn"
       :class="{ active: ui.sidebarOpen && ui.sidebarMode === 'files' }"
-      title="文件"
+      title="工作区"
       @click="pick('files')"
     >
       <svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">

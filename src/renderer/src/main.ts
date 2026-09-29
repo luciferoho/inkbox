@@ -11,11 +11,13 @@ import './assets/base.css'
  */
 function installBrowserMock(): void {
   // config 持久化到 localStorage：浏览器里验证设置开关跨重载生效
-  const cfg: AppConfig & Record<string, unknown> = {
+  const cfg: AppConfig = {
     theme: 'light' as const,
     editor: { fontSize: 16, lineHeight: 1.7, pageWidthPct: 80 },
     autosave: { enabled: true, intervalMs: 15000 },
     restoreTabs: true,
+    restoreFolders: true,
+    closeAction: 'quit' as const,
     sidebarWidth: 264,
     recent: [] as { path: string; ts: number }[]
   }
@@ -91,6 +93,26 @@ function installBrowserMock(): void {
       },
       onConsumed: () => () => undefined
     },
+    doc: {
+      tryOpen: async (path: string) => {
+        const w = window as unknown as { __mockDocOwners?: Record<string, number> }
+        w.__mockDocOwners ??= {}
+        const owner = w.__mockDocOwners[path]
+        if (owner !== undefined && owner !== 1) return 'elsewhere' as const
+        w.__mockDocOwners[path] = 1
+        return 'ok' as const
+      },
+      acquire: (path: string) => {
+        const w = window as unknown as { __mockDocOwners?: Record<string, number> }
+        w.__mockDocOwners ??= {}
+        if (path) w.__mockDocOwners[path] = 1
+      },
+      release: (path: string) => {
+        const w = window as unknown as { __mockDocOwners?: Record<string, number> }
+        if (path) delete w.__mockDocOwners?.[path]
+      },
+      onActivateTab: () => () => undefined
+    },
     session: {
       // localStorage 背书，浏览器里可端到端验证启动恢复
       save: async (key: string, payload: unknown) =>
@@ -134,7 +156,30 @@ function installBrowserMock(): void {
         ;(window as unknown as { __mockDetached: import('@shared/types').DetachDoc[] })
           .__mockDetached.push(doc)
       },
-      takeInitialDoc: async () => ({ windowKey: 'w1', doc: null })
+      takeInitialDoc: async () => ({
+        windowKey: 'w1',
+        doc: null,
+        crashed: localStorage.getItem('mock-crashed') === '1'
+      }),
+      closeConfirmed: async () => {
+        const w = window as unknown as { __mockClosed?: number }
+        w.__mockClosed = (w.__mockClosed ?? 0) + 1
+      },
+      // 浏览器验证：window.__triggerRequestClose() 模拟点标题栏 X
+      onRequestClose: (cb: () => void) => {
+        const w = window as unknown as {
+          __requestCloseCbs: (() => void)[]
+          __triggerRequestClose: () => void
+        }
+        w.__requestCloseCbs ??= []
+        w.__requestCloseCbs.push(cb)
+        w.__triggerRequestClose ??= () => {
+          for (const fn of w.__requestCloseCbs) fn()
+        }
+        return () => {
+          w.__requestCloseCbs = w.__requestCloseCbs.filter((f) => f !== cb)
+        }
+      }
     },
     onMenuCommand: () => () => undefined,
     onWinState: () => () => undefined

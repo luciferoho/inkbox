@@ -47,6 +47,12 @@ interface Window {
       take(): Promise<import('@shared/types').DetachDoc | null>
       onConsumed(cb: () => void): () => void
     }
+    doc: {
+      tryOpen(path: string): Promise<'ok' | 'elsewhere'>
+      acquire(path: string): void
+      release(path: string): void
+      onActivateTab(cb: (path: string) => void): () => void
+    }
     session: {
       save(key: string, payload: import('@shared/types').SessionPayload): Promise<void>
       load(): Promise<{ key: string; session: import('@shared/types').SessionPayload }[]>
@@ -67,6 +73,8 @@ interface Window {
       close(): void
       openDoc(doc: import('@shared/types').DetachDoc): void
       takeInitialDoc(): Promise<import('@shared/types').InitialDoc>
+      closeConfirmed(): Promise<void>
+      onRequestClose(cb: () => void): () => void
     }
     onMenuCommand(cb: (cmd: import('@shared/types').MenuCommand) => void): () => void
     onWinState(cb: (state: { maximized: boolean }) => void): () => void

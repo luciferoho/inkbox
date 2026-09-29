@@ -13,6 +13,10 @@ export interface AppConfig {
   }
   /** 再次打开窗口时恢复上次打开的文件标签 */
   restoreTabs: boolean
+  /** 再次打开窗口时恢复上次打开的文件夹 */
+  restoreFolders: boolean
+  /** 点窗口关闭按钮的行为：quit = 退出程序；tray = 最小化到托盘（托盘菜单退出） */
+  closeAction: 'quit' | 'tray'
   /** 侧栏（大纲/文件面板）宽度 px */
   sidebarWidth: number
   /** 最近文件，新的在前 */
@@ -30,6 +34,8 @@ export const defaultConfig: AppConfig = {
   editor: { fontSize: 16, lineHeight: 1.7, pageWidthPct: 80 },
   autosave: { enabled: true, intervalMs: 15000 },
   restoreTabs: true,
+  restoreFolders: true,
+  closeAction: 'quit',
   sidebarWidth: 264,
   recent: []
 }
@@ -40,6 +46,8 @@ export interface SessionPayload {
   tabs: string[]
   /** 激活标签的路径；null = 主页或未落盘文档在前 */
   active: string | null
+  /** 本窗口打开的工作区文件夹；null = 未打开 */
+  folder: string | null
 }
 
 /** 主进程菜单/快捷键转发到渲染进程的命令 */
@@ -76,6 +84,8 @@ export interface InitialDoc {
   windowKey: string
   /** 拖出标签带来的文档；普通启动为 null */
   doc: DetachDoc | null
+  /** 上次会话异常退出（崩溃/强杀）：本次启动静默恢复草稿与全部标签 */
+  crashed: boolean
 }
 
 /** 草稿（userData/drafts/<tabId>.json）：未落盘文档的崩溃保险 */

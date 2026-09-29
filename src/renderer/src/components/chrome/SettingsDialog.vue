@@ -93,8 +93,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             </div>
             <p class="row-hint">按可用宽度百分比缩放；{{ ui.pageWidthMinPct }}%–100%，100% 时只保留四周间距。</p>
 
-            <!-- 编辑 -->
-            <h3 class="group-title">编辑</h3>
+            <!-- 启动 -->
+            <h3 class="group-title">启动</h3>
             <div class="row">
               <span class="label">恢复标签</span>
               <button
@@ -107,7 +107,43 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 <i class="knob" />
               </button>
             </div>
-            <p class="row-hint">再次打开窗口时，恢复上次打开的文件标签。</p>
+            <div class="row">
+              <span class="label">恢复文件夹</span>
+              <button
+                class="switch"
+                role="switch"
+                :aria-checked="ui.restoreFolders"
+                :class="{ on: ui.restoreFolders }"
+                @click="ui.setRestoreFolders(!ui.restoreFolders)"
+              >
+                <i class="knob" />
+              </button>
+            </div>
+            <p class="row-hint">再次打开窗口时，恢复上次打开的文件标签与工作区文件夹。异常退出后下次启动会自动恢复全部内容（含未保存的修改）。</p>
+
+            <!-- 窗口 -->
+            <h3 class="group-title">窗口</h3>
+            <div class="row">
+              <span class="label">关闭按钮</span>
+              <div class="segmented">
+                <button
+                  :class="{ on: ui.closeAction === 'quit' }"
+                  @click="ui.setCloseAction('quit')"
+                >
+                  退出程序
+                </button>
+                <button
+                  :class="{ on: ui.closeAction === 'tray' }"
+                  @click="ui.setCloseAction('tray')"
+                >
+                  最小化到托盘
+                </button>
+              </div>
+            </div>
+            <p class="row-hint">「最小化到托盘」时点关闭仅隐藏窗口，从托盘图标重新打开或退出。</p>
+
+            <!-- 编辑 -->
+            <h3 class="group-title">编辑</h3>
             <div class="row">
               <span class="label">自动保存</span>
               <button

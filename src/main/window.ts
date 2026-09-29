@@ -1,7 +1,10 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'node:path'
 import type { DetachDoc, InitialDoc } from '@shared/types'
-import { clearSession } from './session'
+import { clearSession, isSessionCrashed } from './session'
+import { releaseWindowDocs } from './docRegistry'
+import { isQuitting } from './tray'
+import { getConfig } from './ipc/config'
 
 /** 窗口键（w1、w2…）：草稿按窗口隔离；重启后从 1 重新计数，旧草稿归首个窗口接管 */
 let nextWindowSeq = 1
@@ -16,7 +19,7 @@ const pendingDocs = new Map<number, InitialDoc>()
 export function consumeInitialDoc(wcId: number): InitialDoc {
   const pending = pendingDocs.get(wcId)
   pendingDocs.delete(wcId)
-  return pending ?? { windowKey: 'w1', doc: null }
+  return pending ?? { windowKey: 'w1', doc: null, crashed: isSessionCrashed() }
 }
 
 export function createAppWindow(doc?: DetachDoc): BrowserWindow {
@@ -44,15 +47,35 @@ export function createAppWindow(doc?: DetachDoc): BrowserWindow {
   })
 
   // 渲染层启动时经 win:takeInitialDoc 取走（拖出标签的文档与窗口键）
-  pendingDocs.set(win.webContents.id, { windowKey, doc: doc ?? null })
+  pendingDocs.set(win.webContents.id, {
+    windowKey,
+    doc: doc ?? null,
+    crashed: isSessionCrashed()
+  })
   windowKeys.set(win.webContents.id, windowKey)
 
-  // 正常关闭：清掉本窗口的会话快照（标签随窗口关闭，重启后不再恢复）
+  // 「最小化到托盘」：点关闭仅隐藏窗口（正在退出时放行），配置即时生效
+  win.on('close', (e) => {
+    if (isQuitting()) return
+    if (getConfig().closeAction === 'tray') {
+      e.preventDefault()
+      win.hide()
+      return
+    }
+    // 手动关闭：交给渲染层做未保存检查（WPS 式弹窗），
+    // 确认后经 win:closeConfirmed 真正关闭（那里负责置位退出标志）
+    e.preventDefault()
+    win.webContents.send('app:requestClose')
+  })
+
+  // 正常关闭窗口：清掉本窗口的会话快照（多窗口只关其一时其标签不再恢复）。
+  // 应用整体退出时保留——下次启动恢复上次打开的标签
   const closedWcId = win.webContents.id
   win.on('closed', () => {
     const key = windowKeys.get(closedWcId)
     windowKeys.delete(closedWcId)
-    if (key) void clearSession(key)
+    releaseWindowDocs(closedWcId) // 该窗口占用的文件登记随窗口销毁释放
+    if (key && !isQuitting()) void clearSession(key)
   })
 
   win.on('ready-to-show', () => {

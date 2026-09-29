@@ -8,7 +8,7 @@
 }
 
 .wysiwyg-host .luci-prose {
-  font-family: var(--font-serif);
+  font-family: var(--font-ui);
   font-size: var(--preview-font-size, 16px);
   line-height: var(--preview-line-height, 1.7);
   color: var(--text);
@@ -35,7 +35,7 @@
 .wysiwyg-host .luci-prose h4,
 .wysiwyg-host .luci-prose h5,
 .wysiwyg-host .luci-prose h6 {
-  font-family: var(--font-serif);
+  font-family: var(--font-ui);
   font-weight: 700;
   line-height: 1.4;
   margin: 1.3em 0 0.6em;

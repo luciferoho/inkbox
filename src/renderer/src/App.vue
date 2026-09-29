@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, nextTick } from 'vue'
 import type { MenuCommand } from '@shared/types'
 import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
@@ -88,19 +88,93 @@ useAutosave()
 useDrafts()
 
 onMounted(() => {
-  // 启动：应用偏好 → 取走初始文档（拖出标签的新窗口）与窗口键 → 恢复会话 → 订阅
+  // 开屏兜底：恢复流程万一卡住，8 秒后强制进入应用
+  window.setTimeout(dismissSplash, 8000)
+  // 启动编排：偏好 → 初始载荷（窗口键/拖出文档/崩溃标志）→ 备份恢复 → 会话恢复
   void (async () => {
     await ui.init()
     const init = await window.api.win.takeInitialDoc()
     docs.setWindowKey(init.windowKey)
     if (init.doc) docs.restoreDetached(init.doc)
-    await docs.restoreSession(ui.restoreTabs)
+    // 备份（未保存内容）仅在异常退出后直接应用；正常启动清空不留
+    const backupEntries = init.crashed ? await window.api.drafts.list() : []
+    if (backupEntries.length > 0) docs.restoreDrafts(backupEntries.map((e) => e.draft))
+    await window.api.drafts.clearAll()
+    await docs.restoreSession({
+      restoreTabs: ui.restoreTabs,
+      restoreFolders: ui.restoreFolders,
+      crashed: init.crashed
+    })
+    if (backupEntries.length > 0) ui.showToast(`检测到异常退出，已恢复 ${backupEntries.length} 份未保存的内容`)
+    // 恢复完成：淡出开屏页，进入应用（用户看到的直接是恢复后的界面）
+    await nextTick()
+    dismissSplash()
   })()
   window.api.onWinState((s) => (ui.maximized = s.maximized))
   window.api.onMenuCommand(dispatch)
+  // 手动关闭：未保存检查（WPS 式弹窗）通过后经 closeConfirmed 真正关闭
+  window.api.win.onRequestClose(() => void handleRequestClose())
+  // 其他窗口打开本窗口占用的文件时，激活对应标签
+  window.api.doc.onActivateTab((path) => docs.activateByPath(path))
   // 打开文档的外部修改检测（内容比对在 documents store 里做）
   window.api.watch.onFileChanged(({ path }) => void docs.handleExternalChange(path))
 })
+
+/** 关窗流程进行中护栏：托盘退出会给每个窗口发 requestClose，防止重复弹窗 */
+let closeFlowRunning = false
+
+/** 淡出并移除 index.html 里的开屏页（启动编排完成后调用） */
+function dismissSplash(): void {
+  const el = document.getElementById('boot-splash')
+  if (!el) return
+  el.classList.add('hide')
+  window.setTimeout(() => el.remove(), 300)
+}
+
+/** 主进程请求关闭（点标题栏 X / 托盘退出）：先备份最新内容，再检查未保存文档 */
+async function handleRequestClose(): Promise<void> {
+  if (closeFlowRunning) return
+  closeFlowRunning = true
+  try {
+    docs.flushDrafts()
+    const dirty = docs.tabs.filter((t) => !t.isHome && t.dirty)
+    if (dirty.length === 0) {
+      await docs.persistSessionNow() // 会话先落盘，避免退出竞态截断
+      void window.api.win.closeConfirmed()
+      return
+    }
+    const choice = await ui.askChoice(
+      '有未保存的文档',
+      `还有 ${dirty.length} 个文档未保存，未保存的内容已自动备份。`,
+      [
+        { value: 'cancel', text: '取消' },
+        { value: 'discard', text: '直接退出', danger: true },
+        { value: 'save', text: '保存并退出' }
+      ]
+    )
+    if (choice === 'cancel') return
+    // 关闭确认后冻结编辑器回推与备份写入：已保存状态不能被异步事件弄脏
+    docs.closing = true
+    if (choice === 'save') {
+      for (const t of dirty) {
+        // 未命名文档走另存为（WPS 同款）；取消另存 = 留在应用
+        await docs.saveTab(t, !t.path)
+        if (!t.path) {
+          docs.closing = false
+          docs.flushDrafts()
+          return
+        }
+      }
+    } else {
+      // 直接退出：丢弃未保存修改（清备份）
+      for (const t of dirty) void window.api.drafts.clear(docs.draftKey(t.id))
+    }
+    await docs.persistSessionNow() // 会话先落盘，避免退出竞态截断
+    void window.api.win.closeConfirmed()
+  } finally {
+    closeFlowRunning = false
+  }
+}
 </script>
 
 <template>

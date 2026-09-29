@@ -53,6 +53,20 @@ const api = {
       return () => ipcRenderer.removeListener('drag:consumed', listener)
     }
   },
+  /** 跨窗口文件打开去重：同一文件只允许在一个窗口打开 */
+  doc: {
+    /** 尝试独占打开：被其他窗口占用时通知对方激活并返回 'elsewhere' */
+    tryOpen: (path: string): Promise<'ok' | 'elsewhere'> =>
+      ipcRenderer.invoke('doc:tryOpen', path),
+    acquire: (path: string): void => ipcRenderer.send('doc:acquire', path),
+    release: (path: string): void => ipcRenderer.send('doc:release', path),
+    /** 其他窗口请求激活本窗口中该文件的标签 */
+    onActivateTab: (cb: (path: string) => void): (() => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, path: string): void => cb(path)
+      ipcRenderer.on('doc:activateTab', listener)
+      return () => ipcRenderer.removeListener('doc:activateTab', listener)
+    }
+  },
   /** 窗口会话快照（启动恢复上次打开的文件标签） */
   session: {
     save: (key: string, payload: SessionPayload): Promise<void> =>
@@ -85,7 +99,15 @@ const api = {
     /** 拖出标签到新窗口 */
     openDoc: (doc: DetachDoc): void => ipcRenderer.send('win:openDoc', doc),
     /** 启动时一次性取走初始文档与窗口键 */
-    takeInitialDoc: (): Promise<InitialDoc> => ipcRenderer.invoke('win:takeInitialDoc')
+    takeInitialDoc: (): Promise<InitialDoc> => ipcRenderer.invoke('win:takeInitialDoc'),
+    /** 手动关闭握手：未保存检查完成后确认关闭 */
+    closeConfirmed: (): Promise<void> => ipcRenderer.invoke('win:closeConfirmed'),
+    /** 主进程请求渲染层执行关闭前检查（点标题栏 X） */
+    onRequestClose: (cb: () => void): (() => void) => {
+      const listener = (): void => cb()
+      ipcRenderer.on('app:requestClose', listener)
+      return () => ipcRenderer.removeListener('app:requestClose', listener)
+    }
   },
   /** 订阅主进程菜单/快捷键命令；返回取消订阅函数 */
   onMenuCommand: (cb: (cmd: MenuCommand) => void): (() => void) => {

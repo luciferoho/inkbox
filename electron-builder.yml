@@ -1,0 +1,43 @@
+# 墨匣 Inkbox 打包配置（electron-builder）
+# 产物输出 release/；安装版 + 便携版（Windows x64 先行）
+appId: com.lucifer.inkbox
+productName: Inkbox
+directories:
+  output: release/pkg
+  buildResources: build
+files:
+  - out/**
+asar: true
+# 托盘图标：打包后进程从 resources/icon.png 读取
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+# Electron 分发走国内镜像（与 .npmrc 一致，构建机离线环境可覆盖）
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: 墨匣 Inkbox
+  artifactName: ${productName}-${version}-setup.${ext}
+  # 未签名告警不影响本地构建；正式分发前再配置签名（M5 后续）
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+# 自动更新源：GitHub Releases。推送 v* 标签的 Release（含 .exe 与 .blockmap）
+# 即启用应用内更新。注意：私有仓库 electron-updater 无法匿名校验（会静默跳过），
+# 需把仓库设为 public，或后续改用带 token 的自建源
+publish:
+  provider: github
+  owner: luciferoho
+  repo: inkbox

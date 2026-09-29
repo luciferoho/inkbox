@@ -1,5 +1,5 @@
 import { app, ipcMain } from 'electron'
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { DraftPayload } from '@shared/types'
 
@@ -25,25 +25,34 @@ function safeName(key: string): string {
 export function registerDraftsIpc(): void {
   ipcMain.handle('drafts:save', async (_e, key: string, payload: DraftPayload): Promise<void> => {
     await mkdir(draftsDir(), { recursive: true })
-    await writeFile(join(draftsDir(), safeName(key)), JSON.stringify(payload), 'utf-8')
+    // 原子写（tmp + rename，rename 可直接覆盖目标）：强杀不会截断也不会丢文件
+    const final = join(draftsDir(), safeName(key))
+    const tmp = final + '.tmp'
+    await writeFile(tmp, JSON.stringify(payload), 'utf-8')
+    await rename(tmp, final)
   })
 
   ipcMain.handle('drafts:list', async (): Promise<DraftEntry[]> => {
     let files: string[]
     try {
-      files = (await readdir(draftsDir())).filter((f) => f.endsWith('.json'))
+      files = await readdir(draftsDir())
     } catch {
       return []
     }
     const entries: DraftEntry[] = []
     for (const f of files) {
+      // .tmp 残留回收：强杀落在"写完 tmp、未改名"时用 tmp 兜底
+      const isTmp = f.endsWith('.json.tmp')
+      const finalName = isTmp ? f.replace(/\.json\.tmp$/, '') : f
+      if (isTmp && files.includes(finalName + '.json')) continue
+      if (!f.endsWith('.json') && !isTmp) continue
       try {
         entries.push({
-          key: f.replace(/\.json$/, ''),
+          key: finalName,
           draft: JSON.parse(await readFile(join(draftsDir(), f), 'utf-8')) as DraftPayload
         })
       } catch {
-        /* 单份草稿损坏不阻塞其余恢复 */
+        /* 单份备份损坏不阻塞其余恢复 */
       }
     }
     return entries.sort((a, b) => a.draft.ts - b.draft.ts)

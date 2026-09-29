@@ -29,6 +29,32 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.expanded = { [root]: true }
       await this.loadDir(root)
       useUiStore().setSidebarMode('files')
+      useDocumentsStore().persistSession() // 打开的文件夹写入会话快照（重启恢复）
+    },
+
+    /** 关闭工作区：清空文件树（已打开的标签保留），文件夹记录从会话快照移除 */
+    closeFolder(): void {
+      this.root = null
+      this.children = {}
+      this.expanded = {}
+      this.draft = null
+      useDocumentsStore().persistSession()
+    },
+
+    /** 启动恢复上次打开的工作区文件夹（会话快照） */
+    async restoreFolder(path: string): Promise<void> {
+      if (!path || this.root === path) return
+      try {
+        await window.api.fs.readDir(path) // 探测文件夹仍存在，不存在则不恢复
+      } catch {
+        return
+      }
+      this.root = path
+      this.children = {}
+      this.expanded = { [path]: true }
+      await this.loadDir(path)
+      useUiStore().setSidebarMode('files')
+      useDocumentsStore().persistSession()
     },
 
     async loadDir(path: string): Promise<void> {
@@ -80,12 +106,14 @@ export const useWorkspaceStore = defineStore('workspace', {
       try {
         if (d.mode === 'rename' && d.targetPath) {
           await window.api.fs.rename(d.targetPath, `${d.parentPath}/${name}`)
-          // 若重命名的是已打开文档，同步标签路径
+          // 若重命名的是已打开文档，同步标签路径与跨窗口占用登记
           const docs = useDocumentsStore()
           const tab = docs.tabs.find((t) => t.path === d.targetPath)
           if (tab) {
             tab.path = `${d.parentPath}/${name}`
             tab.name = name
+            window.api.doc.release(d.targetPath)
+            window.api.doc.acquire(tab.path)
           }
         } else {
           const finalName = d.mode === 'new-file' && !/\.[^.]+$/.test(name) ? `${name}.md` : name

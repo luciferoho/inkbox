@@ -8,8 +8,66 @@
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: luci-img:; font-src 'self' data:; connect-src 'self' ws:"
     />
     <title>墨匣 Inkbox</title>
+    <style>
+      /* 开屏页：覆盖会话恢复过程，避免先闪首页再跳到恢复的标签 */
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: #1d1814;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
+        transition: opacity 0.25s ease;
+      }
+      #boot-splash svg {
+        animation: bs-pulse 1.6s ease-in-out infinite;
+      }
+      #boot-splash .bs-name {
+        margin: 6px 0 0;
+        color: #eae2d6;
+        font-size: 17px;
+        letter-spacing: 2px;
+        font-weight: 600;
+      }
+      #boot-splash .bs-tip {
+        margin: 0;
+        color: #a89d8e;
+        font-size: 12px;
+        letter-spacing: 5px;
+        text-indent: 5px;
+      }
+      @keyframes bs-pulse {
+        0%,
+        100% {
+          opacity: 0.55;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.08);
+        }
+      }
+      #boot-splash.hide {
+        opacity: 0;
+        pointer-events: none;
+      }
+    </style>
   </head>
   <body>
+    <div id="boot-splash">
+      <svg viewBox="0 0 24 24" width="52" height="52" aria-hidden="true">
+        <path
+          d="M12 2c.6 4.8 2.4 7 7.2 7.6-4.8.9-6.6 3.1-7.2 8-.6-4.9-2.4-7.1-7.2-8C9.6 9 11.4 6.8 12 2z"
+          fill="#e6a054"
+        />
+      </svg>
+      <p class="bs-name">墨匣 Inkbox</p>
+      <p class="bs-tip">落笔即章</p>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

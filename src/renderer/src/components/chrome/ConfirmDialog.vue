@@ -1,15 +1,42 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useUiStore } from '@/stores/ui'
 
-/** 自绘确认弹框（墨匣纸面风格），替代原生 window.confirm */
+/** 自绘弹框（墨匣纸面风格）：二选一确认框 + 多选弹框（关窗未保存检查等） */
 const ui = useUiStore()
 const cancelBtn = ref<HTMLButtonElement | null>(null)
 
 function onKeydown(e: KeyboardEvent): void {
-  if (!ui.confirm) return
-  if (e.key === 'Escape') ui.resolveConfirm(false)
-  if (e.key === 'Enter') ui.resolveConfirm(true)
+  if (ui.confirm) {
+    if (e.key === 'Escape') ui.resolveConfirm(false)
+    if (e.key === 'Enter') ui.resolveConfirm(true)
+    return
+  }
+  if (ui.choice) {
+    if (e.key === 'Escape') ui.resolveChoice('cancel')
+    if (e.key === 'Enter') {
+      const last = ui.choice.choices[ui.choice.choices.length - 1]
+      ui.resolveChoice(last.value)
+    }
+  }
+}
+
+// 弹窗出现时聚焦第一个按钮，保证 Enter/Esc 行为确定
+watch(
+  () => ui.choice,
+  async (c) => {
+    if (c) {
+      await new Promise((r) => setTimeout(r, 0))
+      document.querySelector<HTMLElement>('.choice-dialog .btn')?.focus()
+    }
+  }
+)
+
+/** 多选按钮样式：danger 红、最后一项琥珀主按钮、其余幽灵 */
+function choiceClass(index: number): string {
+  const choices = ui.choice!.choices
+  if (choices[index].danger) return 'ok danger'
+  return index === choices.length - 1 ? 'ok' : 'cancel'
 }
 
 onMounted(() => {
@@ -21,6 +48,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 <template>
   <Teleport to="body">
+    <!-- 二选一确认框 -->
     <Transition name="confirm">
       <div v-if="ui.confirm" class="mask" @click.self="ui.resolveConfirm(false)">
         <section class="dialog" role="alertdialog" :aria-label="ui.confirm.title">
@@ -40,6 +68,27 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
             </button>
             <button class="btn ok" :class="{ danger: ui.confirm.danger }" @click="ui.resolveConfirm(true)">
               {{ ui.confirm.okText }}
+            </button>
+          </div>
+        </section>
+      </div>
+    </Transition>
+
+    <!-- 多选弹框 -->
+    <Transition name="confirm">
+      <div v-if="ui.choice" class="mask" @click.self="ui.resolveChoice('cancel')">
+        <section class="dialog choice-dialog" role="dialog" :aria-label="ui.choice.title">
+          <h2 class="title">{{ ui.choice.title }}</h2>
+          <p class="message">{{ ui.choice.message }}</p>
+          <div class="actions">
+            <button
+              v-for="(c, i) in ui.choice.choices"
+              :key="c.value"
+              class="btn"
+              :class="choiceClass(i)"
+              @click="ui.resolveChoice(c.value)"
+            >
+              {{ c.text }}
             </button>
           </div>
         </section>

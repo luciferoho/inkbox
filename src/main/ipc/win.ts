@@ -1,5 +1,6 @@
 import { ipcMain, BrowserWindow, screen, webContents, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { consumeInitialDoc, createAppWindow } from '../window'
+import { markQuitting } from '../tray'
 import type { DetachDoc } from '@shared/types'
 
 function fromEvent(e: IpcMainEvent): BrowserWindow | null {
@@ -77,6 +78,18 @@ export function registerWinIpc(): void {
 
   /** 新窗口渲染层启动时一次性取走初始文档与窗口键 */
   ipcMain.handle('win:takeInitialDoc', (e: IpcMainInvokeEvent) => consumeInitialDoc(e.sender.id))
+
+  /**
+   * 渲染层未保存检查完成后的确认关闭：关最后一个窗口时置位退出标志
+   * （closed 触发早于 before-quit，必须在这里置位才能保留会话文件）。
+   * destroy 不触发 close 拦截，直接销毁。
+   */
+  ipcMain.handle('win:closeConfirmed', (e: IpcMainInvokeEvent) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (!win || win.isDestroyed()) return
+    if (BrowserWindow.getAllWindows().length === 1) markQuitting()
+    win.destroy()
+  })
 
   /* ---------- 跨窗口拖拽标签 ---------- */
 

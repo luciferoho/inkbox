@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { useUiStore } from './ui'
+import { useWorkspaceStore } from './workspace'
 import type { DetachDoc, DraftPayload } from '@shared/types'
 import sampleDoc from '@samples/示例.md?raw'
 
@@ -22,6 +23,9 @@ function makeHomeTab(): DocTab {
 
 let nextId = 1
 
+/** 草稿防抖定时器（模块级：多实例共享一个写入节奏） */
+let draftFlushTimer: number | undefined
+
 function basename(p: string): string {
   return p.split(/[\\/]/).pop() || p
 }
@@ -32,7 +36,9 @@ export const useDocumentsStore = defineStore('documents', {
     tabs: [makeHomeTab()] as DocTab[],
     activeId: HOME_ID as number | null,
     /** 窗口键（主进程分配，w1/w2…）：草稿文件按窗口隔离，重启后首个窗口接管历史草稿 */
-    windowKey: 'w1'
+    windowKey: 'w1',
+    /** 关闭确认后的护栏：冻结内容变更与草稿写入，防止编辑器异步回推弄脏已保存状态 */
+    closing: false
   }),
   getters: {
     active(state): DocTab | null {
@@ -49,11 +55,45 @@ export const useDocumentsStore = defineStore('documents', {
       return `${this.windowKey}-${id}`
     },
 
-    /** 会话快照：本窗口当前打开的文件标签（sessions/<窗口键>.json） */
+    /** 会话快照：本窗口当前打开的文件标签与工作区文件夹（sessions/<窗口键>.json） */
     persistSession(): void {
+      this.persistSessionNow().catch(() => undefined)
+    },
+
+    /** 可等待版本：关窗确认流程在销毁窗口前必须等会话真正落盘 */
+    async persistSessionNow(): Promise<void> {
+      const ws = useWorkspaceStore()
       const tabs = this.tabs.filter((t) => t.path).map((t) => t.path as string)
       const active = this.active?.path ?? null
-      window.api.session.save(this.windowKey, { tabs, active }).catch(() => undefined)
+      await window.api.session.save(this.windowKey, { tabs, active, folder: ws.root })
+    },
+
+    /**
+     * 立即把未保存/未落盘文档写入草稿。调用时机：停止输入 800ms 后（防抖）、
+     * 5 秒兜底 tick、窗口失焦、关窗确认流程——保证退出时草稿即最新内容
+     */
+    flushDrafts(): void {
+      if (this.closing) return
+      window.clearTimeout(draftFlushTimer)
+      for (const tab of this.tabs) {
+        if (tab.isHome) continue
+        if (tab.dirty || tab.path === null) {
+          window.api.drafts
+            .save(this.draftKey(tab.id), {
+              path: tab.path,
+              name: tab.name,
+              content: tab.content,
+              ts: Date.now()
+            })
+            .catch((err) => console.error('[drafts] save failed:', err))
+        }
+      }
+    },
+
+    /** 编辑后防抖写草稿（在 updateContent 里触发） */
+    scheduleDraftFlush(): void {
+      window.clearTimeout(draftFlushTimer)
+      draftFlushTimer = window.setTimeout(() => this.flushDrafts(), 800)
     },
     newDoc(): void {
       const n = this.tabs.filter((t) => t.path === null && !t.isHome).length + 1
@@ -102,6 +142,11 @@ export const useDocumentsStore = defineStore('documents', {
         this.activeId = existing.id
         return
       }
+      // 跨窗口去重：文件已在别的窗口打开 → 激活那边，本窗口不开
+      if ((await window.api.doc.tryOpen(path)) !== 'ok') {
+        useUiStore().showToast(`「${basename(path)}」已在另一个窗口打开`)
+        return
+      }
       try {
         const content = await window.api.fs.readFile(path)
         const tab: DocTab = { id: nextId++, path, name: basename(path), content, dirty: false }
@@ -116,6 +161,7 @@ export const useDocumentsStore = defineStore('documents', {
         await window.api.app.setConfig({ recent })
         this.persistSession()
       } catch (err) {
+        window.api.doc.release(path) // 打开失败：释放独占登记
         useUiStore().showToast(`打开失败：${path}`)
         console.error('[documents] open failed:', err)
       }
@@ -123,7 +169,11 @@ export const useDocumentsStore = defineStore('documents', {
 
     async save(saveAs = false): Promise<void> {
       const tab = this.active
-      if (!tab) return
+      if (tab) await this.saveTab(tab, saveAs)
+    },
+
+    /** 保存指定标签（关窗"保存并退出"逐个保存用） */
+    async saveTab(tab: DocTab, saveAs = false): Promise<void> {
       let path = tab.path
       if (saveAs || path === null) {
         path = await window.api.dialog.saveFile(tab.name)
@@ -135,9 +185,13 @@ export const useDocumentsStore = defineStore('documents', {
         tab.path = path
         tab.name = basename(path)
         tab.dirty = false
-        // 另存 = 换了被监听文件；草稿已落盘，清掉
-        if (prevPath && prevPath !== path) window.api.watch.unwatch(prevPath)
+        // 另存 = 换了被监听文件；备份已落盘，清掉
+        if (prevPath && prevPath !== path) {
+          window.api.watch.unwatch(prevPath)
+          window.api.doc.release(prevPath)
+        }
         window.api.watch.watch(path)
+        window.api.doc.acquire(path)
         void window.api.drafts.clear(this.draftKey(tab.id))
         const ui = useUiStore()
         ui.saveState = 'saved'
@@ -223,7 +277,10 @@ export const useDocumentsStore = defineStore('documents', {
       const i = this.tabs.findIndex((t) => t.id === id)
       if (i < 0) return
       const [tab] = this.tabs.splice(i, 1)
-      if (tab.path) window.api.watch.unwatch(tab.path)
+      if (tab.path) {
+        window.api.watch.unwatch(tab.path)
+        window.api.doc.release(tab.path)
+      }
       void window.api.drafts.clear(this.draftKey(id))
       if (this.activeId === id) {
         // 关掉最后一个真实标签时回落到主页
@@ -234,11 +291,13 @@ export const useDocumentsStore = defineStore('documents', {
 
     /** 编辑器内容变更（来自 CodeMirror/Milkdown updateListener） */
     updateContent(id: number, content: string): void {
+      if (this.closing) return // 关闭确认后编辑器可能异步回推一次旧序列化，忽略
       const tab = this.tabs.find((t) => t.id === id)
       if (tab && !tab.isHome && tab.content !== content) {
         tab.content = content
         tab.dirty = true
         useUiStore().saveState = 'dirty'
+        this.scheduleDraftFlush() // 停止输入 800ms 后草稿即最新（修"退出后草稿不是最新"）
       }
     },
 
@@ -283,7 +342,7 @@ export const useDocumentsStore = defineStore('documents', {
       }
     },
 
-    /** 启动时恢复草稿（未落盘/有未保存修改的文档） */
+    /** 启动时恢复备份的未保存文档（仅异常退出后调用；正常启动清空不恢复） */
     restoreDrafts(list: DraftPayload[]): void {
       let last = -1
       for (const d of list) {
@@ -297,11 +356,14 @@ export const useDocumentsStore = defineStore('documents', {
         }
         this.tabs.push(tab)
         last = tab.id
-        if (d.path) window.api.watch.watch(d.path)
+        if (d.path) {
+          window.api.watch.watch(d.path)
+          window.api.doc.acquire(d.path)
+        }
       }
       if (last >= 0) {
         this.activeId = last
-        useUiStore().showToast('草稿已恢复，请检查后保存')
+        useUiStore().showToast(`已恢复 ${list.length} 份未保存的内容`)
       }
     },
 
@@ -316,7 +378,10 @@ export const useDocumentsStore = defineStore('documents', {
       }
       this.tabs.push(tab)
       this.activeId = tab.id
-      if (doc.path) window.api.watch.watch(doc.path)
+      if (doc.path) {
+        window.api.watch.watch(doc.path)
+        window.api.doc.acquire(doc.path)
+      }
       this.persistSession()
     },
 
@@ -343,8 +408,17 @@ export const useDocumentsStore = defineStore('documents', {
       const at = index === null ? this.tabs.length : Math.min(Math.max(1, index), this.tabs.length)
       this.tabs.splice(at, 0, tab)
       this.activeId = tab.id
-      if (doc.path) window.api.watch.watch(doc.path)
+      if (doc.path) {
+        window.api.watch.watch(doc.path)
+        window.api.doc.acquire(doc.path)
+      }
       this.persistSession()
+    },
+
+    /** 其他窗口请求激活本窗口中该文件的标签（跨窗口去重） */
+    activateByPath(path: string): void {
+      const tab = this.tabs.find((t) => t.path === path)
+      if (tab) this.activate(tab.id)
     },
 
     /** 上一/下一标签（Ctrl+Shift+Tab / Ctrl+Tab），按标签栏顺序循环 */
@@ -356,27 +430,41 @@ export const useDocumentsStore = defineStore('documents', {
       this.activate(next.id)
     },
 
-    /** 启动恢复上次会话的文件标签（仅首窗口；多窗口的标签并入本窗口）。
-     *  有未保存草稿的文件跳过——交给草稿恢复流程，避免磁盘版盖掉未保存修改 */
-    async restoreSession(enabled: boolean): Promise<void> {
-      if (!enabled || this.windowKey !== 'w1') return
+    /**
+     * 启动恢复上次会话（仅首窗口；多窗口的标签与文件夹并入本窗口）。
+     * - 崩溃恢复（crashed=true）：无视系统设置，全部恢复——未保存内容已在草稿里
+     * - 正常启动：文件标签/文件夹分别跟随 恢复标签/恢复文件夹 设置
+     * 有未保存草稿的文件跳过——草稿已先行恢复，避免磁盘版盖掉未保存修改
+     */
+    async restoreSession(opts: {
+      restoreTabs: boolean
+      restoreFolders: boolean
+      crashed: boolean
+    }): Promise<void> {
+      if (this.windowKey !== 'w1') return
       try {
         const entries = await window.api.session.load()
         if (entries.length === 0) return
+        const restoreFiles = opts.crashed || opts.restoreTabs
+        const restoreFolder = opts.crashed || opts.restoreFolders
         const draftPaths = new Set(
           (await window.api.drafts.list()).map((e) => e.draft.path).filter((p): p is string => !!p)
         )
         const ordered = [...entries].sort((a, b) => a.key.localeCompare(b.key))
         const firstActive = ordered[0]?.session.active ?? null
-        for (const { session } of ordered) {
-          for (const p of session.tabs) {
-            if (draftPaths.has(p)) continue
-            if (this.tabs.some((t) => t.path === p)) continue
-            await this.openPath(p)
+        const folder = ordered.map((e) => e.session.folder).find((f): f is string => !!f)
+        if (restoreFolder && folder) await useWorkspaceStore().restoreFolder(folder)
+        if (restoreFiles) {
+          for (const { session } of ordered) {
+            for (const p of session.tabs) {
+              if (draftPaths.has(p)) continue
+              if (this.tabs.some((t) => t.path === p)) continue
+              await this.openPath(p)
+            }
           }
+          const activeTab = firstActive ? this.tabs.find((t) => t.path === firstActive) : null
+          if (activeTab) this.activate(activeTab.id)
         }
-        const activeTab = firstActive ? this.tabs.find((t) => t.path === firstActive) : null
-        if (activeTab) this.activate(activeTab.id)
         await window.api.session.clearOthers(this.windowKey)
       } catch (err) {
         console.error('[documents] session restore failed:', err)

@@ -20,6 +20,10 @@ export const useUiStore = defineStore('ui', {
     autosaveIntervalMs: 15000,
     /* 再次打开窗口时恢复上次打开的文件标签（默认开） */
     restoreTabs: true,
+    /* 再次打开窗口时恢复上次打开的文件夹（默认开） */
+    restoreFolders: true,
+    /* 点窗口关闭按钮的行为：quit = 退出程序；tray = 最小化到托盘 */
+    closeAction: 'quit' as 'quit' | 'tray',
     statusMessage: '就绪',
     /* 编辑器跨组件请求（计数器/序列号触发 watch） */
     findRequest: 0,
@@ -49,6 +53,14 @@ export const useUiStore = defineStore('ui', {
         danger: boolean
         resolve: (ok: boolean) => void
       },
+    /* 自绘多选弹框（如关窗时的 保存/直接退出/取消） */
+    choice:
+      null as null | {
+        title: string
+        message: string
+        choices: { text: string; value: string; danger?: boolean }[]
+        resolve: (value: string) => void
+      },
     /* 排版偏好（镜像 AppConfig.editor，实时生效；纸宽为可用宽度百分比） */
     editorPrefs: { fontSize: 16, lineHeight: 1.7, pageWidthPct: 80 },
     /* 纸宽滑杆的动态最小值（保证纸面不窄于 620px，随窗口/侧栏状态变化） */
@@ -73,6 +85,8 @@ export const useUiStore = defineStore('ui', {
       this.autosaveEnabled = cfg.autosave.enabled
       this.autosaveIntervalMs = Math.max(3000, cfg.autosave.intervalMs)
       this.restoreTabs = cfg.restoreTabs ?? true
+      this.restoreFolders = cfg.restoreFolders ?? true
+      this.closeAction = cfg.closeAction ?? 'quit'
       this.editorPrefs = { ...cfg.editor }
       this.sidebarWidth = Math.min(440, Math.max(200, cfg.sidebarWidth ?? 264))
       this.applyTheme()
@@ -126,6 +140,14 @@ export const useUiStore = defineStore('ui', {
     async setRestoreTabs(v: boolean): Promise<void> {
       this.restoreTabs = v
       await window.api.app.setConfig({ restoreTabs: v })
+    },
+    async setRestoreFolders(v: boolean): Promise<void> {
+      this.restoreFolders = v
+      await window.api.app.setConfig({ restoreFolders: v })
+    },
+    async setCloseAction(v: 'quit' | 'tray'): Promise<void> {
+      this.closeAction = v
+      await window.api.app.setConfig({ closeAction: v })
     },
     async setThemePref(pref: ThemePref): Promise<void> {
       this.themePref = pref
@@ -200,6 +222,20 @@ export const useUiStore = defineStore('ui', {
     resolveConfirm(ok: boolean): void {
       this.confirm?.resolve(ok)
       this.confirm = null
+    },
+    /** 多选弹框：choices 按显示顺序（左→右），Esc 解析为 value 为 'cancel' 的项 */
+    askChoice(
+      title: string,
+      message: string,
+      choices: { text: string; value: string; danger?: boolean }[]
+    ): Promise<string> {
+      return new Promise((resolve) => {
+        this.choice = { title, message, choices, resolve }
+      })
+    },
+    resolveChoice(value: string): void {
+      this.choice?.resolve(value)
+      this.choice = null
     },
     toggleFocus(): void {
       this.focusMode = !this.focusMode

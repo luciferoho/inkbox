@@ -14,6 +14,20 @@ npm run typecheck  # 类型检查（主进程 + 渲染进程）
 npm run build      # 产物构建（out/）
 ```
 
+## 打包发布（Windows）
+
+```bash
+npm run icons      # 重新生成应用图标（build/icon.ico + icon.png，改了脚本里的设计后执行）
+npm run dist       # 构建并打包：NSIS 安装版 + 便携版（release/pkg/*.exe）
+npm run dist:dir   # 仅打未打包目录版（release/pkg/win-unpacked，快速自测用）
+```
+
+- 产物：`Inkbox-<版本>-setup.exe`（辅助安装器，可选安装目录）/ `Inkbox-<版本>-portable.exe`（免安装单文件）
+- 图标源文件在 `scripts/make-icon.mjs`（墨脊底 + 琥珀 spark，canvas 程序化绘制）
+- Electron 与 NSIS 二进制走 npmmirror 镜像（见 `.npmrc` 与 `electron-builder.yml` 的 `electronDownload.mirror`）
+- 代码签名未配置（未签名安装包首次运行会有 SmartScreen 提示），正式分发前再补
+
+
 ## 已完成里程碑（M0–M2）
 
 - **M0 骨架**：三进程（main / preload / renderer），contextIsolation + sandbox + 类型化 IPC 白名单；自绘标题栏、菜单与快捷键转发、多标签、墨脊导航、文件树、最近文件
