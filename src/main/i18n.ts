@@ -57,8 +57,10 @@ const zh = {
   dlgSaveMd: '保存 Markdown 文件',
   dlgExportHtml: '导出 HTML',
   dlgExportPdf: '导出 PDF',
+  dlgExportPng: '导出 PNG 长图',
   dlgUntitledMd: '未命名.md',
   dlgUntitledPdf: '未命名.pdf',
+  dlgUntitledPng: '未命名.png',
   // 更新通知
   updateTitle: '墨匣 Inkbox',
   updateBody: '新版本已就绪，退出应用后自动安装'
@@ -109,8 +111,10 @@ const en: typeof zh = {
   dlgSaveMd: 'Save Markdown File',
   dlgExportHtml: 'Export HTML',
   dlgExportPdf: 'Export PDF',
+  dlgExportPng: 'Export PNG Image',
   dlgUntitledMd: 'Untitled.md',
   dlgUntitledPdf: 'Untitled.pdf',
+  dlgUntitledPng: 'Untitled.png',
   updateTitle: 'Inkbox',
   updateBody: 'A new version is ready — it will install when you quit the app'
 }

@@ -71,7 +71,7 @@ function onTrailingDragOver(e: DragEvent): void {
   const cross = dragId.value === null && hasTabMarker(e)
   if (dragId.value === null && !cross) return
   if (!cross) {
-    const tabs = (e.currentTarget as HTMLElement).querySelectorAll('.tab:not(.home)')
+    const tabs = (e.currentTarget as HTMLElement).querySelectorAll('.tab')
     const last = tabs[tabs.length - 1] as HTMLElement | undefined
     if (last && e.clientX < last.getBoundingClientRect().right - 2) return
   }
@@ -168,13 +168,20 @@ watch(
 
 /* ---------- 右键菜单 ---------- */
 const menu = reactive({ open: false, x: 0, y: 0, id: 0 })
+const menuEl = ref<HTMLElement | null>(null)
 
-function openMenu(id: number, e: MouseEvent): void {
+async function openMenu(id: number, e: MouseEvent): Promise<void> {
   if (docs.tabs.find((t) => t.id === id)?.isHome) return // 主页无右键菜单
   menu.open = true
   menu.x = e.clientX
   menu.y = e.clientY
   menu.id = id
+  // 边缘钳制：菜单渲染后按实际尺寸收回到窗口内（右缘/下缘各留 8px）
+  await nextTick()
+  const el = menuEl.value
+  if (!el) return
+  menu.x = Math.max(8, Math.min(menu.x, window.innerWidth - el.offsetWidth - 8))
+  menu.y = Math.max(8, Math.min(menu.y, window.innerHeight - el.offsetHeight - 8))
 }
 
 function closeMenu(): void {
@@ -185,6 +192,38 @@ function onMousedown(e: MouseEvent): void {
   const el = e.target as HTMLElement
   if (menu.open && !el.closest('.tab-menu')) closeMenu()
 }
+
+/* ---------- ＋按钮位置：标签放不下（横向滚动出现）时吸附到栏右端，
+     始终可见可点；放得下时跟随最后一个标签 ---------- */
+const tabsOverflow = ref(false)
+
+function measureOverflow(): void {
+  const el = tabsScroll.value
+  tabsOverflow.value = !!el && el.scrollWidth > el.clientWidth + 1
+}
+
+let tabsRO: ResizeObserver | undefined
+
+onMounted(() => {
+  window.addEventListener('mousedown', onMousedown)
+  window.addEventListener('keydown', onKeydown)
+  window.api.drag.onConsumed(onDragConsumed)
+  tabsRO = new ResizeObserver(measureOverflow)
+  if (tabsScroll.value) tabsRO.observe(tabsScroll.value)
+  measureOverflow()
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('mousedown', onMousedown)
+  window.removeEventListener('keydown', onKeydown)
+  window.clearTimeout(detachTimer)
+  tabsRO?.disconnect()
+})
+
+/* 标签增删/改名会改变总宽，下一帧重测 */
+watch(
+  () => docs.tabs.length,
+  () => void nextTick(measureOverflow)
+)
 
 function onKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape') closeMenu()
@@ -198,17 +237,6 @@ function onDragConsumed(): void {
   activeDragTabId = null
   if (id !== null) docs.closeTab(id)
 }
-
-onMounted(() => {
-  window.addEventListener('mousedown', onMousedown)
-  window.addEventListener('keydown', onKeydown)
-  window.api.drag.onConsumed(onDragConsumed)
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('mousedown', onMousedown)
-  window.removeEventListener('keydown', onKeydown)
-  window.clearTimeout(detachTimer)
-})
 
 function run(action: () => void): void {
   action()
@@ -238,14 +266,7 @@ function menuItems(id: number): MenuItem[] {
 
 <template>
   <div class="tabsbar">
-    <div
-      ref="tabsScroll"
-      class="tabs"
-      @wheel.prevent="onWheel"
-      @dragover="onTrailingDragOver"
-      @drop="onTrailingDrop"
-    >
-      <!-- 主页标签：固定首位，纯图标，不可关闭/拖拽 -->
+      <!-- 主页标签：固定在栏左端（不随标签滚动），纯图标，不可关闭/拖拽 -->
       <button
         class="tab home"
         :class="{ active: docs.activeId === 0 }"
@@ -259,7 +280,14 @@ function menuItems(id: number): MenuItem[] {
         </svg>
       </button>
 
-      <button
+      <div
+        ref="tabsScroll"
+        class="tabs"
+        @wheel.prevent="onWheel"
+        @dragover="onTrailingDragOver"
+        @drop="onTrailingDrop"
+      >
+        <button
         v-for="(tab, index) in docs.tabs.filter((t) => !t.isHome)"
         :key="tab.id"
         class="tab"
@@ -293,14 +321,16 @@ function menuItems(id: number): MenuItem[] {
           <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1.2" />
         </svg>
       </button>
-      <!-- 新建按钮跟在最后一个标签之后（随标签滚动） -->
-      <button class="new-tab" :title="$t('tabs.new')" @click="docs.newDoc()">＋</button>
+      <!-- 新建按钮：标签放得下时跟在最后（随标签滚动），放不下时吸附到栏右端 -->
+      <button v-if="!tabsOverflow" class="new-tab" :title="$t('tabs.new')" @click="docs.newDoc()">＋</button>
     </div>
+    <button v-if="tabsOverflow" class="new-tab pinned" :title="$t('tabs.new')" @click="docs.newDoc()">＋</button>
 
     <!-- 右键菜单 -->
     <Teleport to="body">
       <div
         v-if="menu.open"
+        ref="menuEl"
         class="tab-menu"
         :style="{ left: `${menu.x}px`, top: `${menu.y}px` }"
         @contextmenu.prevent
@@ -338,21 +368,13 @@ function menuItems(id: number): MenuItem[] {
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  /* 隐藏横向滚动条：3px 的滚动条会把行内容撑高/顶起，造成标签与吸附的＋按钮
+     基线错位。滚轮换向（onWheel）与激活标签滚入视野已覆盖可达性 */
+  scrollbar-width: none;
 }
 
 .tabs::-webkit-scrollbar {
-  height: 3px;
-}
-
-.tabs::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
-}
-
-.tabs::-webkit-scrollbar-track {
-  background: transparent;
+  display: none;
 }
 
 .tab {
@@ -438,6 +460,12 @@ function menuItems(id: number): MenuItem[] {
 .new-tab:hover {
   color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* 吸附态：脱离滚动区，固定在标签栏右端（与 tabsbar 的 flex 布局对齐底部） */
+.new-tab.pinned {
+  align-self: flex-end;
+  margin-bottom: 2px;
 }
 </style>
 

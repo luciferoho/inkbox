@@ -19,7 +19,8 @@ const ui = useUiStore()
   bottom: 42px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 105;
+  /* 必须高于各弹窗遮罩（导出/确认均为 110），否则提示被压在弹窗后面看不见 */
+  z-index: 130;
   max-width: min(560px, 80vw);
   padding: 9px 18px;
   border-radius: 999px;

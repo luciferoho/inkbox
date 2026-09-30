@@ -5,6 +5,7 @@ import { m } from '../i18n'
 function mdOpenFilters(): { name: string; extensions: string[] }[] {
   return [
     { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'txt'] },
+    { name: 'HTML', extensions: ['html', 'htm'] },
     { name: m('dlgAllFiles'), extensions: ['*'] }
   ]
 }

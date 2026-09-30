@@ -58,7 +58,8 @@ function installBrowserMock(): void {
       pdf: async () => null,
       previewPdf: async () => {
         throw new Error('mock: PDF 预览仅在应用内可用')
-      }
+      },
+      png: async () => null
     },
     drafts: {
       // localStorage 背书：草稿恢复的端到端验证可跨页面重载

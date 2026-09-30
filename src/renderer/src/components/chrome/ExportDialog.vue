@@ -18,7 +18,11 @@ const PREVIEW_MAX_PAGES = 5
 const ui = useUiStore()
 const docs = useDocumentsStore()
 
-const fmt = ref<'html' | 'pdf'>('html')
+const fmt = ref<'html' | 'pdf' | 'png'>('html')
+/** 按标签记忆导出格式：开关弹窗保留所选，关标签即清除（下方 watch 剪枝） */
+const fmtByTab = new Map<number, 'html' | 'pdf' | 'png'>()
+/** 新标签的默认格式 = 列表第一个 */
+const FMT_DEFAULT: 'html' | 'pdf' | 'png' = 'png'
 const margin = ref<'normal' | 'narrow' | 'none'>('normal')
 const landscape = ref(false)
 const pageNumbers = ref(false)
@@ -30,6 +34,15 @@ const generating = ref(false)
 const pdfHost = ref<HTMLElement | null>(null)
 /** PDF 预览页数提示（超过上限时显示） */
 const pdfPageHint = ref('')
+/** 导出失败的真实原因（弹窗内醒目展示，不再只靠一闪而过的 Toast） */
+const exportError = ref('')
+
+/** 各格式的说明文案键 */
+const HINT_KEYS: Record<'html' | 'pdf' | 'png', string> = {
+  html: 'export.hintHtml',
+  pdf: 'export.hintPdf',
+  png: 'export.hintPng'
+}
 
 const MARGINS: { key: 'normal' | 'narrow' | 'none'; labelKey: string }[] = [
   { key: 'normal', labelKey: 'export.mNormal' },
@@ -83,8 +96,29 @@ watch(
     previewHtml.value = ''
     clearPdfHost()
     previewFailed.value = false
+    exportError.value = ''
+    // 格式跟随当前标签的记忆；没导出过的标签用默认（列表第一个）
+    fmt.value = (tab && fmtByTab.get(tab.id)) || FMT_DEFAULT
     window.clearTimeout(genTimer)
     genTimer = window.setTimeout(() => void regenerate(), 150)
+  }
+)
+
+/* 用户切换格式：记到当前标签名下（关标签时由下面的剪枝清除） */
+watch(fmt, (f) => {
+  exportError.value = ''
+  const tab = docs.active
+  if (tab && !tab.isHome) fmtByTab.set(tab.id, f)
+})
+
+/* 标签关闭 → 清掉它的格式记忆 */
+watch(
+  () => docs.tabs.map((t) => t.id),
+  (ids) => {
+    const alive = new Set(ids)
+    for (const key of [...fmtByTab.keys()]) {
+      if (!alive.has(key)) fmtByTab.delete(key)
+    }
   }
 )
 
@@ -148,11 +182,7 @@ async function regenerate(): Promise<void> {
   try {
     const html = await buildExportHtml(tab.name, body, { forPrint: fmt.value === 'pdf' })
     if (seq !== genSeq) return
-    if (fmt.value === 'html') {
-      clearPdfHost()
-      previewHtml.value = html
-      previewFailed.value = false
-    } else {
+    if (fmt.value === 'pdf') {
       const b64 = await window.api.export.previewPdf(html, {
         margin: margin.value,
         landscape: landscape.value,
@@ -162,11 +192,18 @@ async function regenerate(): Promise<void> {
       previewHtml.value = ''
       previewFailed.value = false
       await renderPdfPreview(b64, seq)
+    } else {
+      // HTML / PNG 预览直接展示 HTML 版式（PNG 截取的正是这份排版）
+      clearPdfHost()
+      previewHtml.value = html
+      previewFailed.value = false
     }
   } catch (err) {
     if (seq === genSeq) {
       clearPdfHost()
       previewFailed.value = true
+      // 预览失败的真实原因也展示出来（否则只剩一句"没有可预览的内容"无从排查）
+      exportError.value = err instanceof Error ? err.message : String(err)
     }
     console.error('[export] preview failed:', err)
   } finally {
@@ -196,7 +233,7 @@ async function doExport(): Promise<void> {
       if (!path) return
       await window.api.fs.writeFile(path, html)
       ui.showToast(t('export.savedHtml', { name: path.split(/[\\/]/).pop() }))
-    } else {
+    } else if (fmt.value === 'pdf') {
       const saved = await window.api.export.pdf(
         html,
         { margin: margin.value, landscape: landscape.value, pageNumbers: pageNumbers.value },
@@ -204,11 +241,20 @@ async function doExport(): Promise<void> {
       )
       if (!saved) return
       ui.showToast(t('export.savedPdf', { name: saved.split(/[\\/]/).pop() }))
+    } else {
+      const saved = await window.api.export.png(html, `${name}.png`)
+      if (!saved) return
+      ui.showToast(
+        saved.truncated
+          ? t('export.pngTruncated')
+          : t('export.savedPng', { name: saved.path.split(/[\\/]/).pop() })
+      )
     }
     ui.exportOpen = false
   } catch (err) {
     console.error('[export] failed:', err)
-    ui.showToast(t('export.failedRetry'))
+    // 弹窗内醒目展示真实原因（此前仅 Toast，还被遮罩盖住）；不再自动关闭弹窗
+    exportError.value = err instanceof Error ? err.message : String(err)
   } finally {
     busy.value = false
   }
@@ -233,8 +279,9 @@ async function doExport(): Promise<void> {
             <div class="field">
               <span class="label">{{ $t('export.format') }}</span>
               <div class="seg">
-                <button :class="{ on: fmt === 'html' }" @click="fmt = 'html'">HTML</button>
+                <button :class="{ on: fmt === 'png' }" @click="fmt = 'png'">PNG</button>
                 <button :class="{ on: fmt === 'pdf' }" @click="fmt = 'pdf'">PDF</button>
+                <button :class="{ on: fmt === 'html' }" @click="fmt = 'html'">HTML</button>
               </div>
             </div>
 
@@ -268,10 +315,10 @@ async function doExport(): Promise<void> {
               </div>
             </template>
 
-            <p class="hint">
-              {{
-                fmt === 'html' ? $t('export.hintHtml') : $t('export.hintPdf')
-              }}
+            <p class="hint">{{ $t(HINT_KEYS[fmt]) }}</p>
+
+            <p v-if="exportError" class="error-banner" role="alert">
+              {{ $t('export.errorPrefix') }}：{{ exportError }}
             </p>
 
             <div class="actions">
@@ -289,7 +336,7 @@ async function doExport(): Promise<void> {
               <span>{{ fmt === 'pdf' ? $t('export.previewFailed') : $t('export.nothingToPreview') }}</span>
             </div>
             <iframe
-              v-if="fmt === 'html' && previewHtml"
+              v-if="fmt !== 'pdf' && previewHtml"
               class="preview-frame"
               :srcdoc="previewHtml"
               sandbox=""
@@ -416,6 +463,19 @@ async function doExport(): Promise<void> {
   border-radius: var(--radius-s);
   padding: 8px 10px;
   margin-top: auto;
+}
+
+/* 导出失败：醒目错误条（Toast 会被遮罩盖住且一闪而过，这里常驻到下次尝试） */
+.error-banner {
+  margin-top: 12px;
+  padding: 9px 11px;
+  border-radius: var(--radius-s);
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+  font-size: 11.5px;
+  line-height: 1.6;
+  word-break: break-all;
 }
 
 .actions {

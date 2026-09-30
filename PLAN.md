@@ -79,7 +79,7 @@
 | 5.1 | 导出 HTML | P1 | 单文件（内联样式/图片可选） |
 | 5.2 | 导出 PDF | P1 | 渲染进程打印管线，支持页边距/页眉页脚设置 |
 | 5.3 | 导出图片 | P2 | 长图 PNG |
-| 5.4 | 导出 Word (docx) | P2 | Pandoc 或 html-to-docx |
+| 5.4 | ~~导出 Word (docx)~~ | P2 | 已实现后移除（html-to-docx 保真度不足）；需要时导出 HTML 用 Word 打开 |
 | 5.5 | 导出 LaTeX | P3 | |
 | 5.6 | 导入 | P2 | .md/.txt/.markdown，HTML 转 md |
 
@@ -266,3 +266,4 @@ Word/LaTeX/图片导出、表格可视化编辑、全局搜索、托盘、PicGo 
 6. ~~M3b 即时渲染引擎~~ → **已完成（2026-09-28）**：Milkdown(ProseMirror) 即显模式（四模式并存、双向同步、墨匣纸面主题）；标签栏拖拽排序 + 右键菜单（关闭/左侧/右侧/其他/全部）；最近文件带打开时间与路径展示（旧配置自动迁移）。**M3 全部完成**
 7. ~~M4 导入导出 + 打磨~~ → **已完成（2026-09-30）**：导出 HTML（单文件内联样式/KaTeX 字体/本地图片 base64）；导出 PDF（printToPDF 打印管线 + 页边距三档/横竖向/页脚页码，pdf.js 真实产物预览）；富文本粘贴转 Markdown（turndown+GFM，仅接管带标签结构的 HTML 载荷）；外部修改检测（目录 watcher + 防抖广播 + 内容比对，静默重载或询问覆盖）；草稿恢复（编辑防抖/周期兜底/失焦三重落盘、tmp+rename 原子写、崩溃标志静默恢复）；标签拖出新窗口 + 跨窗口拖拽与文件去重；窗口会话快照（标签/文件夹/崩溃全量恢复）；快捷键面板
 8. ~~M5 发布~~ → **核心已完成（2026-09-30，版本升至 1.0.0）**：electron-builder NSIS + 便携版打包验证通过（win-unpacked 实测可运行）；自动更新链路就绪（electron-updater + GitHub Releases publish，推送 v* 标签即生效）；**i18n 中英双语**（vue-i18n + 渲染层扁平词典/主进程词典，设置页可选 跟随系统/简体中文/English，菜单/托盘/系统对话框/CodeMirror 搜索面板全量跟随切换）。发布前跟进项：启动/大文件性能 profiling、安装包代码签名、macOS/Linux 构建
+9. **1.x 第一批（P2，2026-09-30）**：扩展语法渲染（==高亮== ^上标~下标 脚注，自写 [TOC] 规则生成可点击嵌套目录 + 标题锚点，样式入 preview.css 随导出携带）；导出 PNG 长图（offscreen paint 帧整页截取——capturePage 在 Windows offscreen 下抛 UnknownVizError）；导入 HTML 转 Markdown（打开 .html 自动 turndown，生成未另存草稿）。Word 导出（html-to-docx）经实测保真度不足（SVG 图表/公式/代码块需整体栅格化，编辑价值有限），按产品决策移除，导出矩阵定为 PNG/PDF/HTML 三格式。多窗口配置同步与窗口私有偏好（纸宽/侧栏宽）随本轮一起落地

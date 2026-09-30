@@ -82,4 +82,79 @@ export function registerExportIpc(): void {
       return data.toString('base64')
     }
   )
+
+  /** PNG 长图：离屏窗口按纸面排版渲染，整页高度一次性截取 */
+  ipcMain.handle(
+    'export:png',
+    async (
+      e: IpcMainInvokeEvent,
+      html: string,
+      defaultName?: string
+    ): Promise<{ path: string; truncated: boolean } | null> => {
+      const win = BrowserWindow.fromWebContents(e.sender)
+      const saveOpts = {
+        title: m('dlgExportPng'),
+        defaultPath: defaultName || m('dlgUntitledPng'),
+        filters: [{ name: 'PNG', extensions: ['png'] }]
+      }
+      const r = win
+        ? await dialog.showSaveDialog(win, saveOpts)
+        : await dialog.showSaveDialog(saveOpts)
+      if (r.canceled || !r.filePath) return null
+      const { data, truncated } = await renderPng(html)
+      await writeFile(r.filePath, data)
+      return { path: r.filePath, truncated }
+    }
+  )
+}
+
+/* ---------- PNG 离屏渲染 ---------- */
+
+/* 40px body 内边距 + 820px 纸面 = 900 */
+const PNG_WIDTH = 900
+const PNG_MAX_HEIGHT = 16000
+
+/* capturePage 在 offscreen 模式下抛 UnknownVizError（Windows），
+   改从 paint 事件取整帧：每次 paint 的 image 就是当前完整画面 */
+async function renderPng(html: string): Promise<{ data: Buffer; truncated: boolean }> {
+  const tmp = join(app.getPath('userData'), 'export-tmp.html')
+  await writeFile(tmp, html, 'utf-8')
+  const win = new BrowserWindow({
+    show: false,
+    frame: false,
+    width: PNG_WIDTH,
+    height: 1200,
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      offscreen: true
+    }
+  })
+  /* 回调里的赋值不参与 TS 控制流分析，用对象属性绕开 never 收窄 */
+  const frame: { image: Electron.NativeImage | null } = { image: null }
+  const onPaint = (_e: Electron.Event, _dirty: Electron.Rectangle, image: Electron.NativeImage): void => {
+    frame.image = image
+  }
+  try {
+    win.webContents.on('paint', onPaint)
+    await win.loadFile(tmp)
+    await delay(300)
+    const full = await win.webContents.executeJavaScript(
+      'Math.ceil(document.documentElement.scrollHeight)'
+    )
+    const height = Math.min(Math.max(400, full), PNG_MAX_HEIGHT)
+    win.setContentSize(PNG_WIDTH, height)
+    await delay(500) // 等重排重绘出一帧新图
+    if (!frame.image) throw new Error('PNG render produced no frame')
+    return { data: frame.image.toPNG(), truncated: full > PNG_MAX_HEIGHT }
+  } finally {
+    win.webContents.off('paint', onPaint)
+    win.destroy()
+    await rm(tmp, { force: true }).catch(() => undefined)
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }

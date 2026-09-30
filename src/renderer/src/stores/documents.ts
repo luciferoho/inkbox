@@ -3,6 +3,7 @@ import { useUiStore } from './ui'
 import { useWorkspaceStore } from './workspace'
 import type { DetachDoc, DraftPayload } from '@shared/types'
 import { t } from '@/i18n'
+import { htmlToMarkdown } from '@/services/richPaste'
 import sampleDoc from '@samples/示例.md?raw'
 
 /** 主页（欢迎页）标签的固定 id */
@@ -137,8 +138,16 @@ export const useDocumentsStore = defineStore('documents', {
       if (path) await this.openPath(path)
     },
 
-    async openPath(path: string): Promise<void> {
-      const existing = this.tabs.find((t) => t.path === path)
+  /**
+   * 打开路径：.md/.txt 直接开标签；.html/.htm 读入后 turndown 转
+   * Markdown，生成未落盘的新草稿（另存才落盘）
+   */
+  async openPath(path: string): Promise<void> {
+    if (/\.(html?|xhtml)$/i.test(path)) {
+      await this.importHtml(path)
+      return
+    }
+    const existing = this.tabs.find((t) => t.path === path)
       if (existing) {
         this.activeId = existing.id
         return
@@ -165,6 +174,33 @@ export const useDocumentsStore = defineStore('documents', {
         window.api.doc.release(path) // 打开失败：释放独占登记
         useUiStore().showToast(t('docs.openFailed', { path }))
         console.error('[documents] open failed:', err)
+      }
+    },
+
+    /** 导入 HTML 文件 → Markdown 草稿（turndown + GFM，与富文本粘贴同一转换器） */
+    async importHtml(path: string): Promise<void> {
+      const ui = useUiStore()
+      try {
+        const html = await window.api.fs.readFile(path)
+        const md = htmlToMarkdown(html)
+        if (md === null) {
+          ui.showToast(t('docs.htmlImportEmpty'))
+          return
+        }
+        const base = basename(path).replace(/\.[^.]+$/, '')
+        const tab: DocTab = {
+          id: nextId++,
+          path: null,
+          name: `${base}.md`,
+          content: md,
+          dirty: true
+        }
+        this.tabs.push(tab)
+        this.activeId = tab.id
+        ui.showToast(t('docs.htmlImported', { name: `${base}.md` }))
+      } catch (err) {
+        ui.showToast(t('docs.openFailed', { path }))
+        console.error('[documents] html import failed:', err)
       }
     },
 

@@ -40,7 +40,12 @@ const api = {
     pdf: (html: string, opts: PdfExportOptions, defaultName?: string): Promise<string | null> =>
       ipcRenderer.invoke('export:pdf', html, opts, defaultName),
     previewPdf: (html: string, opts: PdfExportOptions): Promise<string> =>
-      ipcRenderer.invoke('export:previewPdf', html, opts)
+      ipcRenderer.invoke('export:previewPdf', html, opts),
+    png: (
+      html: string,
+      defaultName?: string
+    ): Promise<{ path: string; truncated: boolean } | null> =>
+      ipcRenderer.invoke('export:png', html, defaultName)
   },
   drafts: {
     save: (key: string, payload: DraftPayload): Promise<void> =>

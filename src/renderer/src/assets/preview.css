@@ -253,3 +253,78 @@
 .hljs-strong {
   font-weight: 700;
 }
+
+/* ---------- 扩展语法 ---------- */
+
+/* ==高亮==（markdown-it-mark → <mark>） */
+.md-preview mark {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: inherit;
+  padding: 0.1em 0.25em;
+  border-radius: 4px;
+}
+
+/* [TOC] 目录块 */
+.md-preview .md-toc {
+  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: 14px 20px 14px 8px;
+  margin: 1.2em 0;
+}
+.md-preview .md-toc-title {
+  font-family: var(--font-ui);
+  font-size: 0.78em;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: var(--text-2);
+  margin: 0 0 6px 12px;
+}
+.md-preview .md-toc ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 16px;
+}
+.md-preview .md-toc > ul {
+  padding-left: 12px;
+}
+.md-preview .md-toc li {
+  margin: 2px 0;
+  line-height: 1.6;
+}
+.md-preview .md-toc a {
+  color: var(--text);
+  text-decoration: none;
+  border-radius: 4px;
+}
+.md-preview .md-toc a:hover {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+/* 脚注（markdown-it-footnote） */
+.md-preview .footnote-sep {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2em 0 1em;
+}
+.md-preview .footnotes {
+  font-size: 0.86em;
+  color: var(--text-2);
+}
+.md-preview .footnotes ol {
+  padding-left: 1.4em;
+  margin: 0.4em 0;
+}
+.md-preview .footnotes li {
+  margin: 0.3em 0;
+}
+.md-preview .footnote-ref a,
+.md-preview .footnote-backref {
+  text-decoration: none;
+  color: var(--accent-strong);
+}
+.md-preview .footnote-ref a:hover,
+.md-preview .footnote-backref:hover {
+  text-decoration: underline;
+}

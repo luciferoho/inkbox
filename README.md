@@ -78,9 +78,17 @@ npm run dist:dir   # 仅打未打包目录版（release/pkg/win-unpacked，快�
 - **打包**：`npm run dist` 产出 NSIS 安装版 + 便携版；`dist:dir` 未打包目录版已实测可运行
 - **自动更新**：electron-updater + GitHub Releases（`electron-builder.yml` 的 publish 已指向实际仓库），推送 `v*` 标签的 Release（含 `.blockmap`）后应用内静默更新生效
 
+## 1.x 第一批已落地（扩展语法 + 导出矩阵）
+
+- **扩展语法**：`==高亮==`、`^上标^`、`~下标~`、脚注 `[^1]`、`[TOC]` 目录（可点击、按层级嵌套、带标题锚点）；样式随 preview.css 打进 HTML 导出。即显模式下这些语法以纯文本呈现（同公式/Mermaid 边界，源码/双栏模式完整渲染）
+- **导出 PNG 长图**：导出对话框 PNG 格式（格式顺序 PNG/PDF/HTML），纸面排版纵向拼接为单张长图（超 16000px 截断提示）；导出格式按标签记忆（新标签默认 PNG，关标签清除）
+- **导入 HTML**：打开 .html/.htm 文件自动转 Markdown（turndown + GFM），生成未另存草稿
+
+> Word (.docx) 导出曾短暂提供，因 html-to-docx 转换保真度不足（SVG 图表/公式/代码块需整体栅格化，失去编辑价值）已移除；需要 Word 格式时可先导出 HTML 再用 Word 打开。
+
 ## 下一步（发布前跟进）
 
-启动/大文件性能 profiling、安装包代码签名（未签名有 SmartScreen 提示）、macOS/Linux 构建、正式发布流程（打 `v1.0.0` 标签 + GitHub Release）。
+启动/大文件性能 profiling、安装包代码签名（未签名有 SmartScreen 提示）、macOS/Linux 构建、正式发布流程（打 `v1.0.0` 标签 + GitHub Release）。1.x 迭代池剩余：表格可视化编辑、块悬浮工具栏、全局搜索、PicGo 上传、快捷键自定义、插件系统。
 
 ## 技术栈
 

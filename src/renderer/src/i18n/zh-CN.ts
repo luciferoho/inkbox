@@ -37,6 +37,8 @@ export const zh = {
   'docs.extMsg': '「{name}」在磁盘上已被其他程序修改。\n重新加载将覆盖当前未保存的修改。',
   'docs.reload': '重新加载',
   'docs.draftsRestoredN': '已恢复 {n} 份未保存的内容',
+  'docs.htmlImported': '已从 HTML 导入：{name}（另存后落盘）',
+  'docs.htmlImportEmpty': 'HTML 中没有可转换的内容',
 
   // UI store
   'ui.ready': '就绪',
@@ -157,7 +159,7 @@ export const zh = {
   'sc.openFolder': '打开文件夹',
   'sc.save': '保存',
   'sc.saveAs': '另存为',
-  'sc.export': '导出 HTML / PDF',
+  'sc.export': '导出 PNG / PDF / HTML',
   'sc.closeTab': '关闭标签页',
   'sc.cycleTab': '下一 / 上一标签',
   'sc.toggleSidebar': '折叠/展开侧栏',
@@ -204,6 +206,7 @@ export const zh = {
   'export.pageNumbers': '页脚页码',
   'export.hintHtml': '单文件 HTML：样式、公式字体与本地图片全部内联，可直接分享或打开。',
   'export.hintPdf': '以预览排版经打印管线生成 A4 PDF，保留墨块代码与图表背景；开启页码时底部自动留白。',
+  'export.hintPng': '长图 PNG：以纸面排版纵向拼接成单张图片，适合快速分享；超过 16000px 的部分会截断。',
   'export.do': '导出',
   'export.doing': '导出中…',
   'export.generating': '正在生成预览…',
@@ -213,8 +216,11 @@ export const zh = {
   'export.pagesHint': '仅预览前 {n} 页，共 {total} 页',
   'export.savedHtml': '已导出 HTML：{name}',
   'export.savedPdf': '已导出 PDF：{name}',
+  'export.savedPng': '已导出 PNG：{name}',
+  'export.pngTruncated': '长图超过 16000px，超出部分已截断',
   'export.emptyDoc': '空文档无需导出',
   'export.failedRetry': '导出失败，请重试',
+  'export.errorPrefix': '导出失败',
 
   // 偏好设置
   'settings.title': '偏好设置',

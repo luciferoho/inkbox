@@ -2,6 +2,11 @@ import MarkdownItDefault from 'markdown-it'
 import type { MarkdownIt, RendererRule, StateCore } from 'markdown-it'
 import hljs from 'highlight.js/lib/common'
 import 'katex/dist/katex.min.css'
+// 扩展语法（1.12）：==高亮== / 上下标 / 脚注；[TOC] 由下方自写规则实现
+import mark from 'markdown-it-mark'
+import sub from 'markdown-it-sub'
+import sup from 'markdown-it-sup'
+import footnote from 'markdown-it-footnote'
 
 /**
  * 统一的 markdown 渲染管线：
@@ -11,6 +16,7 @@ import 'katex/dist/katex.min.css'
  * - 链接强制新窗口打开
  * - 数学公式 $...$ / $$...$$（katex 懒加载，见 ensureMath）
  * - mermaid 围栏 → 占位 div，由 Preview 异步渲染
+ * - 扩展语法：==高亮== ^上标~下标 脚注 [TOC]
  */
 export const md: MarkdownIt = MarkdownItDefault({
   html: false,
@@ -26,7 +32,7 @@ export const md: MarkdownIt = MarkdownItDefault({
     }
     return ''
   }
-})
+}).use(mark).use(sub).use(sup).use(footnote)
 
 /* 顶层块附源码行号（token.map 为 0 基，[start, end)）：供双栏同步滚动插值 */
 md.core.ruler.push('luci_source_line', (state: StateCore) => {
@@ -37,6 +43,57 @@ md.core.ruler.push('luci_source_line', (state: StateCore) => {
     }
   }
 })
+
+/* 标题锚点 id + [TOC] 目录（1-3 级）。
+   独占一段的 [TOC]（大小写不限）替换为生成的目录块；标题文本是我们自己
+   转义后输出的，不受 html:false 转义策略影响（自定义 token 走专用渲染规则） */
+md.core.ruler.push('luci_toc', (state: StateCore) => {
+  const toks = state.tokens
+  const headings: { level: number; text: string; id: string }[] = []
+  let n = 0
+  for (let i = 0; i < toks.length; i++) {
+    if (toks[i].type === 'heading_open') {
+      const level = Number(toks[i].tag.slice(1)) || 1
+      const id = `luci-h-${++n}`
+      toks[i].attrSet('id', id)
+      if (level <= 3) headings.push({ level, text: toks[i + 1]?.content ?? '', id })
+    }
+  }
+  for (let i = 1; i < toks.length - 1; i++) {
+    if (toks[i].type !== 'inline' || !/^\s*\[TOC\]\s*$/i.test(toks[i].content)) continue
+    if (toks[i - 1].type !== 'paragraph_open' || toks[i + 1].type !== 'paragraph_close') continue
+    const line = toks[i - 1].attrGet('data-source-line')
+    const lineEnd = toks[i - 1].attrGet('data-source-line-end')
+    const tok = new state.Token('luci_toc_block', '', 0)
+    tok.content = buildTocHtml(headings)
+    if (line !== null) tok.attrSet('data-source-line', line)
+    if (lineEnd !== null) tok.attrSet('data-source-line-end', lineEnd)
+    toks.splice(i - 1, 3, tok)
+  }
+})
+
+/** 目录块 HTML：按标题层级递归嵌套 <ul>（内部生成，文本已转义） */
+function buildTocHtml(headings: { level: number; text: string; id: string }[]): string {
+  if (headings.length === 0) return ''
+  let i = 0
+  const buildLevel = (level: number): string => {
+    let html = '<ul>'
+    while (i < headings.length && headings[i].level >= level) {
+      if (headings[i].level === level) {
+        const h = headings[i++]
+        html += `<li><a href="#${h.id}">${escapeHtml(h.text)}</a>`
+        if (i < headings.length && headings[i].level > level) html += buildLevel(level + 1)
+        html += '</li>'
+      } else {
+        html += buildLevel(level + 1) // 跳级标题归入更深层
+      }
+    }
+    return html + '</ul>'
+  }
+  return `<nav class="md-toc"><p class="md-toc-title">目录</p>${buildLevel(headings[0].level)}</nav>`
+}
+
+md.renderer.rules.luci_toc_block = (tokens, idx) => tokens[idx].content
 
 /* 任务列表：把行首 [ ] / [x] / [X] 变成禁用复选框（预览只读） */
 md.core.ruler.push('luci_task_lists', (state: StateCore) => {

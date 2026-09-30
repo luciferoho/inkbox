@@ -27,6 +27,7 @@ interface Window {
     export: {
       pdf(html: string, opts: import('@shared/types').PdfExportOptions, defaultName?: string): Promise<string | null>
       previewPdf(html: string, opts: import('@shared/types').PdfExportOptions): Promise<string>
+      png(html: string, defaultName?: string): Promise<{ path: string; truncated: boolean } | null>
     }
     drafts: {
       save(key: string, payload: import('@shared/types').DraftPayload): Promise<void>

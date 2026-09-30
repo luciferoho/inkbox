@@ -35,6 +35,8 @@ export const en: MsgSchema = {
     '“{name}” was modified by another program.\nReloading will overwrite your unsaved changes.',
   'docs.reload': 'Reload',
   'docs.draftsRestoredN': 'Restored {n} unsaved document(s)',
+  'docs.htmlImported': 'Imported from HTML: {name} (save-as to write to disk)',
+  'docs.htmlImportEmpty': 'No convertible content in the HTML file',
 
   // UI store
   'ui.ready': 'Ready',
@@ -155,7 +157,7 @@ export const en: MsgSchema = {
   'sc.openFolder': 'Open folder',
   'sc.save': 'Save',
   'sc.saveAs': 'Save as',
-  'sc.export': 'Export HTML / PDF',
+  'sc.export': 'Export PNG / PDF / HTML',
   'sc.closeTab': 'Close tab',
   'sc.cycleTab': 'Next / previous tab',
   'sc.toggleSidebar': 'Toggle sidebar',
@@ -204,6 +206,8 @@ export const en: MsgSchema = {
     'Single-file HTML: styles, formula fonts and local images are all inlined — ready to share.',
   'export.hintPdf':
     'A4 PDF via the print pipeline, keeping code blocks and diagrams; page numbers reserve bottom space.',
+  'export.hintPng':
+    'Long-image PNG: the paper layout is stitched into one tall picture for quick sharing; parts beyond 16000px are cut off.',
   'export.do': 'Export',
   'export.doing': 'Exporting…',
   'export.generating': 'Generating preview…',
@@ -213,8 +217,11 @@ export const en: MsgSchema = {
   'export.pagesHint': 'Previewing first {n} of {total} pages',
   'export.savedHtml': 'HTML exported: {name}',
   'export.savedPdf': 'PDF exported: {name}',
+  'export.savedPng': 'PNG exported: {name}',
+  'export.pngTruncated': 'Image exceeded 16000px — the extra part was cut off',
   'export.emptyDoc': 'Nothing to export in an empty document',
   'export.failedRetry': 'Export failed — please try again',
+  'export.errorPrefix': 'Export failed',
 
   // Settings
   'settings.title': 'Preferences',

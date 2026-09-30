@@ -41,11 +41,14 @@ watch(
   () => void render(props.content)
 )
 
-/** 主题切换 → 清缓存重渲染图表（mermaid 主题不同） */
+/** 主题切换 → 清缓存重渲染图表（mermaid 主题不同）。必须重新 initialize：
+ *  实例只在首次加载时初始化一次，不重置的话后续 run 仍用旧主题配色，
+ *  表现为切主题后图表底色/文字错乱 */
 watch(
   () => ui.effectiveTheme,
   () => {
     mermaidCache.clear()
+    if (mermaidMod) initMermaidTheme(mermaidMod)
     void render(props.content)
   }
 )
@@ -56,6 +59,9 @@ async function render(content: string): Promise<void> {
   if (seq !== renderSeq) return
   html.value = content.trim() ? renderWithDir(content, props.docDir) : ''
   await nextTick()
+  // 关闸：等待期间若又开始了新渲染，本轮作废——否则陈旧回合会在
+  // 新一轮已渲染完的 DOM 上重跑 mermaid（把 SVG 内的 <style> 文本当源码）
+  if (seq !== renderSeq) return
   collectBlocks()
   await renderMermaid()
 }
@@ -67,15 +73,20 @@ let mermaidMod: MermaidInstance | null = null
 let mermaidLoading: Promise<MermaidInstance> | null = null
 const mermaidCache = new Map<string, string>()
 
+/** 按当前生效主题配置 mermaid（加载时与主题切换后各调一次） */
+function initMermaidTheme(inst: MermaidInstance): void {
+  inst.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',
+    theme: ui.effectiveTheme === 'dark' ? 'dark' : 'default',
+    fontFamily: 'var(--font-ui)'
+  })
+}
+
 function loadMermaid(): Promise<MermaidInstance> {
   mermaidLoading ??= import('mermaid').then((m): MermaidInstance => {
     const inst = m.default
-    inst.initialize({
-      startOnLoad: false,
-      securityLevel: 'strict',
-      theme: ui.effectiveTheme === 'dark' ? 'dark' : 'default',
-      fontFamily: 'var(--font-ui)'
-    })
+    initMermaidTheme(inst)
     mermaidMod = inst
     return inst
   })
@@ -94,16 +105,21 @@ async function renderMermaid(): Promise<void> {
   }
   for (const node of [...nodes]) {
     if (!node.isConnected) return
+    // 已渲染过的节点直接跳过：陈旧渲染回合摸到的都是上一轮成品，
+    // 重跑会把 SVG 里的 <style> 文本当源码解析（切主题后图表变 CSS 文字的根因）
+    if (node.getAttribute('data-processed') === 'true') continue
     const code = node.textContent ?? ''
     const key = `${ui.effectiveTheme}|${code}`
     const hit = mermaidCache.get(key)
     if (hit !== undefined) {
       node.innerHTML = hit
+      node.setAttribute('data-processed', 'true')
       continue
     }
     try {
       node.removeAttribute('data-processed')
       await m.run({ nodes: [node] })
+      node.setAttribute('data-processed', 'true')
       mermaidCache.set(key, node.innerHTML)
     } catch (err) {
       console.error('[preview] mermaid render failed:', err)
