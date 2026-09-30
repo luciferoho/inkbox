@@ -150,6 +150,19 @@ export const en: MsgSchema = {
   'side.filterPh': 'Filter by name…',
   'side.filterNoHit': 'No matching files.',
 
+  // Table toolbar
+  'table.addRowAbove': 'Insert row above',
+  'table.addRowBelow': 'Insert row below',
+  'table.deleteRow': 'Delete current row',
+  'table.addColLeft': 'Insert column left',
+  'table.addColRight': 'Insert column right',
+  'table.deleteCol': 'Delete current column',
+  'table.alignLeft': 'Align this column left',
+  'table.alignCenter': 'Center this column',
+  'table.alignRight': 'Align this column right',
+  'table.alignNone': 'Default alignment',
+  'table.deleteTable': 'Delete the whole table',
+
   // Editor (source mode)
   'editor.saveFirstForImage': 'Save the document before pasting images',
   'editor.imageSaveFailed': 'Failed to save image: {name}',

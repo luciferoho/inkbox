@@ -152,6 +152,19 @@ export const zh = {
   'side.filterPh': '按文件名筛选…',
   'side.filterNoHit': '没有匹配的文件。',
 
+  // 表格工具栏
+  'table.addRowAbove': '在上方插入行',
+  'table.addRowBelow': '在下方插入行',
+  'table.deleteRow': '删除当前行',
+  'table.addColLeft': '在左侧插入列',
+  'table.addColRight': '在右侧插入列',
+  'table.deleteCol': '删除当前列',
+  'table.alignLeft': '此列左对齐',
+  'table.alignCenter': '此列居中',
+  'table.alignRight': '此列右对齐',
+  'table.alignNone': '恢复默认对齐',
+  'table.deleteTable': '删除整个表格',
+
   // 编辑器（源码模式）
   'editor.saveFirstForImage': '请先保存文档，再粘贴图片',
   'editor.imageSaveFailed': '图片保存失败：{name}',

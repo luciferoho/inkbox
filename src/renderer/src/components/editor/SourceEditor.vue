@@ -15,6 +15,13 @@ import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
 import { htmlToMarkdown } from '@/services/richPaste'
 import { t } from '@/i18n'
+import {
+  detectTable,
+  applyTableOp,
+  cellStart,
+  type TableInfo,
+  type TableOp
+} from '@/editor/table-utils'
 
 const emit = defineEmits<{ (e: 'scroll-sync', line: number, frac: number): void }>()
 
@@ -33,6 +40,8 @@ const focusComp = new Compartment()
 const typewriterComp = new Compartment()
 /** CodeMirror 内置界面短语（搜索面板等）随语言热切换 */
 const phrasesComp = new Compartment()
+/** 光标所在表格（悬浮工具栏数据源） */
+const tableInfo = ref<TableInfo | null>(null)
 
 function makeState(content: string): EditorState {
   return EditorState.create({
@@ -47,6 +56,8 @@ function makeState(content: string): EditorState {
       focusComp.of(ui.focusMode ? luciFocusMode : []),
       typewriterComp.of(ui.typewriterMode ? luciTypewriterMode : []),
       EditorView.updateListener.of((u: ViewUpdate) => {
+        // 表格检测只读状态，放在 applying 守卫之外：整档替换后也要刷新
+        if (u.docChanged || u.selectionSet) updateTableInfo()
         if (applying) return
         if (u.docChanged && tabId !== null) {
           docs.updateContent(tabId, u.state.doc.toString())
@@ -148,6 +159,61 @@ function handlePaste(event: ClipboardEvent, view: EditorView): boolean {
   const { from, to } = view.state.selection.main
   view.dispatch({ changes: { from, to, insert: md }, scrollIntoView: true })
   return true
+}
+
+/* ---------- 表格悬浮工具栏 ---------- */
+
+function updateTableInfo(): void {
+  if (!view) {
+    tableInfo.value = null
+    return
+  }
+  const pos = view.state.selection.main.head
+  const line = view.state.doc.lineAt(pos)
+  tableInfo.value = detectTable(
+    view.state.doc.lines,
+    (n) => view!.state.doc.line(n).text,
+    line.number,
+    pos - line.from
+  )
+}
+
+function runTableOp(op: TableOp): void {
+  if (!view || !tableInfo.value) return
+  const info = tableInfo.value
+  const blockLines: string[] = []
+  for (let n = info.startLine; n <= info.endLine; n++) {
+    blockLines.push(view.state.doc.line(n).text)
+  }
+  const edit = applyTableOp(blockLines, info, op)
+  if (!edit) return
+  const blockFrom = view.state.doc.line(info.startLine).from
+  const anchor =
+    edit.lines.length === 0
+      ? blockFrom
+      : blockFrom +
+        edit.lines.slice(0, Math.min(edit.cursorLine, edit.lines.length - 1)).reduce(
+          (acc, text) => acc + text.length + 1,
+          0
+        ) +
+        cellStart(edit.lines[Math.min(edit.cursorLine, edit.lines.length - 1)], edit.cursorCol)
+  view.dispatch({
+    changes: {
+      from: blockFrom,
+      to: view.state.doc.line(info.endLine).to,
+      insert: edit.lines.join('\n')
+    },
+    selection: { anchor }
+  })
+  view.focus()
+}
+
+function canDeleteRow(): boolean {
+  return !!tableInfo.value && tableInfo.value.cursorLine - tableInfo.value.startLine > 1
+}
+
+function canDeleteCol(): boolean {
+  return !!tableInfo.value && tableInfo.value.colCount > 1
 }
 
 /* 编辑器滚动 → 通知预览：视口顶行的行号（setTimeout 节流，不依赖渲染帧） */
@@ -297,13 +363,134 @@ watch(
 </script>
 
 <template>
-  <div ref="host" class="cm-host" />
+  <div class="cm-host-wrap">
+    <transition name="tablebar">
+      <div v-if="tableInfo" class="table-bar" @mousedown.prevent>
+        <span class="tb-size">{{ tableInfo.bodyCount + 1 }} × {{ tableInfo.colCount }}</span>
+        <i class="tb-sep" />
+        <button :title="$t('table.addRowAbove')" @click="runTableOp({ kind: 'row-above' })">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 8.5h10M2 11.5h10M7 1.5v3M5.5 3h3" /></svg>
+        </button>
+        <button :title="$t('table.addRowBelow')" @click="runTableOp({ kind: 'row-below' })">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 2.5h10M2 5.5h10M7 9.5v3M5.5 11h3" /></svg>
+        </button>
+        <button :title="$t('table.deleteRow')" :disabled="!canDeleteRow()" class="danger" @click="runTableOp({ kind: 'row-delete' })">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 2.5h10M2 5.5h10M2 11h6M9.5 9.5l3.5 3.5M13 9.5l-3.5 3.5" /></svg>
+        </button>
+        <i class="tb-sep" />
+        <button :title="$t('table.addColLeft')" @click="runTableOp({ kind: 'col-left' })">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M6.5 2v10M10 2v10M1.5 7h3M3 5.5v3" /></svg>
+        </button>
+        <button :title="$t('table.addColRight')" @click="runTableOp({ kind: 'col-right' })">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M4 2v10M7.5 2v10M9.5 7h3M11 5.5v3" /></svg>
+        </button>
+        <button :title="$t('table.deleteCol')" :disabled="!canDeleteCol()" class="danger" @click="runTableOp({ kind: 'col-delete' })">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M4 2v10M7.5 2v10M9.5 5.5l4 4M13.5 5.5l-4 4" /></svg>
+        </button>
+        <i class="tb-sep" />
+        <button :title="$t('table.alignLeft')" @click="runTableOp({ kind: 'align', how: 'left' })">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 3.5h10M2 7h6M2 10.5h10" /></svg>
+        </button>
+        <button :title="$t('table.alignCenter')" @click="runTableOp({ kind: 'align', how: 'center' })">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 3.5h10M4 7h6M2 10.5h10" /></svg>
+        </button>
+        <button :title="$t('table.alignRight')" @click="runTableOp({ kind: 'align', how: 'right' })">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 3.5h10M6 7h6M2 10.5h10" /></svg>
+        </button>
+        <button :title="$t('table.alignNone')" @click="runTableOp({ kind: 'align', how: 'none' })">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 3.5h10M2 7h10M2 10.5h10" /></svg>
+        </button>
+        <i class="tb-sep" />
+        <button :title="$t('table.deleteTable')" class="danger" @click="runTableOp({ kind: 'table-delete' })">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h8M5.5 4V2.5h3V4M4 4l.5 7.5h5L10 4M6 6.5v3M8 6.5v3" /></svg>
+        </button>
+      </div>
+    </transition>
+    <div ref="host" class="cm-host" />
+  </div>
 </template>
 
 <style scoped>
-.cm-host {
+.cm-host-wrap {
+  position: relative;
   height: 100%;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+}
+
+.cm-host {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 表格悬浮工具栏：光标进入表格时浮现于编辑器右上角 */
+.table-bar {
+  position: absolute;
+  top: 6px;
+  right: 14px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 3px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-pop);
+}
+
+.tb-size {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-2);
+  padding: 0 5px;
+}
+
+.tb-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+.table-bar button {
+  width: 26px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+
+.table-bar button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.table-bar button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
+.table-bar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tablebar-enter-active,
+.tablebar-leave-active {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.tablebar-enter-from,
+.tablebar-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 </style>
