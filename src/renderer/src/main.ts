@@ -15,12 +15,11 @@ function installBrowserMock(): void {
   const cfg: AppConfig = {
     theme: 'light' as const,
     locale: 'system' as const,
-    editor: { fontSize: 16, lineHeight: 1.7, pageWidthPct: 80 },
+    editor: { fontSize: 16, lineHeight: 1.7 },
     autosave: { enabled: true, intervalMs: 15000 },
     restoreTabs: true,
     restoreFolders: true,
     closeAction: 'quit' as const,
-    sidebarWidth: 264,
     recent: [] as { path: string; ts: number }[]
   }
   try {
@@ -146,7 +145,21 @@ function installBrowserMock(): void {
         localStorage.setItem('mock-cfg', JSON.stringify(cfg))
         return cfg as AppConfig
       },
-      setLocale: async () => undefined
+      setLocale: async () => undefined,
+      // 窗口私有偏好：localStorage 按窗口键背书，浏览器里可跨重载验证
+      getWindowPrefs: async (key: string) => {
+        const { defaultWindowPrefs } = await import('@shared/types')
+        try {
+          return { ...defaultWindowPrefs, ...JSON.parse(localStorage.getItem(`mock-winprefs-${key}`) ?? '{}') }
+        } catch {
+          return defaultWindowPrefs
+        }
+      },
+      setWindowPrefs: async (key: string, patch: Partial<import('@shared/types').WindowPrefs>) => {
+        const cur = await window.api.app.getWindowPrefs(key)
+        localStorage.setItem(`mock-winprefs-${key}`, JSON.stringify({ ...cur, ...patch }))
+      },
+      onConfigChanged: () => () => undefined
     },
     win: {
       minimize: () => undefined,

@@ -106,10 +106,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 :min="ui.pageWidthMinPct"
                 max="100"
                 step="1"
-                :value="ui.editorPrefs.pageWidthPct"
-                @input="ui.setEditorPrefs({ pageWidthPct: Number(($event.target as HTMLInputElement).value) })"
+                :value="ui.winPrefs.pageWidthPct"
+                @input="ui.setPageWidth(Number(($event.target as HTMLInputElement).value))"
               />
-              <span class="value">{{ ui.editorPrefs.pageWidthPct }}%</span>
+              <span class="value">{{ ui.winPrefs.pageWidthPct }}%</span>
             </div>
             <p class="row-hint">{{ $t('settings.pwHint', { min: ui.pageWidthMinPct }) }}</p>
 

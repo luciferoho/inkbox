@@ -96,11 +96,14 @@ onMounted(() => {
     await ui.init()
     const init = await window.api.win.takeInitialDoc()
     docs.setWindowKey(init.windowKey)
+    // 窗口私有偏好（纸宽/侧栏宽）按窗口键加载；其余全局配置已在 ui.init 应用
+    ui.applyWindowPrefs(await window.api.app.getWindowPrefs(init.windowKey))
     if (init.doc) docs.restoreDetached(init.doc)
-    // 备份（未保存内容）仅在异常退出后直接应用；正常启动清空不留
+    // 备份（未保存内容）仅在异常退出后直接应用；正常启动清空不留。
+    // clearAll 只归首窗口：运行中拖出的新窗口不清别的窗口正在写的草稿
     const backupEntries = init.crashed ? await window.api.drafts.list() : []
     if (backupEntries.length > 0) docs.restoreDrafts(backupEntries.map((e) => e.draft))
-    await window.api.drafts.clearAll()
+    if (init.windowKey === 'w1') await window.api.drafts.clearAll()
     await docs.restoreSession({
       restoreTabs: ui.restoreTabs,
       restoreFolders: ui.restoreFolders,
@@ -113,6 +116,9 @@ onMounted(() => {
   })()
   window.api.onWinState((s) => (ui.maximized = s.maximized))
   window.api.onMenuCommand(dispatch)
+  // 任一窗口改了全局配置（主题/语言/字号等）：本窗口即时跟随
+  // （纸宽/侧栏宽是窗口私有偏好，不在广播里，各窗口互不干扰）
+  window.api.app.onConfigChanged((cfg) => ui.applyConfig(cfg))
   // 手动关闭：未保存检查（WPS 式弹窗）通过后经 closeConfirmed 真正关闭
   window.api.win.onRequestClose(() => void handleRequestClose())
   // 其他窗口打开本窗口占用的文件时，激活对应标签

@@ -1,13 +1,12 @@
-/** 应用配置（userData/config.json 持久化） */
+/** 应用配置（userData/config.json 持久化，跨窗口同步） */
 export interface AppConfig {
   theme: 'light' | 'dark' | 'system'
   /** 界面语言：system = 跟随系统；主进程菜单/托盘与渲染层同步切换 */
   locale: 'system' | 'zh-CN' | 'en'
+  /** 正文排版（全局）：纸面宽度在各窗口独立，见 WindowPrefs */
   editor: {
     fontSize: number
     lineHeight: number
-    /** 纸面宽度：可用宽度（窗口减去墨脊/侧栏/留白）的百分比，100 = 占满只留四周间距 */
-    pageWidthPct: number
   }
   autosave: {
     enabled: boolean
@@ -19,11 +18,22 @@ export interface AppConfig {
   restoreFolders: boolean
   /** 点窗口关闭按钮的行为：quit = 退出程序；tray = 最小化到托盘（托盘菜单退出） */
   closeAction: 'quit' | 'tray'
-  /** 侧栏（大纲/文件面板）宽度 px */
-  sidebarWidth: number
   /** 最近文件，新的在前 */
   recent: RecentFile[]
 }
+
+/**
+ * 窗口私有偏好（userData/window-prefs.json 按窗口键持久化，不跨窗口同步）：
+ * 各窗口尺寸不同，纸面宽度与侧栏宽度独立调整。
+ */
+export interface WindowPrefs {
+  /** 纸面宽度：可用宽度（窗口减去墨脊/侧栏/留白）的百分比，100 = 占满只留四周间距 */
+  pageWidthPct: number
+  /** 侧栏（大纲/文件面板）宽度 px */
+  sidebarWidth: number
+}
+
+export const defaultWindowPrefs: WindowPrefs = { pageWidthPct: 80, sidebarWidth: 264 }
 
 export interface RecentFile {
   path: string
@@ -34,12 +44,11 @@ export interface RecentFile {
 export const defaultConfig: AppConfig = {
   theme: 'system',
   locale: 'system',
-  editor: { fontSize: 16, lineHeight: 1.7, pageWidthPct: 80 },
+  editor: { fontSize: 16, lineHeight: 1.7 },
   autosave: { enabled: true, intervalMs: 15000 },
   restoreTabs: true,
   restoreFolders: true,
   closeAction: 'quit',
-  sidebarWidth: 264,
   recent: []
 }
 

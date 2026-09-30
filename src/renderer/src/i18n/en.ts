@@ -233,7 +233,7 @@ export const en: MsgSchema = {
   'settings.fontSize': 'Body size',
   'settings.lineHeight': 'Line height',
   'settings.pageWidth': 'Paper width',
-  'settings.pwHint': 'Scaled as a percentage of available width; {min}%–100%. 100% keeps only outer spacing.',
+  'settings.pwHint': 'Scaled to this window’s available width — adjusted per window and not synced; {min}%–100%. 100% keeps only outer spacing.',
   'settings.restoreTabs': 'Restore tabs',
   'settings.restoreFolders': 'Restore folder',
   'settings.startupHint':

@@ -233,7 +233,7 @@ export const zh = {
   'settings.fontSize': '正文字号',
   'settings.lineHeight': '行距',
   'settings.pageWidth': '纸面宽度',
-  'settings.pwHint': '按可用宽度百分比缩放；{min}%–100%，100% 时只保留四周间距。',
+  'settings.pwHint': '按本窗口可用宽度百分比缩放，各窗口独立调整、互不同步；{min}%–100%，100% 时只保留四周间距。',
   'settings.restoreTabs': '恢复标签',
   'settings.restoreFolders': '恢复文件夹',
   'settings.startupHint':

@@ -46,11 +46,13 @@ export function createAppWindow(doc?: DetachDoc): BrowserWindow {
     }
   })
 
-  // 渲染层启动时经 win:takeInitialDoc 取走（拖出标签的文档与窗口键）
+  // 渲染层启动时经 win:takeInitialDoc 取走（拖出标签的文档与窗口键）。
+  // crashed 只认首个窗口：它是"整个运行期"的标志（上次强杀/崩溃），
+  // 运行中新开的窗口若也带着它，会把别的窗口正在写的草稿误当崩溃遗留恢复
   pendingDocs.set(win.webContents.id, {
     windowKey,
     doc: doc ?? null,
-    crashed: isSessionCrashed()
+    crashed: windowKey === 'w1' && isSessionCrashed()
   })
   windowKeys.set(win.webContents.id, windowKey)
 

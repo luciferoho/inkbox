@@ -41,7 +41,7 @@ function toggleNode(line: number): void {
 function onResizeStart(e: PointerEvent): void {
   if (e.button !== 0) return
   const startX = e.clientX
-  const startWidth = ui.sidebarWidth
+  const startWidth = ui.winPrefs.sidebarWidth
   const onMove = (ev: PointerEvent): void => {
     ui.resizeSidebarLive(startWidth + ev.clientX - startX)
   }

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
-import type { AppConfig } from '@shared/types'
+import type { AppConfig, WindowPrefs } from '@shared/types'
 import { i18n, resolveLocale, t, type LocalePref } from '@/i18n'
+import { useDocumentsStore } from './documents'
 
 export type ThemePref = 'light' | 'dark' | 'system'
 export type SidebarMode = 'outline' | 'files'
@@ -64,12 +65,12 @@ export const useUiStore = defineStore('ui', {
         choices: { text: string; value: string; danger?: boolean }[]
         resolve: (value: string) => void
       },
-    /* 排版偏好（镜像 AppConfig.editor，实时生效；纸宽为可用宽度百分比） */
-    editorPrefs: { fontSize: 16, lineHeight: 1.7, pageWidthPct: 80 },
+    /* 排版偏好（全局：字号/行距；纸宽为窗口私有，见 winPrefs） */
+    editorPrefs: { fontSize: 16, lineHeight: 1.7 },
+    /* 窗口私有偏好：各窗口尺寸不同，纸宽/侧栏宽独立调整、不同步 */
+    winPrefs: { pageWidthPct: 80, sidebarWidth: 264 } as WindowPrefs,
     /* 纸宽滑杆的动态最小值（保证纸面不窄于 620px，随窗口/侧栏状态变化） */
-    pageWidthMinPct: 50,
-    /* 侧栏宽度（可拖拽调整，持久化） */
-    sidebarWidth: 264
+    pageWidthMinPct: 50
   }),
   actions: {
     async init(): Promise<void> {
@@ -93,26 +94,34 @@ export const useUiStore = defineStore('ui', {
       this.restoreFolders = cfg.restoreFolders ?? true
       this.closeAction = cfg.closeAction ?? 'quit'
       this.editorPrefs = { ...cfg.editor }
-      this.sidebarWidth = Math.min(440, Math.max(200, cfg.sidebarWidth ?? 264))
       this.applyTheme()
       this.applyEditorPrefs()
+    },
+    /** 窗口私有偏好：启动时（拿到窗口键后）与本地调整时应用，不参与跨窗口同步 */
+    applyWindowPrefs(p: WindowPrefs): void {
+      this.winPrefs = { ...p }
+      this.applyEditorPrefs()
       this.applySidebarWidth()
+      this.updatePageWidthMin()
     },
     applySidebarWidth(): void {
-      document.documentElement.style.setProperty('--sidebar-width', `${this.sidebarWidth}px`)
+      document.documentElement.style.setProperty('--sidebar-width', `${this.winPrefs.sidebarWidth}px`)
     },
-    /** 拖拽过程实时调宽（不落盘） */
+    /** 拖拽过程实时调宽（落盘在拖拽结束时统一走 persistSidebarWidth） */
     resizeSidebarLive(width: number): void {
-      this.sidebarWidth = Math.min(440, Math.max(200, Math.round(width)))
+      this.winPrefs.sidebarWidth = Math.min(440, Math.max(200, Math.round(width)))
       this.applySidebarWidth()
       this.updatePageWidthMin()
     },
     async persistSidebarWidth(): Promise<void> {
-      await window.api.app.setConfig({ sidebarWidth: this.sidebarWidth })
+      await window.api.app.setWindowPrefs(useDocumentsStore().windowKey, {
+        sidebarWidth: this.winPrefs.sidebarWidth
+      })
     },
     /** 排版偏好 → CSS 变量。纸宽为可用宽度百分比（100% = 占满可用宽度，只留四周间距） */
     applyEditorPrefs(): void {
-      const { fontSize, lineHeight, pageWidthPct } = this.editorPrefs
+      const { fontSize, lineHeight } = this.editorPrefs
+      const { pageWidthPct } = this.winPrefs
       const root = document.documentElement.style
       root.setProperty('--preview-font-size', `${fontSize}px`)
       root.setProperty('--preview-line-height', String(lineHeight))
@@ -123,15 +132,26 @@ export const useUiStore = defineStore('ui', {
     /** 重算纸宽滑杆最小值：保证纸面物理宽度不小于 620px（随窗口/侧栏状态变化） */
     updatePageWidthMin(): void {
       const rail = 52
-      const panel = this.sidebarOpen ? this.sidebarWidth : 0
+      const panel = this.sidebarOpen ? this.winPrefs.sidebarWidth : 0
       const pad = 50 // paper-scroll 左右留白 + 纸卡边框
       const available = Math.max(320, window.innerWidth - rail - panel - pad)
       this.pageWidthMinPct = Math.min(90, Math.max(40, Math.ceil((620 / available) * 100)))
     },
+    /** 字号/行距（全局，跨窗口同步）；纸宽走 setPageWidth（窗口私有）。
+     *  注意必须展开成普通对象：editorPrefs 是 reactive 代理，Proxy 过不了
+     *  IPC 结构化克隆（invoke 静默失败），设置会"看着生效实则没保存" */
     async setEditorPrefs(patch: Partial<AppConfig['editor']>): Promise<void> {
       this.editorPrefs = { ...this.editorPrefs, ...patch }
       this.applyEditorPrefs()
-      await window.api.app.setConfig({ editor: this.editorPrefs })
+      await window.api.app.setConfig({ editor: { ...this.editorPrefs } })
+    },
+    /** 纸面宽度（窗口私有，不广播）：立即生效并按窗口键持久化 */
+    async setPageWidth(pageWidthPct: number): Promise<void> {
+      this.winPrefs.pageWidthPct = Math.min(100, Math.max(this.pageWidthMinPct, Math.round(pageWidthPct)))
+      this.applyEditorPrefs()
+      await window.api.app.setWindowPrefs(useDocumentsStore().windowKey, {
+        pageWidthPct: this.winPrefs.pageWidthPct
+      })
     },
     async setAutosave(patch: Partial<AppConfig['autosave']>): Promise<void> {
       if (patch.enabled !== undefined) this.autosaveEnabled = patch.enabled

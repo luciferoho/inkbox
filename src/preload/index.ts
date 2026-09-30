@@ -7,7 +7,8 @@ import type {
   InitialDoc,
   MenuCommand,
   PdfExportOptions,
-  SessionPayload
+  SessionPayload,
+  WindowPrefs
 } from '@shared/types'
 
 /**
@@ -99,7 +100,18 @@ const api = {
       ipcRenderer.invoke('app:setConfig', patch),
     /** 切换界面语言：主进程同步重建菜单/托盘文案 */
     setLocale: (locale: AppConfig['locale']): Promise<void> =>
-      ipcRenderer.invoke('app:setLocale', locale)
+      ipcRenderer.invoke('app:setLocale', locale),
+    /** 窗口私有偏好（纸宽/侧栏宽）：按窗口键存取，不跨窗口同步 */
+    getWindowPrefs: (key: string): Promise<WindowPrefs> =>
+      ipcRenderer.invoke('app:getWindowPrefs', key),
+    setWindowPrefs: (key: string, patch: Partial<WindowPrefs>): Promise<void> =>
+      ipcRenderer.invoke('app:setWindowPrefs', key, patch),
+    /** 任一窗口改了全局配置后，这里收到最新完整配置（纸宽/侧栏宽不在其中） */
+    onConfigChanged: (cb: (cfg: AppConfig) => void): (() => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, cfg: AppConfig): void => cb(cfg)
+      ipcRenderer.on('app:configChanged', listener)
+      return () => ipcRenderer.removeListener('app:configChanged', listener)
+    }
   },
   win: {
     minimize: (): void => ipcRenderer.send('win:minimize'),
