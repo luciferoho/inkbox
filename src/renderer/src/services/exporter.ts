@@ -156,13 +156,6 @@ export interface BuildExportOptions {
   forPrint?: boolean
 }
 
-/** 导出落款（文档末尾的生成署名行） */
-function exportFooter(): string {
-  const d = new Date()
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return `由 墨匣 Inkbox 导出 · ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
 export async function buildExportHtml(
   title: string,
   previewHtml: string,
@@ -182,7 +175,6 @@ body { background: #fff; padding: 0; }
 .md-preview pre code { font-size: 11px; }
 .md-preview h1 { font-size: 1.55em; }
 .md-preview h2 { font-size: 1.3em; }
-.export-footer { margin-top: 28px; padding-top: 10px; font-size: 9px; }
 /* 分页保护：标题不与后文断开，整块元素不拦腰截断 */
 .md-preview h1, .md-preview h2, .md-preview h3,
 .md-preview h4, .md-preview h5, .md-preview h6 { break-after: avoid; }
@@ -205,16 +197,6 @@ body { background: #f6f2ec; padding: 40px 20px 64px; }
 .md-preview tr:nth-child(even) td {
   background: color-mix(in srgb, var(--surface-2) 55%, transparent);
 }
-.export-footer {
-  margin-top: 44px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-  font-family: var(--font-ui);
-  font-size: 11px;
-  letter-spacing: 1px;
-  color: var(--text-2);
-  text-align: center;
-}
 `
 
   /* 关键：容器必须带 .md-preview，preview.css 的全部排版规则以它为前缀 */
@@ -232,7 +214,6 @@ body { background: #f6f2ec; padding: 40px 20px 64px; }
 <body>
 <article class="md-preview export-page">
 ${body}
-<footer class="export-footer">${exportFooter()}</footer>
 </article>
 </body>
 </html>`

@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppConfig, DetachDoc, DirEntry, DraftPayload, InitialDoc, MenuCommand, SessionPayload } from '@shared/types'
+import type {
+  AppConfig,
+  DetachDoc,
+  DirEntry,
+  DraftPayload,
+  InitialDoc,
+  MenuCommand,
+  PdfExportOptions,
+  SessionPayload
+} from '@shared/types'
 
 /**
  * 渲染进程唯一入口 API。全部走 invoke/on 白名单频道，
@@ -27,12 +36,9 @@ const api = {
       ipcRenderer.invoke('dialog:saveFile', defaultName, kind)
   },
   export: {
-    pdf: (
-      html: string,
-      opts: { margin: 'normal' | 'narrow' | 'none'; landscape: boolean },
-      defaultName?: string
-    ): Promise<string | null> => ipcRenderer.invoke('export:pdf', html, opts, defaultName),
-    previewPdf: (html: string, opts: { margin: 'normal' | 'narrow' | 'none'; landscape: boolean }): Promise<string> =>
+    pdf: (html: string, opts: PdfExportOptions, defaultName?: string): Promise<string | null> =>
+      ipcRenderer.invoke('export:pdf', html, opts, defaultName),
+    previewPdf: (html: string, opts: PdfExportOptions): Promise<string> =>
       ipcRenderer.invoke('export:previewPdf', html, opts)
   },
   drafts: {

@@ -1,18 +1,16 @@
 import { BrowserWindow, app, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-
-export interface PdfExportOptions {
-  /** 页边距档位（英寸）：标准 0.75 / 窄 0.4 / 无 0 */
-  margin: 'normal' | 'narrow' | 'none'
-  landscape: boolean
-}
+import type { PdfExportOptions } from '@shared/types'
 
 const MARGIN_INCHES: Record<PdfExportOptions['margin'], number> = {
   normal: 0.75,
   narrow: 0.4,
   none: 0
 }
+
+/* Chromium 把页脚画在下边距盒内：边距为 0 时页脚不可见，开启页码时保底 0.45" */
+const FOOTER_MIN_BOTTOM = 0.45
 
 /**
  * PDF 生成：隐藏窗口加载单文件 HTML 后走 printToPDF 打印管线（墨块/背景保留）。
@@ -27,13 +25,22 @@ async function renderPdf(html: string, opts: PdfExportOptions): Promise<Buffer> 
   })
   try {
     await pdfWin.loadFile(tmp)
-    const m = MARGIN_INCHES[opts.margin] ?? 0.75
-    // Electron 44：margins 直接给英寸值
+    let m = MARGIN_INCHES[opts.margin] ?? 0.75
+    const footer = opts.pageNumbers
+    if (footer) m = Math.max(m, FOOTER_MIN_BOTTOM)
+    // Electron 44：margins 直接给英寸值；页眉置空（默认模板会带标题和日期）
     return await pdfWin.webContents.printToPDF({
       pageSize: 'A4',
       landscape: opts.landscape,
       printBackground: true,
-      margins: { top: m, bottom: m, left: m, right: m }
+      margins: { top: m, bottom: m, left: m, right: m },
+      displayHeaderFooter: footer,
+      headerTemplate: '<div></div>',
+      footerTemplate: footer
+        ? `<div style="font-size:8px;color:#8a8078;width:100%;text-align:center;\
+font-family:'Segoe UI','PingFang SC','Microsoft YaHei UI',sans-serif;">\
+<span class="pageNumber"></span> / <span class="totalPages"></span></div>`
+        : undefined
     })
   } finally {
     pdfWin.destroy()

@@ -99,6 +99,15 @@ export interface DraftPayload {
 }
 
 
+/** PDF 导出选项（export:pdf / export:previewPdf 共用） */
+export interface PdfExportOptions {
+  /** 页边距档位（英寸）：标准 0.75 / 窄 0.4 / 无 0 */
+  margin: 'normal' | 'narrow' | 'none'
+  landscape: boolean
+  /** 页脚页码（n / 总页数）；开启时底部自动留出页脚空间 */
+  pageNumbers: boolean
+}
+
 /** 文件树条目（fs:readDir 返回） */
 export interface DirEntry {
   name: string

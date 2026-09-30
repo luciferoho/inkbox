@@ -25,15 +25,8 @@ interface Window {
       saveFile(defaultName?: string, kind?: 'md' | 'html'): Promise<string | null>
     }
     export: {
-      pdf(
-        html: string,
-        opts: { margin: 'normal' | 'narrow' | 'none'; landscape: boolean },
-        defaultName?: string
-      ): Promise<string | null>
-      previewPdf(
-        html: string,
-        opts: { margin: 'normal' | 'narrow' | 'none'; landscape: boolean }
-      ): Promise<string>
+      pdf(html: string, opts: import('@shared/types').PdfExportOptions, defaultName?: string): Promise<string | null>
+      previewPdf(html: string, opts: import('@shared/types').PdfExportOptions): Promise<string>
     }
     drafts: {
       save(key: string, payload: import('@shared/types').DraftPayload): Promise<void>

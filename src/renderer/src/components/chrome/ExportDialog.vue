@@ -20,6 +20,7 @@ const docs = useDocumentsStore()
 const fmt = ref<'html' | 'pdf'>('html')
 const margin = ref<'normal' | 'narrow' | 'none'>('normal')
 const landscape = ref(false)
+const pageNumbers = ref(false)
 const fileName = ref('')
 const busy = ref(false)
 const previewHtml = ref('')
@@ -69,7 +70,7 @@ function schedulePreview(): void {
   genTimer = window.setTimeout(() => void regenerate(), 600)
 }
 
-watch([fmt, margin, landscape], schedulePreview)
+watch([fmt, margin, landscape, pageNumbers], schedulePreview)
 
 /** 对话框每次打开：重置文件名与预览 */
 watch(
@@ -153,7 +154,8 @@ async function regenerate(): Promise<void> {
     } else {
       const b64 = await window.api.export.previewPdf(html, {
         margin: margin.value,
-        landscape: landscape.value
+        landscape: landscape.value,
+        pageNumbers: pageNumbers.value
       })
       if (seq !== genSeq) return
       previewHtml.value = ''
@@ -196,7 +198,7 @@ async function doExport(): Promise<void> {
     } else {
       const saved = await window.api.export.pdf(
         html,
-        { margin: margin.value, landscape: landscape.value },
+        { margin: margin.value, landscape: landscape.value, pageNumbers: pageNumbers.value },
         `${name}.pdf`
       )
       if (!saved) return
@@ -256,13 +258,20 @@ async function doExport(): Promise<void> {
                   <button :class="{ on: landscape }" @click="landscape = true">横向</button>
                 </div>
               </div>
+              <div class="field">
+                <span class="label">页脚页码</span>
+                <div class="seg">
+                  <button :class="{ on: !pageNumbers }" @click="pageNumbers = false">关</button>
+                  <button :class="{ on: pageNumbers }" @click="pageNumbers = true">开</button>
+                </div>
+              </div>
             </template>
 
             <p class="hint">
               {{
                 fmt === 'html'
                   ? '单文件 HTML：样式、公式字体与本地图片全部内联，可直接分享或打开。'
-                  : '以预览排版经打印管线生成 A4 PDF，保留墨块代码与图表背景。'
+                  : '以预览排版经打印管线生成 A4 PDF，保留墨块代码与图表背景；开启页码时底部自动留白。'
               }}
             </p>
 
