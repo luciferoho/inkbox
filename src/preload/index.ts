@@ -7,6 +7,8 @@ import type {
   InitialDoc,
   MenuCommand,
   PdfExportOptions,
+  SearchOptions,
+  SearchOutcome,
   SessionPayload,
   WindowPrefs
 } from '@shared/types'
@@ -28,7 +30,14 @@ const api = {
     rename: (oldPath: string, newPath: string): Promise<void> =>
       ipcRenderer.invoke('fs:rename', oldPath, newPath),
     delete: (path: string): Promise<void> => ipcRenderer.invoke('fs:delete', path),
-    readDir: (path: string): Promise<DirEntry[]> => ipcRenderer.invoke('fs:readDir', path)
+    readDir: (path: string): Promise<DirEntry[]> => ipcRenderer.invoke('fs:readDir', path),
+    /** 递归列出工作区全部文件路径（文件树按名筛选用） */
+    listFiles: (root: string): Promise<string[]> => ipcRenderer.invoke('fs:listFiles', root)
+  },
+  /** 工作区跨文件搜索（递归文本文件，限流） */
+  search: {
+    run: (root: string, query: string, opts: SearchOptions): Promise<SearchOutcome> =>
+      ipcRenderer.invoke('search:run', root, query, opts)
   },
   dialog: {
     openFile: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFile'),
@@ -97,6 +106,15 @@ const api = {
         cb(payload)
       ipcRenderer.on('fs:fileChanged', listener)
       return () => ipcRenderer.removeListener('fs:fileChanged', listener)
+    },
+    /** 工作区目录递归监听：外部增删改后经 fs:wsChanged 广播，文件树据此刷新 */
+    watchWorkspace: (root: string): void => ipcRenderer.send('ws:watch', root),
+    unwatchWorkspace: (root: string): void => ipcRenderer.send('ws:unwatch', root),
+    onWsChanged: (cb: (payload: { root: string }) => void): (() => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, payload: { root: string }): void =>
+        cb(payload)
+      ipcRenderer.on('fs:wsChanged', listener)
+      return () => ipcRenderer.removeListener('fs:wsChanged', listener)
     }
   },
   app: {

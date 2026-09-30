@@ -3,7 +3,7 @@ import { useUiStore } from '@/stores/ui'
 
 const ui = useUiStore()
 
-function pick(mode: 'outline' | 'files'): void {
+function pick(mode: 'outline' | 'files' | 'search'): void {
   // 再次点击当前模式 = 折叠侧栏（墨脊保留）
   if (ui.sidebarOpen && ui.sidebarMode === mode) ui.toggleSidebar()
   else ui.setSidebarMode(mode)
@@ -35,7 +35,12 @@ function pick(mode: 'outline' | 'files'): void {
       </svg>
     </button>
 
-    <button class="rail-btn" disabled :title="$t('rail.search')">
+    <button
+      class="rail-btn"
+      :class="{ active: ui.sidebarOpen && ui.sidebarMode === 'search' }"
+      :title="$t('rail.search')"
+      @click="pick('search')"
+    >
       <svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
         <circle cx="9" cy="9" r="5.2" />
         <path d="M13 13l4 4" />

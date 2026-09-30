@@ -55,6 +55,8 @@ export function createMenu(win: BrowserWindow): void {
         { label: m('mToggleTheme'), accelerator: 'CmdOrCtrl+Alt+T', click: cmd('view:toggleTheme') },
         { label: m('mFocus'), accelerator: 'F8', click: cmd('view:toggleFocus') },
         { label: m('mTypewriter'), accelerator: 'F9', click: cmd('view:toggleTypewriter') },
+        { label: m('mZen'), accelerator: 'F10', click: cmd('view:toggleZen') },
+        { label: m('mSearch'), accelerator: 'CmdOrCtrl+Shift+F', click: cmd('view:toggleSearch') },
         { label: m('mSettings'), accelerator: 'CmdOrCtrl+,', click: cmd('app:settings') },
         { type: 'separator' },
         { role: 'resetZoom', label: m('mActualSize') },

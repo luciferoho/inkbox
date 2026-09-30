@@ -47,7 +47,11 @@ function installBrowserMock(): void {
         }
       },
       delete: async (path: string) => void files.delete(path),
-      readDir: async () => []
+      readDir: async () => [],
+      listFiles: async () => [...files.keys()]
+    },
+    search: {
+      run: async () => ({ files: [], truncated: false, scanned: 0 })
     },
     dialog: {
       openFile: async () => null,
@@ -137,7 +141,10 @@ function installBrowserMock(): void {
       onFileChanged: (cb: (p: { path: string }) => void) => {
         fileChangedListeners.add(cb)
         return () => fileChangedListeners.delete(cb)
-      }
+      },
+      watchWorkspace: () => undefined,
+      unwatchWorkspace: () => undefined,
+      onWsChanged: () => () => undefined
     },
     app: {
       getConfig: async () => cfg,

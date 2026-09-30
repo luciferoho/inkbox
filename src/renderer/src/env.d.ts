@@ -18,6 +18,10 @@ interface Window {
       rename(oldPath: string, newPath: string): Promise<void>
       delete(path: string): Promise<void>
       readDir(path: string): Promise<import('@shared/types').DirEntry[]>
+      listFiles(root: string): Promise<string[]>
+    }
+    search: {
+      run(root: string, query: string, opts: import('@shared/types').SearchOptions): Promise<import('@shared/types').SearchOutcome>
     }
     dialog: {
       openFile(): Promise<string | null>
@@ -56,6 +60,9 @@ interface Window {
       watch(path: string): void
       unwatch(path: string): void
       onFileChanged(cb: (payload: { path: string }) => void): () => void
+      watchWorkspace(root: string): void
+      unwatchWorkspace(root: string): void
+      onWsChanged(cb: (payload: { root: string }) => void): () => void
     }
     app: {
       getConfig(): Promise<import('@shared/types').AppConfig>

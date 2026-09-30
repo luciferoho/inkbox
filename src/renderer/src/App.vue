@@ -69,6 +69,12 @@ function dispatch(cmd: MenuCommand): void {
     case 'view:toggleTypewriter':
       ui.toggleTypewriter()
       break
+    case 'view:toggleZen':
+      ui.toggleZen()
+      break
+    case 'view:toggleSearch':
+      ui.toggleSearchPanel()
+      break
     case 'edit:find':
       // 即显/预览模式没有源码编辑器实例，先切回双栏再开查找面板
       if (ui.editorMode === 'preview' || ui.editorMode === 'wysiwyg') {
@@ -125,7 +131,18 @@ onMounted(() => {
   window.api.doc.onActivateTab((path) => docs.activateByPath(path))
   // 打开文档的外部修改检测（内容比对在 documents store 里做）
   window.api.watch.onFileChanged(({ path }) => void docs.handleExternalChange(path))
+  // 工作区目录外部变化（资源管理器增删改等）：刷新文件树（保持展开态）
+  window.api.watch.onWsChanged(({ root }) => void ws.handleWsChanged(root))
+  // 禅模式 Esc 退出（弹层/查看器打开时让位给它们的 Esc 处理）
+  window.addEventListener('keydown', onZenEsc)
 })
+
+/** 禅模式下的 Esc：无任何弹层时退出禅模式 */
+function onZenEsc(e: KeyboardEvent): void {
+  if (!ui.zenMode || e.key !== 'Escape') return
+  if (ui.confirm || ui.choice || ui.viewerImage || ui.settingsOpen || ui.exportOpen) return
+  ui.toggleZen()
+}
 
 /** 关窗流程进行中护栏：托盘退出会给每个窗口发 requestClose，防止重复弹窗 */
 let closeFlowRunning = false
@@ -187,11 +204,11 @@ async function handleRequestClose(): Promise<void> {
 <template>
   <div class="app">
     <TitleBar />
-    <TabsBar />
+    <TabsBar v-if="!ui.zenMode" />
     <div class="app-body">
-      <ActivityRail />
+      <ActivityRail v-if="!ui.zenMode" />
       <Transition name="sidebar">
-        <div v-if="ui.sidebarOpen" class="sidebar-wrap">
+        <div v-if="ui.sidebarOpen && !ui.zenMode" class="sidebar-wrap">
           <SidePanel />
         </div>
       </Transition>
@@ -200,7 +217,7 @@ async function handleRequestClose(): Promise<void> {
         <ShortcutPanel v-if="ui.shortcutPanelOpen" />
       </Transition>
     </div>
-    <StatusBar />
+    <StatusBar v-if="!ui.zenMode" />
     <ImageViewer />
     <SettingsDialog />
     <ExportDialog />

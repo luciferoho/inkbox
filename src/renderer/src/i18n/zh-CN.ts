@@ -46,6 +46,8 @@ export const zh = {
   'ui.focusOff': '专注模式已关闭',
   'ui.typewriterOn': '打字机模式已开启（F9 关闭）',
   'ui.typewriterOff': '打字机模式已关闭',
+  'ui.zenOn': '禅模式已开启（F10 / Esc 退出）',
+  'ui.zenOff': '禅模式已关闭',
 
   // 工作区 store
   'ws.newFolderDefault': '新建文件夹',
@@ -124,6 +126,15 @@ export const zh = {
   // 侧栏
   'side.outline': '大纲',
   'side.files': '工作区',
+  'side.search': '搜索',
+  'side.searchPh': '搜索工作区…',
+  'side.searchCase': '区分大小写',
+  'side.searchNeedWs': '打开工作区文件夹后可跨文件搜索。',
+  'side.searching': '搜索中…',
+  'side.searchHint': '输入关键词，搜索工作区内全部 Markdown 与文本文件。',
+  'side.searchNoHit': '没有匹配的结果。',
+  'side.searchStat': '{files} 个文件命中 · 已扫描 {scanned} 个',
+  'side.searchTruncated': '结果已截断',
   'side.collapse': '折叠侧栏 (Ctrl+\\)',
   'side.resizeHint': '拖动调整宽度 · 双击折叠',
   'side.outlineEmpty': '打开文档后，这里会显示标题结构树。',
@@ -138,6 +149,8 @@ export const zh = {
   'side.closeWs': '关闭工作区（保留已打开的标签）',
   'side.phFolder': '文件夹名',
   'side.phFile': '文档名.md',
+  'side.filterPh': '按文件名筛选…',
+  'side.filterNoHit': '没有匹配的文件。',
 
   // 编辑器（源码模式）
   'editor.saveFirstForImage': '请先保存文档，再粘贴图片',
@@ -161,6 +174,7 @@ export const zh = {
   'sc.saveAs': '另存为',
   'sc.export': '导出 PNG / PDF / HTML',
   'sc.closeTab': '关闭标签页',
+  'sc.workspaceSearch': '全局搜索（工作区）',
   'sc.cycleTab': '下一 / 上一标签',
   'sc.toggleSidebar': '折叠/展开侧栏',
   'sc.settings': '偏好设置',
@@ -179,7 +193,7 @@ export const zh = {
   // 墨脊
   'rail.outline': '大纲',
   'rail.files': '工作区',
-  'rail.search': '搜索',
+  'rail.search': '全局搜索 (Ctrl+Shift+F)',
   'rail.theme': '切换主题 (Ctrl+Alt+T)',
   'rail.shortcuts': '快捷键说明',
   'rail.settings': '偏好设置 (Ctrl+,)',

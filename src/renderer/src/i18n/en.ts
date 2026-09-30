@@ -44,6 +44,8 @@ export const en: MsgSchema = {
   'ui.focusOff': 'Focus mode off',
   'ui.typewriterOn': 'Typewriter mode on (F9 to turn off)',
   'ui.typewriterOff': 'Typewriter mode off',
+  'ui.zenOn': 'Zen mode on (F10 / Esc to exit)',
+  'ui.zenOff': 'Zen mode off',
 
   // Workspace store
   'ws.newFolderDefault': 'New Folder',
@@ -122,6 +124,15 @@ export const en: MsgSchema = {
   // Side panel
   'side.outline': 'Outline',
   'side.files': 'Files',
+  'side.search': 'Search',
+  'side.searchPh': 'Search workspace…',
+  'side.searchCase': 'Match case',
+  'side.searchNeedWs': 'Open a workspace folder to search across files.',
+  'side.searching': 'Searching…',
+  'side.searchHint': 'Type to search all Markdown and text files in the workspace.',
+  'side.searchNoHit': 'No matches.',
+  'side.searchStat': '{files} file(s) matched · {scanned} scanned',
+  'side.searchTruncated': 'results truncated',
   'side.collapse': 'Collapse sidebar (Ctrl+\\)',
   'side.resizeHint': 'Drag to resize · double-click to collapse',
   'side.outlineEmpty': 'Open a document to see its heading tree here.',
@@ -136,6 +147,8 @@ export const en: MsgSchema = {
   'side.closeWs': 'Close workspace (keeps open tabs)',
   'side.phFolder': 'Folder name',
   'side.phFile': 'Document.md',
+  'side.filterPh': 'Filter by name…',
+  'side.filterNoHit': 'No matching files.',
 
   // Editor (source mode)
   'editor.saveFirstForImage': 'Save the document before pasting images',
@@ -159,6 +172,7 @@ export const en: MsgSchema = {
   'sc.saveAs': 'Save as',
   'sc.export': 'Export PNG / PDF / HTML',
   'sc.closeTab': 'Close tab',
+  'sc.workspaceSearch': 'Search workspace',
   'sc.cycleTab': 'Next / previous tab',
   'sc.toggleSidebar': 'Toggle sidebar',
   'sc.settings': 'Preferences',
@@ -177,7 +191,7 @@ export const en: MsgSchema = {
   // Activity rail
   'rail.outline': 'Outline',
   'rail.files': 'Files',
-  'rail.search': 'Search',
+  'rail.search': 'Search workspace (Ctrl+Shift+F)',
   'rail.theme': 'Toggle theme (Ctrl+Alt+T)',
   'rail.shortcuts': 'Keyboard shortcuts',
   'rail.settings': 'Preferences (Ctrl+,)',

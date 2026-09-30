@@ -19,26 +19,33 @@ export const useWorkspaceStore = defineStore('workspace', {
     root: null as string | null,
     children: {} as Record<string, DirEntry[]>,
     expanded: {} as Record<string, boolean>,
-    draft: null as TreeDraft | null
+    draft: null as TreeDraft | null,
+    /** 工作区全部文件路径（按名筛选用；打开/外部变化后刷新） */
+    allFiles: [] as string[]
   }),
   actions: {
     async openFolder(): Promise<void> {
       const root = await window.api.dialog.openFolder()
       if (!root) return
+      if (this.root) window.api.watch.unwatchWorkspace(this.root)
       this.root = root
       this.children = {}
       this.expanded = { [root]: true }
+      window.api.watch.watchWorkspace(root)
       await this.loadDir(root)
+      void this.loadAllFiles()
       useUiStore().setSidebarMode('files')
       useDocumentsStore().persistSession() // 打开的文件夹写入会话快照（重启恢复）
     },
 
     /** 关闭工作区：清空文件树（已打开的标签保留），文件夹记录从会话快照移除 */
     closeFolder(): void {
+      if (this.root) window.api.watch.unwatchWorkspace(this.root)
       this.root = null
       this.children = {}
       this.expanded = {}
       this.draft = null
+      this.allFiles = []
       useDocumentsStore().persistSession()
     },
 
@@ -53,7 +60,9 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.root = path
       this.children = {}
       this.expanded = { [path]: true }
+      window.api.watch.watchWorkspace(path)
       await this.loadDir(path)
+      void this.loadAllFiles()
       useUiStore().setSidebarMode('files')
       useDocumentsStore().persistSession()
     },
@@ -70,6 +79,22 @@ export const useWorkspaceStore = defineStore('workspace', {
     async toggle(path: string): Promise<void> {
       this.expanded[path] = !this.expanded[path]
       if (this.expanded[path] && !this.children[path]) await this.loadDir(path)
+    },
+
+    /** 外部变化（fs:wsChanged）：重载已加载的目录（展开态不动）并刷新全量文件列表 */
+    async handleWsChanged(root: string): Promise<void> {
+      if (this.root !== root) return
+      for (const p of Object.keys(this.children)) await this.loadDir(p)
+      await this.loadAllFiles()
+    },
+
+    async loadAllFiles(): Promise<void> {
+      if (!this.root) return
+      try {
+        this.allFiles = await window.api.fs.listFiles(this.root)
+      } catch {
+        this.allFiles = []
+      }
     },
 
     /* ---------- 增删改（内联输入草稿） ---------- */

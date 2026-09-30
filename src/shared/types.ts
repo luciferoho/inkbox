@@ -77,6 +77,8 @@ export type MenuCommand =
   | 'view:toggleTheme'
   | 'view:toggleFocus'
   | 'view:toggleTypewriter'
+  | 'view:toggleZen'
+  | 'view:toggleSearch'
   | 'edit:find'
   | 'app:settings'
   | 'help:sample'
@@ -118,6 +120,27 @@ export interface PdfExportOptions {
   landscape: boolean
   /** 页脚页码（n / 总页数）；开启时底部自动留出页脚空间 */
   pageNumbers: boolean
+}
+
+/** 全局搜索（工作区跨文件） */
+export interface SearchOptions {
+  caseSensitive: boolean
+}
+export interface SearchMatch {
+  /** 1 基行号 */
+  line: number
+  /** 命中行文本（截断） */
+  text: string
+}
+export interface SearchFileResult {
+  path: string
+  name: string
+  matches: SearchMatch[]
+}
+export interface SearchOutcome {
+  files: SearchFileResult[]
+  truncated: boolean
+  scanned: number
 }
 
 /** 文件树条目（fs:readDir 返回） */

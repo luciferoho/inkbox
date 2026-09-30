@@ -4,7 +4,7 @@ import { i18n, resolveLocale, t, type LocalePref } from '@/i18n'
 import { useDocumentsStore } from './documents'
 
 export type ThemePref = 'light' | 'dark' | 'system'
-export type SidebarMode = 'outline' | 'files'
+export type SidebarMode = 'outline' | 'files' | 'search'
 export type EditorMode = 'wysiwyg' | 'edit' | 'split' | 'preview'
 
 /** 界面状态：主题 / 侧栏 / 编辑模式 / 窗口态 / 状态栏消息 / 跨组件请求 */
@@ -20,6 +20,10 @@ export const useUiStore = defineStore('ui', {
     maximized: false,
     focusMode: false,
     typewriterMode: false,
+    /** 禅模式：隐藏标签栏/状态栏/侧栏，Esc 或菜单退出 */
+    zenMode: false,
+    /* 禅模式进入前的侧栏状态，退出时恢复 */
+    _zenPrevSidebar: false as boolean,
     autosaveEnabled: true,
     autosaveIntervalMs: 15000,
     /* 再次打开窗口时恢复上次打开的文件标签（默认开） */
@@ -209,6 +213,11 @@ export const useUiStore = defineStore('ui', {
       this.sidebarMode = mode
       this.sidebarOpen = true
     },
+    /** 菜单/快捷键入口：切到搜索模式（已在该模式且侧栏展开时 = 折叠） */
+    toggleSearchPanel(): void {
+      if (this.sidebarOpen && this.sidebarMode === 'search') this.toggleSidebar()
+      else this.setSidebarMode('search')
+    },
     requestFind(): void {
       this.findRequest++
     },
@@ -276,6 +285,18 @@ export const useUiStore = defineStore('ui', {
     toggleTypewriter(): void {
       this.typewriterMode = !this.typewriterMode
       this.showToast(this.typewriterMode ? t('ui.typewriterOn') : t('ui.typewriterOff'))
+    },
+    /** 禅模式：隐藏标签栏/状态栏/侧栏，退出时恢复侧栏 */
+    toggleZen(): void {
+      if (!this.zenMode) {
+        this._zenPrevSidebar = this.sidebarOpen
+        this.sidebarOpen = false
+        this.shortcutPanelOpen = false
+      } else {
+        this.sidebarOpen = this._zenPrevSidebar
+      }
+      this.zenMode = !this.zenMode
+      this.showToast(this.zenMode ? t('ui.zenOn') : t('ui.zenOff'))
     },
     setEditorMode(mode: EditorMode): void {
       this.editorMode = mode

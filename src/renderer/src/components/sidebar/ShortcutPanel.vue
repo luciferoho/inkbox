@@ -17,6 +17,7 @@ const GROUPS = computed<{ title: string; items: { k: string; d: string }[] }[]>(
       { k: 'Ctrl+Shift+S', d: t('sc.saveAs') },
       { k: 'Ctrl+E', d: t('sc.export') },
       { k: 'Ctrl+W', d: t('sc.closeTab') },
+      { k: 'Ctrl+Shift+F', d: t('sc.workspaceSearch') },
       { k: 'Ctrl+Tab / Ctrl+Shift+Tab', d: t('sc.cycleTab') },
       { k: 'Ctrl+\\', d: t('sc.toggleSidebar') },
       { k: 'Ctrl+,', d: t('sc.settings') }
