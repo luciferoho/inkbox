@@ -1,7 +1,7 @@
 {
   "name": "inkbox",
   "productName": "Inkbox",
-  "version": "0.1.11",
+  "version": "1.0.0",
   "description": "墨匣 Inkbox — 墨匣纸面 Markdown 编辑器 (Electron + Vue)",
   "main": "out/main/index.js",
   "author": "lucifer",
@@ -42,7 +42,8 @@
     "pinia": "^4.0.3",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
-    "vue": "^3.5.43"
+    "vue": "^3.5.43",
+    "vue-i18n": "^11.4.12"
   },
   "devDependencies": {
     "@napi-rs/canvas": "^1.0.9",

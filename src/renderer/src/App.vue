@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, nextTick } from 'vue'
 import type { MenuCommand } from '@shared/types'
+import { t } from '@/i18n'
 import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -42,7 +43,7 @@ function dispatch(cmd: MenuCommand): void {
       break
     case 'file:export':
       if (!docs.active || docs.active.isHome) {
-        ui.showToast('请先打开要导出的文档')
+        ui.showToast(t('app.exportNoDoc'))
       } else {
         ui.openExport()
       }
@@ -105,7 +106,7 @@ onMounted(() => {
       restoreFolders: ui.restoreFolders,
       crashed: init.crashed
     })
-    if (backupEntries.length > 0) ui.showToast(`检测到异常退出，已恢复 ${backupEntries.length} 份未保存的内容`)
+    if (backupEntries.length > 0) ui.showToast(t('app.draftsRestored', { n: backupEntries.length }))
     // 恢复完成：淡出开屏页，进入应用（用户看到的直接是恢复后的界面）
     await nextTick()
     dismissSplash()
@@ -144,12 +145,12 @@ async function handleRequestClose(): Promise<void> {
       return
     }
     const choice = await ui.askChoice(
-      '有未保存的文档',
-      `还有 ${dirty.length} 个文档未保存，未保存的内容已自动备份。`,
+      t('app.closeTitle'),
+      t('app.closeMsg', { n: dirty.length }),
       [
-        { value: 'cancel', text: '取消' },
-        { value: 'discard', text: '直接退出', danger: true },
-        { value: 'save', text: '保存并退出' }
+        { value: 'cancel', text: t('common.cancel') },
+        { value: 'discard', text: t('app.discard'), danger: true },
+        { value: 'save', text: t('app.saveQuit') }
       ]
     )
     if (choice === 'cancel') return

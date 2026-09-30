@@ -8,12 +8,13 @@ import { languages } from '@codemirror/language-data'
 import { search, openSearchPanel } from '@codemirror/search'
 import { indentWithTab } from '@codemirror/commands'
 import { luciTheme } from '@/editor/cm-theme'
-import { cmZhPhrases } from '@/editor/cm-i18n'
+import { cmPhrases } from '@/editor/cm-i18n'
 import { formattingKeymap } from '@/editor/cm-commands'
 import { luciFocusMode, luciTypewriterMode } from '@/editor/cm-focus'
 import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
 import { htmlToMarkdown } from '@/services/richPaste'
+import { t } from '@/i18n'
 
 const emit = defineEmits<{ (e: 'scroll-sync', line: number, frac: number): void }>()
 
@@ -30,6 +31,8 @@ let lockUntil = 0
 /** 专注/打字机模式按需装卸 */
 const focusComp = new Compartment()
 const typewriterComp = new Compartment()
+/** CodeMirror 内置界面短语（搜索面板等）随语言热切换 */
+const phrasesComp = new Compartment()
 
 function makeState(content: string): EditorState {
   return EditorState.create({
@@ -38,7 +41,7 @@ function makeState(content: string): EditorState {
       basicSetup,
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       search({ top: true }),
-      cmZhPhrases,
+      phrasesComp.of(cmPhrases()),
       keymap.of([indentWithTab, ...formattingKeymap]),
       luciTheme,
       focusComp.of(ui.focusMode ? luciFocusMode : []),
@@ -85,7 +88,7 @@ async function insertImagesFrom(
 
   const tab = docs.tabs.find((t) => t.id === tabId)
   if (!tab?.path) {
-    ui.showToast('请先保存文档，再粘贴图片')
+    ui.showToast(t('editor.saveFirstForImage'))
     return true
   }
   const docPath = tab.path
@@ -112,7 +115,7 @@ async function insertImagesFrom(
       links.push(`![${name}](./${assetsDir}/${name})`)
     } catch (err) {
       console.error('[editor] image save failed:', err)
-      ui.showToast(`图片保存失败：${name}`)
+      ui.showToast(t('editor.imageSaveFailed', { name }))
     }
   }
   if (links.length === 0) return true
@@ -120,7 +123,7 @@ async function insertImagesFrom(
   view.dispatch({
     changes: { from: pos, insert: links.join('\n') + '\n' }
   })
-  ui.showToast(`已插入 ${links.length} 张图片到 ${assetsDir}/`)
+  ui.showToast(t('editor.imagesInserted', { n: links.length, dir: assetsDir }))
   return true
 }
 
@@ -284,6 +287,12 @@ watch(
 watch(
   () => ui.typewriterMode,
   (on) => view?.dispatch({ effects: typewriterComp.reconfigure(on ? luciTypewriterMode : []) })
+)
+
+/* 语言切换：CodeMirror 内置界面短语热替换 */
+watch(
+  () => ui.localePref,
+  () => view?.dispatch({ effects: phrasesComp.reconfigure(cmPhrases()) })
 )
 </script>
 

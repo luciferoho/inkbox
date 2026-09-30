@@ -2,6 +2,7 @@ import { BrowserWindow, app, dialog, ipcMain, type IpcMainInvokeEvent } from 'el
 import { rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { PdfExportOptions } from '@shared/types'
+import { m } from '../i18n'
 
 const MARGIN_INCHES: Record<PdfExportOptions['margin'], number> = {
   normal: 0.75,
@@ -59,8 +60,8 @@ export function registerExportIpc(): void {
     ): Promise<string | null> => {
       const win = BrowserWindow.fromWebContents(e.sender)
       const saveOpts = {
-        title: '导出 PDF',
-        defaultPath: defaultName ?? '未命名.pdf',
+        title: m('dlgExportPdf'),
+        defaultPath: defaultName || m('dlgUntitledPdf'),
         filters: [{ name: 'PDF', extensions: ['pdf'] }]
       }
       const r = win

@@ -63,37 +63,37 @@ watch(
 
       <!-- 悬浮操作：绝对定位覆盖右缘，不改变行布局（避免 hover 抖动） -->
       <span v-if="entry.isDir" class="acts" @click.stop>
-        <button class="act" title="新建文档" @click.stop="ws.beginCreate(entry.path, false)">
+        <button class="act" :title="$t('side.newDoc')" @click.stop="ws.beginCreate(entry.path, false)">
           <svg viewBox="0 0 13 13" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
             <path d="M6.5 2.8v7.4M2.8 6.5h7.4" />
           </svg>
         </button>
-        <button class="act" title="新建文件夹" @click.stop="ws.beginCreate(entry.path, true)">
+        <button class="act" :title="$t('side.newFolder')" @click.stop="ws.beginCreate(entry.path, true)">
           <svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
             <path d="M2.5 5.5a1.5 1.5 0 0 1 1.5-1.5h3.2l1.6 2H16a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5z" />
             <path d="M10.5 8.5v5M8 11h5" stroke-linecap="round" />
           </svg>
         </button>
-        <button class="act" title="重命名" @click.stop="ws.beginRename(entry.path, entry.name)">
+        <button class="act" :title="$t('tree.rename')" @click.stop="ws.beginRename(entry.path, entry.name)">
           <svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">
             <path d="M4 16v-3l8.5-8.5 2.9 2.9L7 16H4z" />
             <path d="M12 5l3 3" />
           </svg>
         </button>
-        <button class="act del" title="删除" @click.stop="ws.deleteEntry(entry)">
+        <button class="act del" :title="$t('common.delete')" @click.stop="ws.deleteEntry(entry)">
           <svg viewBox="0 0 10 10" width="10" height="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
             <path d="M1 1l8 8M9 1L1 9" />
           </svg>
         </button>
       </span>
       <span v-else class="acts" @click.stop>
-        <button class="act" title="重命名" @click.stop="ws.beginRename(entry.path, entry.name)">
+        <button class="act" :title="$t('tree.rename')" @click.stop="ws.beginRename(entry.path, entry.name)">
           <svg viewBox="0 0 20 20" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">
             <path d="M4 16v-3l8.5-8.5 2.9 2.9L7 16H4z" />
             <path d="M12 5l3 3" />
           </svg>
         </button>
-        <button class="act del" title="删除" @click.stop="ws.deleteEntry(entry)">
+        <button class="act del" :title="$t('common.delete')" @click.stop="ws.deleteEntry(entry)">
           <svg viewBox="0 0 10 10" width="10" height="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
             <path d="M1 1l8 8M9 1L1 9" />
           </svg>
@@ -117,7 +117,7 @@ watch(
       <input
         ref="draftInput"
         v-model="ws.draft.value"
-        :placeholder="ws.draft.mode === 'new-dir' ? '文件夹名' : '文档名.md'"
+        :placeholder="ws.draft.mode === 'new-dir' ? $t('side.phFolder') : $t('side.phFile')"
         @keydown.enter.prevent="ws.commitDraft()"
         @keydown.esc="ws.cancelDraft()"
         @blur="ws.commitDraft()"

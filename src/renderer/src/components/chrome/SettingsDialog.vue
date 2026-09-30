@@ -1,21 +1,28 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount } from 'vue'
 import { useUiStore, type ThemePref } from '@/stores/ui'
+import type { LocalePref } from '@/i18n'
 
 /** 偏好设置弹层：所有改动即时生效并持久化（userData/config.json） */
 const ui = useUiStore()
 
-const THEMES: { key: ThemePref; label: string }[] = [
-  { key: 'system', label: '跟随系统' },
-  { key: 'light', label: '浅色' },
-  { key: 'dark', label: '深色' }
+const THEMES: { key: ThemePref; labelKey: string }[] = [
+  { key: 'system', labelKey: 'settings.thSystem' },
+  { key: 'light', labelKey: 'settings.thLight' },
+  { key: 'dark', labelKey: 'settings.thDark' }
 ]
 
-const INTERVALS: { ms: number; label: string }[] = [
-  { ms: 5000, label: '5 秒' },
-  { ms: 15000, label: '15 秒' },
-  { ms: 30000, label: '30 秒' },
-  { ms: 60000, label: '60 秒' }
+const LOCALES: { key: LocalePref; labelKey?: string; label?: string }[] = [
+  { key: 'system', labelKey: 'settings.lSystem' },
+  { key: 'zh-CN', label: '简体中文' },
+  { key: 'en', label: 'English' }
+]
+
+const INTERVALS: { ms: number; labelKey: string; n: number }[] = [
+  { ms: 5000, labelKey: 'settings.sec', n: 5 },
+  { ms: 15000, labelKey: 'settings.sec', n: 15 },
+  { ms: 30000, labelKey: 'settings.sec', n: 30 },
+  { ms: 60000, labelKey: 'settings.sec', n: 60 }
 ]
 
 function onKeydown(e: KeyboardEvent): void {
@@ -30,17 +37,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   <Teleport to="body">
     <Transition name="settings">
       <div v-if="ui.settingsOpen" class="mask" @click.self="ui.settingsOpen = false">
-        <section class="dialog" role="dialog" aria-label="偏好设置">
+        <section class="dialog" role="dialog" :aria-label="$t('settings.title')">
           <header class="dialog-head">
-            <h2>偏好设置</h2>
-            <button class="close" title="关闭 (Esc)" @click="ui.settingsOpen = false">✕</button>
+            <h2>{{ $t('settings.title') }}</h2>
+            <button class="close" :title="$t('settings.closeEsc')" @click="ui.settingsOpen = false">✕</button>
           </header>
 
           <div class="dialog-body">
             <!-- 外观 -->
-            <h3 class="group-title">外观</h3>
+            <h3 class="group-title">{{ $t('settings.gAppearance') }}</h3>
             <div class="row">
-              <span class="label">主题</span>
+              <span class="label">{{ $t('settings.theme') }}</span>
               <div class="segmented">
                 <button
                   v-for="t in THEMES"
@@ -48,15 +55,28 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   :class="{ on: ui.themePref === t.key }"
                   @click="ui.setThemePref(t.key)"
                 >
-                  {{ t.label }}
+                  {{ $t(t.labelKey) }}
+                </button>
+              </div>
+            </div>
+            <div class="row">
+              <span class="label">{{ $t('settings.language') }}</span>
+              <div class="segmented">
+                <button
+                  v-for="l in LOCALES"
+                  :key="l.key"
+                  :class="{ on: ui.localePref === l.key }"
+                  @click="ui.setLocalePref(l.key)"
+                >
+                  {{ l.labelKey ? $t(l.labelKey) : l.label }}
                 </button>
               </div>
             </div>
 
             <!-- 排版 -->
-            <h3 class="group-title">排版</h3>
+            <h3 class="group-title">{{ $t('settings.gLayout') }}</h3>
             <div class="row">
-              <span class="label">正文字号</span>
+              <span class="label">{{ $t('settings.fontSize') }}</span>
               <input
                 type="range"
                 min="12"
@@ -68,7 +88,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <span class="value">{{ ui.editorPrefs.fontSize }}px</span>
             </div>
             <div class="row">
-              <span class="label">行距</span>
+              <span class="label">{{ $t('settings.lineHeight') }}</span>
               <input
                 type="range"
                 min="1.4"
@@ -80,7 +100,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               <span class="value">{{ ui.editorPrefs.lineHeight.toFixed(1) }}</span>
             </div>
             <div class="row">
-              <span class="label">纸面宽度</span>
+              <span class="label">{{ $t('settings.pageWidth') }}</span>
               <input
                 type="range"
                 :min="ui.pageWidthMinPct"
@@ -91,12 +111,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               />
               <span class="value">{{ ui.editorPrefs.pageWidthPct }}%</span>
             </div>
-            <p class="row-hint">按可用宽度百分比缩放；{{ ui.pageWidthMinPct }}%–100%，100% 时只保留四周间距。</p>
+            <p class="row-hint">{{ $t('settings.pwHint', { min: ui.pageWidthMinPct }) }}</p>
 
             <!-- 启动 -->
-            <h3 class="group-title">启动</h3>
+            <h3 class="group-title">{{ $t('settings.gStartup') }}</h3>
             <div class="row">
-              <span class="label">恢复标签</span>
+              <span class="label">{{ $t('settings.restoreTabs') }}</span>
               <button
                 class="switch"
                 role="switch"
@@ -108,7 +128,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               </button>
             </div>
             <div class="row">
-              <span class="label">恢复文件夹</span>
+              <span class="label">{{ $t('settings.restoreFolders') }}</span>
               <button
                 class="switch"
                 role="switch"
@@ -119,33 +139,33 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 <i class="knob" />
               </button>
             </div>
-            <p class="row-hint">再次打开窗口时，恢复上次打开的文件标签与工作区文件夹。异常退出后下次启动会自动恢复全部内容（含未保存的修改）。</p>
+            <p class="row-hint">{{ $t('settings.startupHint') }}</p>
 
             <!-- 窗口 -->
-            <h3 class="group-title">窗口</h3>
+            <h3 class="group-title">{{ $t('settings.gWindow') }}</h3>
             <div class="row">
-              <span class="label">关闭按钮</span>
+              <span class="label">{{ $t('settings.closeAction') }}</span>
               <div class="segmented">
                 <button
                   :class="{ on: ui.closeAction === 'quit' }"
                   @click="ui.setCloseAction('quit')"
                 >
-                  退出程序
+                  {{ $t('settings.cQuit') }}
                 </button>
                 <button
                   :class="{ on: ui.closeAction === 'tray' }"
                   @click="ui.setCloseAction('tray')"
                 >
-                  最小化到托盘
+                  {{ $t('settings.cTray') }}
                 </button>
               </div>
             </div>
-            <p class="row-hint">「最小化到托盘」时点关闭仅隐藏窗口，从托盘图标重新打开或退出。</p>
+            <p class="row-hint">{{ $t('settings.closeHint') }}</p>
 
             <!-- 编辑 -->
-            <h3 class="group-title">编辑</h3>
+            <h3 class="group-title">{{ $t('settings.gEditor') }}</h3>
             <div class="row">
-              <span class="label">自动保存</span>
+              <span class="label">{{ $t('settings.autosave') }}</span>
               <button
                 class="switch"
                 role="switch"
@@ -157,7 +177,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
               </button>
             </div>
             <div class="row">
-              <span class="label">保存间隔</span>
+              <span class="label">{{ $t('settings.interval') }}</span>
               <div class="segmented">
                 <button
                   v-for="it in INTERVALS"
@@ -166,7 +186,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   :disabled="!ui.autosaveEnabled"
                   @click="ui.setAutosave({ intervalMs: it.ms })"
                 >
-                  {{ it.label }}
+                  {{ $t(it.labelKey, { n: it.n }) }}
                 </button>
               </div>
             </div>

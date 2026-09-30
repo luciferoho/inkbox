@@ -2,6 +2,9 @@ import { app, ipcMain } from 'electron'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defaultConfig, type AppConfig, type RecentFile } from '@shared/types'
+import { rebuildMenus, setLocale } from '../i18n'
+import { createMenu } from '../menu'
+import { retranslateTray } from '../tray'
 
 /** 简单 JSON 配置存储（userData/config.json），深度合并默认值 */
 let cache: AppConfig | null = null
@@ -67,5 +70,12 @@ export function registerConfigIpc(): void {
     }
     persist()
     return cache
+  })
+
+  /** 切换界面语言：主进程即刻生效并重建菜单/托盘（渲染层词典由 vue-i18n 自己切换） */
+  ipcMain.handle('app:setLocale', (_e, pref: AppConfig['locale']) => {
+    setLocale(pref)
+    rebuildMenus(createMenu)
+    retranslateTray()
   })
 }

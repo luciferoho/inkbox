@@ -205,7 +205,7 @@ onBeforeUnmount(() => {
 <template>
   <div ref="scroller" class="preview-scroll">
     <div v-if="html" ref="body" class="md-preview" v-html="html" />
-    <div v-else class="preview-empty">开始输入后，这里会实时渲染预览。</div>
+    <div v-else class="preview-empty">{{ $t('preview.empty') }}</div>
   </div>
 </template>
 

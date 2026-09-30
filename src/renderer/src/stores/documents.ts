@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { useUiStore } from './ui'
 import { useWorkspaceStore } from './workspace'
 import type { DetachDoc, DraftPayload } from '@shared/types'
+import { t } from '@/i18n'
 import sampleDoc from '@samples/示例.md?raw'
 
 /** 主页（欢迎页）标签的固定 id */
@@ -18,7 +19,7 @@ export interface DocTab {
 }
 
 function makeHomeTab(): DocTab {
-  return { id: HOME_ID, path: null, name: '主页', content: '', dirty: false, isHome: true }
+  return { id: HOME_ID, path: null, name: t('docs.home'), content: '', dirty: false, isHome: true }
 }
 
 let nextId = 1
@@ -100,7 +101,7 @@ export const useDocumentsStore = defineStore('documents', {
       const tab: DocTab = {
         id: nextId++,
         path: null,
-        name: `未命名-${n}`,
+        name: t('docs.untitled', { n }),
         content: '',
         dirty: false
       }
@@ -144,7 +145,7 @@ export const useDocumentsStore = defineStore('documents', {
       }
       // 跨窗口去重：文件已在别的窗口打开 → 激活那边，本窗口不开
       if ((await window.api.doc.tryOpen(path)) !== 'ok') {
-        useUiStore().showToast(`「${basename(path)}」已在另一个窗口打开`)
+        useUiStore().showToast(t('docs.openedElsewhere', { name: basename(path) }))
         return
       }
       try {
@@ -162,7 +163,7 @@ export const useDocumentsStore = defineStore('documents', {
         this.persistSession()
       } catch (err) {
         window.api.doc.release(path) // 打开失败：释放独占登记
-        useUiStore().showToast(`打开失败：${path}`)
+        useUiStore().showToast(t('docs.openFailed', { path }))
         console.error('[documents] open failed:', err)
       }
     },
@@ -196,7 +197,7 @@ export const useDocumentsStore = defineStore('documents', {
         const ui = useUiStore()
         ui.saveState = 'saved'
         ui.savedAt = Date.now()
-        ui.showToast(`已保存 ${tab.name}`)
+        ui.showToast(t('docs.saved', { name: tab.name }))
         // 保存 = 最近编辑，写入最近文件（新保存的文档也能出现在列表里）
         const cfg = await window.api.app.getConfig()
         const recent = [
@@ -206,7 +207,7 @@ export const useDocumentsStore = defineStore('documents', {
         await window.api.app.setConfig({ recent })
         this.persistSession()
       } catch (err) {
-        useUiStore().showToast(`保存失败：${tab.name}`)
+        useUiStore().showToast(t('docs.saveFailed', { name: tab.name }))
         console.error('[documents] save failed:', err)
       }
     },
@@ -221,8 +222,8 @@ export const useDocumentsStore = defineStore('documents', {
     async closeIfClean(tab: DocTab): Promise<boolean> {
       if (tab.isHome) return false
       if (tab.dirty) {
-        const ok = await useUiStore().askConfirm('未保存的修改', `「${tab.name}」有未保存的修改，确定关闭吗？`, {
-          okText: '放弃修改并关闭',
+        const ok = await useUiStore().askConfirm(t('docs.closeDirtyTitle'), t('docs.closeDirtyMsg', { name: tab.name }), {
+          okText: t('docs.discardClose'),
           danger: true
         })
         if (!ok) return false
@@ -318,7 +319,7 @@ export const useDocumentsStore = defineStore('documents', {
       try {
         disk = await window.api.fs.readFile(path)
       } catch {
-        ui.showToast(`文件已被外部删除或移动：${tab.name}`)
+        ui.showToast(t('docs.fileGone', { name: tab.name }))
         return
       }
       if (disk === tab.content) return // 自身自动保存或无实质变化
@@ -326,19 +327,19 @@ export const useDocumentsStore = defineStore('documents', {
         tab.content = disk
         tab.dirty = false
         ui.notifyReload()
-        ui.showToast(`已重新加载外部修改：${tab.name}`)
+        ui.showToast(t('docs.reloaded', { name: tab.name }))
         return
       }
       const ok = await ui.askConfirm(
-        '文件已被外部修改',
-        `「${tab.name}」在磁盘上已被其他程序修改。\n重新加载将覆盖当前未保存的修改。`,
-        { okText: '重新加载', danger: true }
+        t('docs.extTitle'),
+        t('docs.extMsg', { name: tab.name }),
+        { okText: t('docs.reload'), danger: true }
       )
       if (ok) {
         tab.content = disk
         tab.dirty = false
         ui.notifyReload()
-        ui.showToast(`已重新加载外部修改：${tab.name}`)
+        ui.showToast(t('docs.reloaded', { name: tab.name }))
       }
     },
 
@@ -363,7 +364,7 @@ export const useDocumentsStore = defineStore('documents', {
       }
       if (last >= 0) {
         this.activeId = last
-        useUiStore().showToast(`已恢复 ${list.length} 份未保存的内容`)
+        useUiStore().showToast(t('docs.draftsRestoredN', { n: list.length }))
       }
     },
 

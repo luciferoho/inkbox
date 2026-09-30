@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, nativeImage, Tray } from 'electron'
 import { join } from 'node:path'
+import { m } from './i18n'
 
 /**
  * 托盘：常驻图标（打开墨匣 / 退出）+ 应用退出生命周期标志。
@@ -42,21 +43,28 @@ function trayImage(): Electron.NativeImage {
   return nativeImage.createFromPath(p).resize({ width: 16, height: 16 })
 }
 
+function trayMenu(): Electron.Menu {
+  return Menu.buildFromTemplate([
+    { label: m('trayOpen'), click: () => showMainWindow() },
+    { type: 'separator' },
+    {
+      label: m('trayQuit'),
+      click: () => quitFromTray()
+    }
+  ])
+}
+
 export function createTray(): void {
-  if (tray) return
-  tray = new Tray(trayImage())
-  tray.setToolTip('墨匣 Inkbox · 落笔即章')
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: '打开墨匣', click: () => showMainWindow() },
-      { type: 'separator' },
-      {
-        label: '退出',
-        click: () => quitFromTray()
-      }
-    ])
-  )
+  if (!tray) tray = new Tray(trayImage())
+  retranslateTray()
   tray.on('click', () => showMainWindow())
+}
+
+/** 语言切换后刷新托盘提示与菜单文案 */
+export function retranslateTray(): void {
+  if (!tray) return
+  tray.setToolTip(m('trayTooltip'))
+  tray.setContextMenu(trayMenu())
 }
 
 /**

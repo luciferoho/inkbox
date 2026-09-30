@@ -1,4 +1,5 @@
 import { app } from 'electron'
+import { m } from './i18n'
 
 /**
  * 自动更新（GitHub Releases）：electron-builder.yml 的 publish 指向实际仓库、
@@ -13,8 +14,8 @@ export function initAutoUpdate(): void {
       autoUpdater.autoDownload = true
       autoUpdater.autoInstallOnAppQuit = true
       const r = await autoUpdater.checkForUpdatesAndNotify({
-        title: '墨匣 Inkbox',
-        body: '新版本已就绪，退出应用后自动安装'
+        title: m('updateTitle'),
+        body: m('updateBody')
       })
       if (r?.updateInfo) console.log('[updater] current:', r.updateInfo.version)
     } catch (err) {

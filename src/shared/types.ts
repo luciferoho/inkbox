@@ -1,6 +1,8 @@
 /** 应用配置（userData/config.json 持久化） */
 export interface AppConfig {
   theme: 'light' | 'dark' | 'system'
+  /** 界面语言：system = 跟随系统；主进程菜单/托盘与渲染层同步切换 */
+  locale: 'system' | 'zh-CN' | 'en'
   editor: {
     fontSize: number
     lineHeight: number
@@ -31,6 +33,7 @@ export interface RecentFile {
 
 export const defaultConfig: AppConfig = {
   theme: 'system',
+  locale: 'system',
   editor: { fontSize: 16, lineHeight: 1.7, pageWidthPct: 80 },
   autosave: { enabled: true, intervalMs: 15000 },
   restoreTabs: true,

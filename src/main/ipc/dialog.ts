@@ -1,15 +1,15 @@
 import { ipcMain, dialog, BrowserWindow, type IpcMainInvokeEvent } from 'electron'
 import type { OpenDialogOptions, SaveDialogOptions } from 'electron'
+import { m } from '../i18n'
 
-const MD_OPEN_FILTERS = [
-  { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'txt'] },
-  { name: '所有文件', extensions: ['*'] }
-]
-
-const SAVE_FILTERS: Record<string, { name: string; extensions: string[] }[]> = {
-  md: MD_OPEN_FILTERS.slice(0, 1),
-  html: [{ name: 'HTML', extensions: ['html'] }]
+function mdOpenFilters(): { name: string; extensions: string[] }[] {
+  return [
+    { name: 'Markdown', extensions: ['md', 'markdown', 'mdown', 'txt'] },
+    { name: m('dlgAllFiles'), extensions: ['*'] }
+  ]
 }
+
+const SAVE_KINDS: Record<string, string> = { md: 'Markdown', html: 'HTML' }
 
 function parentWindow(e: IpcMainInvokeEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(e.sender)
@@ -19,9 +19,9 @@ export function registerDialogIpc(): void {
   ipcMain.handle('dialog:openFile', async (e): Promise<string | null> => {
     const win = parentWindow(e)
     const opts: OpenDialogOptions = {
-      title: '打开 Markdown 文件',
+      title: m('dlgOpenMd'),
       properties: ['openFile'],
-      filters: MD_OPEN_FILTERS
+      filters: mdOpenFilters()
     }
     const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
     return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
@@ -30,7 +30,7 @@ export function registerDialogIpc(): void {
   ipcMain.handle('dialog:openFolder', async (e): Promise<string | null> => {
     const win = parentWindow(e)
     const opts: OpenDialogOptions = {
-      title: '打开文件夹作为工作区',
+      title: m('dlgOpenFolder'),
       properties: ['openDirectory']
     }
     const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
@@ -39,12 +39,17 @@ export function registerDialogIpc(): void {
 
   ipcMain.handle(
     'dialog:saveFile',
-    async (e, defaultName = '未命名.md', kind: 'md' | 'html' = 'md'): Promise<string | null> => {
+    async (e, defaultName?: string, kind: 'md' | 'html' = 'md'): Promise<string | null> => {
       const win = parentWindow(e)
       const opts: SaveDialogOptions = {
-        title: kind === 'html' ? '导出 HTML' : '保存 Markdown 文件',
-        defaultPath: defaultName,
-        filters: SAVE_FILTERS[kind] ?? SAVE_FILTERS.md
+        title: kind === 'html' ? m('dlgExportHtml') : m('dlgSaveMd'),
+        defaultPath: defaultName ?? m('dlgUntitledMd'),
+        filters: [
+          {
+            name: SAVE_KINDS[kind] ?? 'Markdown',
+            extensions: kind === 'html' ? ['html'] : ['md', 'markdown', 'mdown', 'txt']
+          }
+        ]
       }
       const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
       return r.canceled || !r.filePath ? null : r.filePath

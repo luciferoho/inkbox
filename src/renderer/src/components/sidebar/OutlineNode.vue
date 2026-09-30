@@ -40,7 +40,7 @@ const emit = defineEmits<{
         <path d="M2.5 1.5L7.5 5l-5 3.5z" fill="currentColor" />
       </svg>
       <i v-else class="tick" />
-      <span class="name">{{ node.text || '（无标题文字）' }}</span>
+      <span class="name">{{ node.text || $t('outline.untitled') }}</span>
     </button>
 
     <template v-if="node.children.length && !collapsed.has(node.line)">

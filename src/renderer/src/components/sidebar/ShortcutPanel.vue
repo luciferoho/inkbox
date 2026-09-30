@@ -1,54 +1,56 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useUiStore } from '@/stores/ui'
+import { t } from '@/i18n'
 
 /** 右侧快捷键面板：墨脊键盘图标开关，宽度过渡折叠/展开 */
 const ui = useUiStore()
 
-const GROUPS: { title: string; items: { k: string; d: string }[] }[] = [
+const GROUPS = computed<{ title: string; items: { k: string; d: string }[] }[]>(() => [
   {
-    title: '常用',
+    title: t('sc.gCommon'),
     items: [
-      { k: 'Ctrl+N', d: '新建文档' },
-      { k: 'Ctrl+O', d: '打开文件' },
-      { k: 'Ctrl+Shift+O', d: '打开文件夹' },
-      { k: 'Ctrl+S', d: '保存' },
-      { k: 'Ctrl+Shift+S', d: '另存为' },
-      { k: 'Ctrl+E', d: '导出 HTML / PDF' },
-      { k: 'Ctrl+W', d: '关闭标签页' },
-      { k: 'Ctrl+Tab / Ctrl+Shift+Tab', d: '下一 / 上一标签' },
-      { k: 'Ctrl+\\', d: '折叠/展开侧栏' },
-      { k: 'Ctrl+,', d: '偏好设置' }
+      { k: 'Ctrl+N', d: t('sc.newDoc') },
+      { k: 'Ctrl+O', d: t('sc.openFile') },
+      { k: 'Ctrl+Shift+O', d: t('sc.openFolder') },
+      { k: 'Ctrl+S', d: t('sc.save') },
+      { k: 'Ctrl+Shift+S', d: t('sc.saveAs') },
+      { k: 'Ctrl+E', d: t('sc.export') },
+      { k: 'Ctrl+W', d: t('sc.closeTab') },
+      { k: 'Ctrl+Tab / Ctrl+Shift+Tab', d: t('sc.cycleTab') },
+      { k: 'Ctrl+\\', d: t('sc.toggleSidebar') },
+      { k: 'Ctrl+,', d: t('sc.settings') }
     ]
   },
   {
-    title: '编辑与格式',
+    title: t('sc.gEdit'),
     items: [
-      { k: 'Ctrl+F', d: '查找替换' },
-      { k: 'Ctrl+B', d: '粗体' },
-      { k: 'Ctrl+I', d: '斜体' },
-      { k: 'Ctrl+K', d: '链接' },
-      { k: 'Ctrl+Shift+X', d: '删除线' },
-      { k: 'Ctrl+Shift+C', d: '行内代码' },
-      { k: 'Ctrl+= / Ctrl+-', d: '标题升级 / 降级' },
-      { k: 'F8 / F9', d: '专注 / 打字机模式' }
+      { k: 'Ctrl+F', d: t('sc.find') },
+      { k: 'Ctrl+B', d: t('sc.bold') },
+      { k: 'Ctrl+I', d: t('sc.italic') },
+      { k: 'Ctrl+K', d: t('sc.link') },
+      { k: 'Ctrl+Shift+X', d: t('sc.strike') },
+      { k: 'Ctrl+Shift+C', d: t('sc.inlineCode') },
+      { k: 'Ctrl+= / Ctrl+-', d: t('sc.heading') },
+      { k: 'F8 / F9', d: t('sc.focusTypewriter') }
     ]
   },
   {
-    title: '即显模式 · 代码块',
+    title: t('sc.gWysiwyg'),
     items: [
-      { k: 'Tab / Shift+Tab', d: '缩进 / 反缩进' },
-      { k: 'Esc', d: '退出代码块' },
-      { k: 'Ctrl+Enter', d: '代码块后接续正文' }
+      { k: 'Tab / Shift+Tab', d: t('sc.indent') },
+      { k: 'Esc', d: t('sc.exitCode') },
+      { k: 'Ctrl+Enter', d: t('sc.afterCode') }
     ]
   }
-]
+])
 </script>
 
 <template>
   <aside class="sc-panel">
     <div class="sc-head">
-      <span class="sc-heading">快捷键</span>
-      <button class="collapse-btn" title="收起面板" @click="ui.toggleShortcutPanel()">
+      <span class="sc-heading">{{ $t('sc.title') }}</span>
+      <button class="collapse-btn" :title="$t('sc.collapse')" @click="ui.toggleShortcutPanel()">
         <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
           <path d="M3.5 1.5L7 5l-3.5 3.5" />
         </svg>

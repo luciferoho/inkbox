@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import type { AppConfig } from '@shared/types'
 import App from './App.vue'
+import { i18n } from './i18n'
 import './assets/base.css'
 
 /**
@@ -13,6 +14,7 @@ function installBrowserMock(): void {
   // config 持久化到 localStorage：浏览器里验证设置开关跨重载生效
   const cfg: AppConfig = {
     theme: 'light' as const,
+    locale: 'system' as const,
     editor: { fontSize: 16, lineHeight: 1.7, pageWidthPct: 80 },
     autosave: { enabled: true, intervalMs: 15000 },
     restoreTabs: true,
@@ -143,7 +145,8 @@ function installBrowserMock(): void {
         Object.assign(cfg, patch)
         localStorage.setItem('mock-cfg', JSON.stringify(cfg))
         return cfg as AppConfig
-      }
+      },
+      setLocale: async () => undefined
     },
     win: {
       minimize: () => undefined,
@@ -196,4 +199,4 @@ function installBrowserMock(): void {
 
 if (!window.api) installBrowserMock()
 
-createApp(App).use(createPinia()).mount('#app')
+createApp(App).use(createPinia()).use(i18n).mount('#app')

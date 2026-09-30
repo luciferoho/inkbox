@@ -7,6 +7,8 @@ import { createMenu } from './menu'
 import { registerIpcHandlers } from './ipc'
 import { createTray, markQuitting, resetQuitting, showMainWindow } from './tray'
 import { initAutoUpdate } from './updater'
+import { applyLocaleFromConfig } from './i18n'
+import { getConfig } from './ipc/config'
 import { detectAbnormalExitAndMark, markCleanExit } from './session'
 
 // 单实例：再次点击桌面图标/启动应用时，聚焦现有窗口而不是开新窗口
@@ -41,6 +43,8 @@ if (!gotLock) {
     migrateLegacyConfig()
     // 先检测上次是否异常退出（崩溃/强杀），再留下本次运行锁
     detectAbnormalExitAndMark()
+    // 语言偏好要在创建菜单/托盘之前生效
+    applyLocaleFromConfig(() => getConfig().locale ?? 'system')
     registerIpcHandlers()
 
     // 本地图片协议：预览里的相对路径图片映射为 luci-img://<绝对路径>

@@ -59,6 +59,7 @@ interface Window {
     app: {
       getConfig(): Promise<import('@shared/types').AppConfig>
       setConfig(patch: Partial<import('@shared/types').AppConfig>): Promise<import('@shared/types').AppConfig>
+      setLocale(locale: import('@shared/types').AppConfig['locale']): Promise<void>
     }
     win: {
       minimize(): void

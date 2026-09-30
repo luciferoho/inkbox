@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
 import { textStats } from '@/utils/text'
+import { t } from '@/i18n'
 
 const ui = useUiStore()
 const docs = useDocumentsStore()
@@ -14,10 +15,12 @@ const docOpen = computed(() => !!docs.active && !docs.active.isHome)
 /** 保存状态：未保存 / 已保存 HH:mm:ss（实时反映，替代易过期的文本提示） */
 const saveLabel = computed(() => {
   if (!docOpen.value || ui.saveState === 'clean') return ''
-  if (ui.saveState === 'dirty') return '未保存'
-  const t = new Date(ui.savedAt)
+  if (ui.saveState === 'dirty') return t('status.unsaved')
+  const time = new Date(ui.savedAt)
   const pad = (n: number): string => String(n).padStart(2, '0')
-  return `已保存 ${pad(t.getHours())}:${pad(t.getMinutes())}:${pad(t.getSeconds())}`
+  return t('status.savedAt', {
+    time: `${pad(time.getHours())}:${pad(time.getMinutes())}:${pad(time.getSeconds())}`
+  })
 })
 </script>
 
@@ -29,34 +32,34 @@ const saveLabel = computed(() => {
       </span>
       <template v-if="docOpen">
         <span class="sep">·</span>
-        <span :title="`第 ${ui.currentLine} 行`">{{ stats.words.toLocaleString() }} 词</span>
+        <span :title="t('status.lineTitle', { n: ui.currentLine })">{{ t('status.words', { n: stats.words.toLocaleString() }) }}</span>
         <span class="sep">·</span>
-        <span>{{ stats.chars.toLocaleString() }} 字符</span>
+        <span>{{ t('status.chars', { n: stats.chars.toLocaleString() }) }}</span>
         <span class="sep">·</span>
-        <span>{{ stats.minutes ? `约 ${stats.minutes} 分钟` : '—' }}</span>
+        <span>{{ stats.minutes ? t('status.readMin', { n: stats.minutes }) : '—' }}</span>
       </template>
     </div>
     <div class="right">
       <button
         class="badge toggle"
         :class="{ on: ui.focusMode }"
-        title="专注模式 (F8)"
+        :title="$t('status.focusTitle')"
         @click="ui.toggleFocus()"
       >
-        专注
+        {{ $t('status.focus') }}
       </button>
       <button
         class="badge toggle"
         :class="{ on: ui.typewriterMode }"
-        title="打字机模式 (F9)"
+        :title="$t('status.typewriterTitle')"
         @click="ui.toggleTypewriter()"
       >
-        打字机
+        {{ $t('status.typewriter') }}
       </button>
       <span class="badge">Markdown</span>
       <span class="badge">UTF-8</span>
       <span class="badge" :class="{ ok: ui.autosaveEnabled }">
-        <i class="pip" />{{ ui.autosaveEnabled ? '自动保存' : '自动保存已关' }}
+        <i class="pip" />{{ ui.autosaveEnabled ? $t('status.autosaveOn') : $t('status.autosaveOff') }}
       </span>
     </div>
   </footer>

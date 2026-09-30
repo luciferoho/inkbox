@@ -3,6 +3,7 @@ import { computed, reactive } from 'vue'
 import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { t } from '@/i18n'
 import { parseOutline, type OutlineItem } from '@/services/markdown'
 import OutlineNode, { type OutlineTreeNode } from './OutlineNode.vue'
 import FileTreeNode from './FileTreeNode.vue'
@@ -70,7 +71,7 @@ async function openFolder(): Promise<void> {
 /** 关闭工作区：清空文件树（已打开的标签保留），会话快照同步清除文件夹记录 */
 function closeWorkspace(): void {
   ws.closeFolder()
-  ui.showToast('已关闭工作区')
+  ui.showToast(t('ws.closed'))
 }
 </script>
 
@@ -78,20 +79,20 @@ function closeWorkspace(): void {
   <aside class="panel">
     <div
       class="resize-handle"
-      title="拖动调整宽度 · 双击折叠"
+      :title="$t('side.resizeHint')"
       @pointerdown="onResizeStart"
       @dblclick="ui.toggleSidebar()"
     />
     <div class="panel-head">
       <div class="segmented">
         <button :class="{ on: ui.sidebarMode === 'outline' }" @click="ui.setSidebarMode('outline')">
-          大纲
+          {{ $t('side.outline') }}
         </button>
         <button :class="{ on: ui.sidebarMode === 'files' }" @click="ui.setSidebarMode('files')">
-          工作区
+          {{ $t('side.files') }}
         </button>
       </div>
-      <button class="collapse-btn" title="折叠侧栏 (Ctrl+\)" @click="ui.toggleSidebar()">
+      <button class="collapse-btn" :title="$t('side.collapse')" @click="ui.toggleSidebar()">
         <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
           <path d="M6.5 1.5L3 5l3.5 3.5" />
         </svg>
@@ -102,11 +103,11 @@ function closeWorkspace(): void {
       <!-- 大纲 -->
       <template v-if="ui.sidebarMode === 'outline'">
         <div v-if="!docs.active" class="empty">
-          <p>打开文档后，这里会显示标题结构树。</p>
+          <p>{{ $t('side.outlineEmpty') }}</p>
         </div>
         <div v-else-if="outline.length === 0" class="empty">
-          <p>文档中还没有标题。</p>
-          <p class="hint-tip">用 <kbd>#</kbd> 到 <kbd>######</kbd> 创建标题，或 <kbd>Ctrl</kbd>+<kbd>=</kbd> 提升标题级别。</p>
+          <p>{{ $t('side.outlineNoHeadings') }}</p>
+          <p class="hint-tip" v-html="$t('side.outlineHint')" />
         </div>
         <nav v-else class="outline">
           <OutlineNode
@@ -125,8 +126,8 @@ function closeWorkspace(): void {
       <!-- 文件树 -->
       <template v-else>
         <div v-if="!ws.root" class="empty">
-          <p>将文件夹设为工作区，在此浏览与管理笔记。</p>
-          <button class="mini-btn" @click="openFolder">打开文件夹</button>
+          <p>{{ $t('side.filesEmpty') }}</p>
+          <button class="mini-btn" @click="openFolder">{{ $t('side.openFolder') }}</button>
         </div>
         <template v-else>
           <div class="ws-root" :title="ws.root">
@@ -135,24 +136,24 @@ function closeWorkspace(): void {
             </svg>
             <span class="ws-name">{{ ws.root.split(/[\\/]/).pop() }}</span>
             <span class="ws-acts" @click.stop>
-              <button class="ws-act" title="新建文档" @click="ws.beginCreate(ws.root, false)">
+              <button class="ws-act" :title="$t('side.newDoc')" @click="ws.beginCreate(ws.root, false)">
                 <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
                   <path d="M7 3v8M3 7h8" />
                 </svg>
               </button>
-              <button class="ws-act" title="新建文件夹" @click="ws.beginCreate(ws.root, true)">
+              <button class="ws-act" :title="$t('side.newFolder')" @click="ws.beginCreate(ws.root, true)">
                 <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
                   <path d="M2.5 5.5a1.5 1.5 0 0 1 1.5-1.5h3.2l1.6 2H16a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5z" />
                   <path d="M10.5 8.5v5M8 11h5" stroke-linecap="round" />
                 </svg>
               </button>
-              <button class="ws-act" title="打开其他文件夹" @click="openFolder">
+              <button class="ws-act" :title="$t('side.openOther')" @click="openFolder">
                 <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
                   <path d="M2.5 5.5a1.5 1.5 0 0 1 1.5-1.5h3.2l1.6 2H16a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 1 16 16H4a1.5 1.5 0 0 1-1.5-1.5z" />
                   <path d="M10.5 9.5h5M13 7v5" stroke-linecap="round" />
                 </svg>
               </button>
-              <button class="ws-act" title="关闭工作区（保留已打开的标签）" @click="closeWorkspace">
+              <button class="ws-act" :title="$t('side.closeWs')" @click="closeWorkspace">
                 <svg viewBox="0 0 10 10" width="10" height="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
                   <path d="M1 1l8 8M9 1L1 9" />
                 </svg>
@@ -161,7 +162,7 @@ function closeWorkspace(): void {
           </div>
           <div v-if="ws.draft && ws.draft.mode !== 'rename' && ws.draft.parentPath === ws.root" class="draft-row">
             <input
-              :placeholder="ws.draft.mode === 'new-dir' ? '文件夹名' : '文档名.md'"
+              :placeholder="ws.draft.mode === 'new-dir' ? $t('side.phFolder') : $t('side.phFile')"
               :value="ws.draft.value"
               autofocus
               @input="ws.draft && (ws.draft.value = ($event.target as HTMLInputElement).value)"

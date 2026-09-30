@@ -1,0 +1,248 @@
+import type { MsgSchema } from './zh-CN'
+
+/** 英文词典：类型约束为与 zh-CN 逐键对齐（缺键/多键都在编译期报错） */
+export const en: MsgSchema = {
+  // Common
+  'common.ok': 'OK',
+  'common.cancel': 'Cancel',
+  'common.on': 'On',
+  'common.off': 'Off',
+  'common.close': 'Close',
+  'common.delete': 'Delete',
+
+  // App-level (App.vue)
+  'app.exportNoDoc': 'Open a document first to export it',
+  'app.draftsRestored': 'Recovered from an abnormal exit — restored {n} unsaved document(s)',
+  'app.closeTitle': 'Unsaved documents',
+  'app.closeMsg': '{n} document(s) have unsaved changes. Your content has been backed up.',
+  'app.discard': 'Discard & exit',
+  'app.saveQuit': 'Save & exit',
+
+  // Documents store
+  'docs.home': 'Home',
+  'docs.untitled': 'Untitled-{n}',
+  'docs.saved': 'Saved {name}',
+  'docs.saveFailed': 'Failed to save {name}',
+  'docs.openFailed': 'Failed to open: {path}',
+  'docs.openedElsewhere': '“{name}” is already open in another window',
+  'docs.closeDirtyTitle': 'Unsaved changes',
+  'docs.closeDirtyMsg': '“{name}” has unsaved changes. Close anyway?',
+  'docs.discardClose': 'Discard & close',
+  'docs.fileGone': 'The file was deleted or moved elsewhere: {name}',
+  'docs.reloaded': 'Reloaded external changes: {name}',
+  'docs.extTitle': 'File changed on disk',
+  'docs.extMsg':
+    '“{name}” was modified by another program.\nReloading will overwrite your unsaved changes.',
+  'docs.reload': 'Reload',
+  'docs.draftsRestoredN': 'Restored {n} unsaved document(s)',
+
+  // UI store
+  'ui.ready': 'Ready',
+  'ui.focusOn': 'Focus mode on (F8 to turn off)',
+  'ui.focusOff': 'Focus mode off',
+  'ui.typewriterOn': 'Typewriter mode on (F9 to turn off)',
+  'ui.typewriterOff': 'Typewriter mode off',
+
+  // Workspace store
+  'ws.newFolderDefault': 'New Folder',
+  'ws.newFileDefault': 'Untitled.md',
+  'ws.opFailed': 'Operation failed (an item with the same name may exist)',
+  'ws.delTitle': 'Confirm delete',
+  'ws.delDirMsg': 'Delete this folder and everything in it?\n{path}',
+  'ws.delFileMsg': 'Delete “{name}”?\n{path}',
+  'ws.deleted': 'Deleted',
+  'ws.delFailed': 'Delete failed',
+  'ws.closed': 'Workspace closed',
+
+  // Title bar
+  'titlebar.brand': 'Inkbox',
+  'titlebar.dirty': 'Unsaved',
+  'titlebar.tagline': 'Inkbox · Write, flow',
+  'titlebar.minimize': 'Minimize',
+  'titlebar.maximize': 'Maximize',
+  'titlebar.restore': 'Restore',
+  'titlebar.close': 'Close',
+
+  // Tabs bar
+  'tabs.home': 'Home',
+  'tabs.dirty': 'Unsaved',
+  'tabs.new': 'New document (Ctrl+N)',
+  'tabs.ctxClose': 'Close tab',
+  'tabs.ctxDetach': 'Move to new window',
+  'tabs.ctxCloseLeft': 'Close left ({n})',
+  'tabs.ctxCloseRight': 'Close right ({n})',
+  'tabs.ctxCloseOthers': 'Close others',
+  'tabs.ctxCloseAll': 'Close all',
+  'tabs.detached': 'Opened “{name}” in a new window',
+
+  // Status bar
+  'status.unsaved': 'Unsaved',
+  'status.savedAt': 'Saved {time}',
+  'status.words': '{n} words',
+  'status.chars': '{n} chars',
+  'status.readMin': '{n} min read',
+  'status.focus': 'Focus',
+  'status.typewriter': 'Typewriter',
+  'status.focusTitle': 'Focus mode (F8)',
+  'status.typewriterTitle': 'Typewriter mode (F9)',
+  'status.autosaveOn': 'Autosave',
+  'status.autosaveOff': 'Autosave off',
+  'status.lineTitle': 'Line {n}',
+
+  // Welcome page
+  'welcome.hero': 'Write, flow',
+  'welcome.sub': 'Inkbox Paper · real-time Markdown editor',
+  'welcome.newDoc': 'New document',
+  'welcome.openFile': 'Open file',
+  'welcome.openFolder': 'Open folder',
+  'welcome.sample': 'Feature tour',
+  'welcome.recent': 'Recent',
+  'welcome.recentEmpty1': 'No recent documents yet',
+  'welcome.recentEmpty2': 'Documents you open or save will appear here',
+  'welcome.removeRecent': 'Remove from recent list (keeps the file)',
+  'welcome.removedRecent': 'Removed from recent list',
+  'welcome.justNow': 'Just now',
+  'welcome.minAgo': '{n} min ago',
+  'welcome.hourAgo': '{n} h ago',
+  'welcome.dayAgo': '{n} d ago',
+  'welcome.unsavedPath': 'Not saved to disk yet',
+
+  // Editor modes
+  'mode.wysiwyg': 'Live',
+  'mode.edit': 'Edit',
+  'mode.split': 'Split',
+  'mode.preview': 'Preview',
+  'mode.tipWysiwyg': 'WYSIWYG (instant rendering)',
+  'mode.tipEdit': 'Source mode',
+  'mode.tipSplit': 'Source + preview',
+  'mode.tipPreview': 'Preview only',
+
+  // Side panel
+  'side.outline': 'Outline',
+  'side.files': 'Files',
+  'side.collapse': 'Collapse sidebar (Ctrl+\\)',
+  'side.resizeHint': 'Drag to resize · double-click to collapse',
+  'side.outlineEmpty': 'Open a document to see its heading tree here.',
+  'side.outlineNoHeadings': 'No headings in this document.',
+  'side.outlineHint':
+    'Use <kbd>#</kbd> to <kbd>######</kbd> for headings, or <kbd>Ctrl</kbd>+<kbd>=</kbd> to promote one.',
+  'side.filesEmpty': 'Set a folder as workspace to browse and manage notes here.',
+  'side.openFolder': 'Open folder',
+  'side.newDoc': 'New document',
+  'side.newFolder': 'New folder',
+  'side.openOther': 'Open another folder',
+  'side.closeWs': 'Close workspace (keeps open tabs)',
+  'side.phFolder': 'Folder name',
+  'side.phFile': 'Document.md',
+
+  // Editor (source mode)
+  'editor.saveFirstForImage': 'Save the document before pasting images',
+  'editor.imageSaveFailed': 'Failed to save image: {name}',
+  'editor.imagesInserted': 'Inserted {n} image(s) into {dir}/',
+
+  // Outline node / file tree node
+  'outline.untitled': '(untitled)',
+  'tree.rename': 'Rename',
+
+  // Shortcut panel
+  'sc.title': 'Shortcuts',
+  'sc.collapse': 'Collapse panel',
+  'sc.gCommon': 'General',
+  'sc.gEdit': 'Editing & formatting',
+  'sc.gWysiwyg': 'Live mode · code blocks',
+  'sc.newDoc': 'New document',
+  'sc.openFile': 'Open file',
+  'sc.openFolder': 'Open folder',
+  'sc.save': 'Save',
+  'sc.saveAs': 'Save as',
+  'sc.export': 'Export HTML / PDF',
+  'sc.closeTab': 'Close tab',
+  'sc.cycleTab': 'Next / previous tab',
+  'sc.toggleSidebar': 'Toggle sidebar',
+  'sc.settings': 'Preferences',
+  'sc.find': 'Find & replace',
+  'sc.bold': 'Bold',
+  'sc.italic': 'Italic',
+  'sc.link': 'Link',
+  'sc.strike': 'Strikethrough',
+  'sc.inlineCode': 'Inline code',
+  'sc.heading': 'Promote / demote heading',
+  'sc.focusTypewriter': 'Focus / typewriter mode',
+  'sc.indent': 'Indent / outdent',
+  'sc.exitCode': 'Leave code block',
+  'sc.afterCode': 'Continue prose after code block',
+
+  // Activity rail
+  'rail.outline': 'Outline',
+  'rail.files': 'Files',
+  'rail.search': 'Search',
+  'rail.theme': 'Toggle theme (Ctrl+Alt+T)',
+  'rail.shortcuts': 'Keyboard shortcuts',
+  'rail.settings': 'Preferences (Ctrl+,)',
+
+  // Image viewer
+  'viewer.hint': 'Scroll to zoom · drag to pan · double-click to reset · Esc to close',
+  'viewer.close': 'Close (Esc)',
+
+  // Preview
+  'preview.empty': 'Start typing to see the live preview here.',
+
+  // Export dialog
+  'export.title': 'Export document',
+  'export.fileName': 'File name',
+  'export.nameRequired': 'Please enter a file name',
+  'export.format': 'Format',
+  'export.margin': 'Margins',
+  'export.mNormal': 'Normal',
+  'export.mNarrow': 'Narrow',
+  'export.mNone': 'None',
+  'export.orient': 'Orientation',
+  'export.portrait': 'Portrait',
+  'export.landscape': 'Landscape',
+  'export.pageNumbers': 'Page numbers',
+  'export.hintHtml':
+    'Single-file HTML: styles, formula fonts and local images are all inlined — ready to share.',
+  'export.hintPdf':
+    'A4 PDF via the print pipeline, keeping code blocks and diagrams; page numbers reserve bottom space.',
+  'export.do': 'Export',
+  'export.doing': 'Exporting…',
+  'export.generating': 'Generating preview…',
+  'export.previewFailed': 'Preview failed — try again or adjust the settings',
+  'export.nothingToPreview': 'Nothing to preview',
+  'export.preparing': 'Preparing preview…',
+  'export.pagesHint': 'Previewing first {n} of {total} pages',
+  'export.savedHtml': 'HTML exported: {name}',
+  'export.savedPdf': 'PDF exported: {name}',
+  'export.emptyDoc': 'Nothing to export in an empty document',
+  'export.failedRetry': 'Export failed — please try again',
+
+  // Settings
+  'settings.title': 'Preferences',
+  'settings.closeEsc': 'Close (Esc)',
+  'settings.gAppearance': 'Appearance',
+  'settings.gLayout': 'Typography',
+  'settings.gStartup': 'Startup',
+  'settings.gWindow': 'Window',
+  'settings.gEditor': 'Editing',
+  'settings.theme': 'Theme',
+  'settings.thSystem': 'System',
+  'settings.thLight': 'Light',
+  'settings.thDark': 'Dark',
+  'settings.language': 'Language',
+  'settings.lSystem': 'System',
+  'settings.fontSize': 'Body size',
+  'settings.lineHeight': 'Line height',
+  'settings.pageWidth': 'Paper width',
+  'settings.pwHint': 'Scaled as a percentage of available width; {min}%–100%. 100% keeps only outer spacing.',
+  'settings.restoreTabs': 'Restore tabs',
+  'settings.restoreFolders': 'Restore folder',
+  'settings.startupHint':
+    'Reopen the tabs and workspace folder from your last session. After an abnormal exit everything is restored automatically (unsaved changes included).',
+  'settings.closeAction': 'Close button',
+  'settings.cQuit': 'Quit app',
+  'settings.cTray': 'Minimize to tray',
+  'settings.closeHint': 'With “minimize to tray”, closing only hides the window — reopen or quit from the tray icon.',
+  'settings.autosave': 'Autosave',
+  'settings.interval': 'Interval',
+  'settings.sec': '{n} s'
+}

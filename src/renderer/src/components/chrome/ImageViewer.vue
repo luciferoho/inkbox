@@ -83,8 +83,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       @pointerup="onPointerUp"
     >
       <img :src="ui.viewerImage" draggable="false" :style="{ transform }" alt="" />
-      <div class="hint">滚轮缩放 · 拖拽移动 · 双击复位 · Esc 关闭</div>
-      <button class="close-btn" title="关闭 (Esc)" @click="close">✕</button>
+      <div class="hint">{{ $t('viewer.hint') }}</div>
+      <button class="close-btn" :title="$t('viewer.close')" @click="close">✕</button>
     </div>
   </Teleport>
 </template>

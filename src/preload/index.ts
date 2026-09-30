@@ -96,7 +96,10 @@ const api = {
   app: {
     getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('app:getConfig'),
     setConfig: (patch: Partial<AppConfig>): Promise<AppConfig> =>
-      ipcRenderer.invoke('app:setConfig', patch)
+      ipcRenderer.invoke('app:setConfig', patch),
+    /** 切换界面语言：主进程同步重建菜单/托盘文案 */
+    setLocale: (locale: AppConfig['locale']): Promise<void> =>
+      ipcRenderer.invoke('app:setLocale', locale)
   },
   win: {
     minimize: (): void => ipcRenderer.send('win:minimize'),

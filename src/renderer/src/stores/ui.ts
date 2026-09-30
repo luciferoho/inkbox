@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import type { AppConfig } from '@shared/types'
+import { i18n, resolveLocale, t, type LocalePref } from '@/i18n'
 
 export type ThemePref = 'light' | 'dark' | 'system'
 export type SidebarMode = 'outline' | 'files'
@@ -9,6 +10,8 @@ export type EditorMode = 'wysiwyg' | 'edit' | 'split' | 'preview'
 export const useUiStore = defineStore('ui', {
   state: () => ({
     themePref: 'system' as ThemePref,
+    /** 语言偏好（system 跟随系统）；生效值由 i18n 实例持有 */
+    localePref: 'system' as LocalePref,
     effectiveTheme: 'light' as 'light' | 'dark',
     sidebarOpen: true,
     sidebarMode: 'outline' as SidebarMode,
@@ -24,7 +27,7 @@ export const useUiStore = defineStore('ui', {
     restoreFolders: true,
     /* 点窗口关闭按钮的行为：quit = 退出程序；tray = 最小化到托盘 */
     closeAction: 'quit' as 'quit' | 'tray',
-    statusMessage: '就绪',
+    statusMessage: t('ui.ready'),
     /* 编辑器跨组件请求（计数器/序列号触发 watch） */
     findRequest: 0,
     jumpLine: null as { line: number; seq: number } | null,
@@ -82,6 +85,8 @@ export const useUiStore = defineStore('ui', {
     },
     applyConfig(cfg: AppConfig): void {
       this.themePref = cfg.theme
+      this.localePref = cfg.locale ?? 'system'
+      i18n.global.locale.value = resolveLocale(this.localePref)
       this.autosaveEnabled = cfg.autosave.enabled
       this.autosaveIntervalMs = Math.max(3000, cfg.autosave.intervalMs)
       this.restoreTabs = cfg.restoreTabs ?? true
@@ -154,6 +159,13 @@ export const useUiStore = defineStore('ui', {
       this.applyTheme()
       await window.api.app.setConfig({ theme: pref })
     },
+    /** 切换语言：持久化 + 渲染层词典与主进程（菜单/托盘）同步 */
+    async setLocalePref(pref: LocalePref): Promise<void> {
+      this.localePref = pref
+      i18n.global.locale.value = resolveLocale(pref)
+      await window.api.app.setConfig({ locale: pref })
+      await window.api.app.setLocale(pref)
+    },
     applyTheme(): void {
       this.effectiveTheme =
         this.themePref === 'system'
@@ -212,8 +224,8 @@ export const useUiStore = defineStore('ui', {
         this.confirm = {
           title,
           message,
-          okText: opts?.okText ?? '确定',
-          cancelText: opts?.cancelText ?? '取消',
+          okText: opts?.okText ?? t('common.ok'),
+          cancelText: opts?.cancelText ?? t('common.cancel'),
           danger: opts?.danger ?? false,
           resolve
         }
@@ -239,13 +251,11 @@ export const useUiStore = defineStore('ui', {
     },
     toggleFocus(): void {
       this.focusMode = !this.focusMode
-      this.showToast(this.focusMode ? '专注模式已开启（F8 关闭）' : '专注模式已关闭')
+      this.showToast(this.focusMode ? t('ui.focusOn') : t('ui.focusOff'))
     },
     toggleTypewriter(): void {
       this.typewriterMode = !this.typewriterMode
-      this.showToast(
-        this.typewriterMode ? '打字机模式已开启（F9 关闭）' : '打字机模式已关闭'
-      )
+      this.showToast(this.typewriterMode ? t('ui.typewriterOn') : t('ui.typewriterOff'))
     },
     setEditorMode(mode: EditorMode): void {
       this.editorMode = mode

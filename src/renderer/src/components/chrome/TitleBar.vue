@@ -16,22 +16,22 @@ const api = window.api
           fill="currentColor"
         />
       </svg>
-      <span class="wordmark">墨匣</span>
+      <span class="wordmark">{{ $t('titlebar.brand') }}</span>
     </div>
 
     <div class="doc-title">
       <template v-if="docs.active">
-        <span class="name">{{ docs.active.name }}</span>
-        <span v-if="docs.active.dirty" class="dot" title="未保存" />
+        <span class="name">{{ docs.active.isHome ? $t('tabs.home') : docs.active.name }}</span>
+        <span v-if="docs.active.dirty" class="dot" :title="$t('titlebar.dirty')" />
       </template>
-      <span v-else class="name muted">墨匣 Inkbox · 落笔即章</span>
+      <span v-else class="name muted">{{ $t('titlebar.tagline') }}</span>
     </div>
 
     <div class="win-controls">
-      <button class="win-btn" title="最小化" @click="api.win.minimize()">
+      <button class="win-btn" :title="$t('titlebar.minimize')" @click="api.win.minimize()">
         <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 5h10" stroke="currentColor" stroke-width="1" /></svg>
       </button>
-      <button class="win-btn" :title="ui.maximized ? '还原' : '最大化'" @click="api.win.toggleMaximize()">
+      <button class="win-btn" :title="ui.maximized ? $t('titlebar.restore') : $t('titlebar.maximize')" @click="api.win.toggleMaximize()">
         <svg v-if="!ui.maximized" viewBox="0 0 10 10" width="10" height="10">
           <rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1" />
         </svg>
@@ -40,7 +40,7 @@ const api = window.api
           <path d="M2.5 2.5v-2h7v7h-2" fill="none" stroke="currentColor" stroke-width="1" />
         </svg>
       </button>
-      <button class="win-btn close" title="关闭" @click="api.win.close()">
+      <button class="win-btn close" :title="$t('titlebar.close')" @click="api.win.close()">
         <svg viewBox="0 0 10 10" width="10" height="10">
           <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1" />
         </svg>

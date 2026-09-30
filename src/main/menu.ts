@@ -1,9 +1,11 @@
 import { BrowserWindow, Menu, app, dialog, type MenuItemConstructorOptions } from 'electron'
+import { m } from './i18n'
 
 /**
  * 菜单命令转发到渲染进程（menu:command），
  * 文档级操作（新建/保存等）由渲染进程的 documents store 决定行为。
  * 多窗口：命令始终路由到当前焦点窗口（无焦点时退回创建菜单的窗口）。
+ * 文案来自主进程词典，语言切换时经 rebuildMenus 重建。
  */
 function send(win: BrowserWindow, cmd: string): void {
   const target = BrowserWindow.getFocusedWindow() ?? win
@@ -16,68 +18,68 @@ export function createMenu(win: BrowserWindow): void {
 
   const template: MenuItemConstructorOptions[] = [
     {
-      label: '文件',
+      label: m('menuFile'),
       submenu: [
-        { label: '新建文档', accelerator: 'CmdOrCtrl+N', click: cmd('file:new') },
-        { label: '打开文件…', accelerator: 'CmdOrCtrl+O', click: cmd('file:open') },
-        { label: '打开文件夹…', accelerator: 'CmdOrCtrl+Shift+O', click: cmd('file:openFolder') },
+        { label: m('menuNew'), accelerator: 'CmdOrCtrl+N', click: cmd('file:new') },
+        { label: m('menuOpen'), accelerator: 'CmdOrCtrl+O', click: cmd('file:open') },
+        { label: m('menuOpenFolder'), accelerator: 'CmdOrCtrl+Shift+O', click: cmd('file:openFolder') },
         { type: 'separator' },
-        { label: '保存', accelerator: 'CmdOrCtrl+S', click: cmd('file:save') },
-        { label: '另存为…', accelerator: 'CmdOrCtrl+Shift+S', click: cmd('file:saveAs') },
-        { label: '导出…', accelerator: 'CmdOrCtrl+E', click: cmd('file:export') },
-        { label: '关闭标签页', accelerator: 'CmdOrCtrl+W', click: cmd('file:closeTab') },
-        { label: '下一标签', accelerator: 'CmdOrCtrl+Tab', click: cmd('file:nextTab') },
-        { label: '上一标签', accelerator: 'CmdOrCtrl+Shift+Tab', click: cmd('file:prevTab') },
+        { label: m('menuSave'), accelerator: 'CmdOrCtrl+S', click: cmd('file:save') },
+        { label: m('menuSaveAs'), accelerator: 'CmdOrCtrl+Shift+S', click: cmd('file:saveAs') },
+        { label: m('menuExport'), accelerator: 'CmdOrCtrl+E', click: cmd('file:export') },
+        { label: m('menuCloseTab'), accelerator: 'CmdOrCtrl+W', click: cmd('file:closeTab') },
+        { label: m('menuNextTab'), accelerator: 'CmdOrCtrl+Tab', click: cmd('file:nextTab') },
+        { label: m('menuPrevTab'), accelerator: 'CmdOrCtrl+Shift+Tab', click: cmd('file:prevTab') },
         { type: 'separator' },
-        { role: 'quit', label: '退出' }
+        { role: 'quit', label: m('menuQuit') }
       ]
     },
     {
-      label: '编辑',
+      label: m('menuEdit'),
       submenu: [
-        { role: 'undo', label: '撤销' },
-        { role: 'redo', label: '重做' },
+        { role: 'undo', label: m('menuUndo') },
+        { role: 'redo', label: m('menuRedo') },
         { type: 'separator' },
-        { role: 'cut', label: '剪切' },
-        { role: 'copy', label: '复制' },
-        { role: 'paste', label: '粘贴' },
-        { role: 'selectAll', label: '全选' },
+        { role: 'cut', label: m('menuCut') },
+        { role: 'copy', label: m('menuCopy') },
+        { role: 'paste', label: m('menuPaste') },
+        { role: 'selectAll', label: m('menuSelectAll') },
         { type: 'separator' },
-        { label: '查找…', accelerator: 'CmdOrCtrl+F', click: cmd('edit:find') }
+        { label: m('menuFind'), accelerator: 'CmdOrCtrl+F', click: cmd('edit:find') }
       ]
     },
     {
-      label: '视图',
+      label: m('mView'),
       submenu: [
-        { label: '切换侧栏', accelerator: 'CmdOrCtrl+\\', click: cmd('view:toggleSidebar') },
-        { label: '切换主题', accelerator: 'CmdOrCtrl+Alt+T', click: cmd('view:toggleTheme') },
-        { label: '专注模式', accelerator: 'F8', click: cmd('view:toggleFocus') },
-        { label: '打字机模式', accelerator: 'F9', click: cmd('view:toggleTypewriter') },
-        { label: '偏好设置…', accelerator: 'CmdOrCtrl+,', click: cmd('app:settings') },
+        { label: m('mToggleSidebar'), accelerator: 'CmdOrCtrl+\\', click: cmd('view:toggleSidebar') },
+        { label: m('mToggleTheme'), accelerator: 'CmdOrCtrl+Alt+T', click: cmd('view:toggleTheme') },
+        { label: m('mFocus'), accelerator: 'F8', click: cmd('view:toggleFocus') },
+        { label: m('mTypewriter'), accelerator: 'F9', click: cmd('view:toggleTypewriter') },
+        { label: m('mSettings'), accelerator: 'CmdOrCtrl+,', click: cmd('app:settings') },
         { type: 'separator' },
-        { role: 'resetZoom', label: '实际大小' },
-        { role: 'zoomIn', label: '放大' },
-        { role: 'zoomOut', label: '缩小' },
-        { role: 'togglefullscreen', label: '全屏' },
+        { role: 'resetZoom', label: m('mActualSize') },
+        { role: 'zoomIn', label: m('mZoomIn') },
+        { role: 'zoomOut', label: m('mZoomOut') },
+        { role: 'togglefullscreen', label: m('mFullscreen') },
         { type: 'separator' },
-        { role: 'toggleDevTools', label: '开发者工具' }
+        { role: 'toggleDevTools', label: m('mDevTools') }
       ]
     },
     {
-      label: '帮助',
+      label: m('mHelp'),
       submenu: [
         {
-          label: '打开功能示例文档',
+          label: m('mSample'),
           click: () => send(win, 'help:sample')
         },
         {
-          label: '关于墨匣',
+          label: m('mAbout'),
           click: () => {
             void dialog.showMessageBox(win, {
               type: 'info',
-              title: '关于墨匣',
-              message: `墨匣 Inkbox v${app.getVersion()}`,
-              detail: '墨匣纸面 Markdown 编辑器 · Electron + Vue\n原创界面设计，详见 DESIGN.md'
+              title: m('mAbout'),
+              message: `${m('aboutBrand')} v${app.getVersion()}`,
+              detail: m('aboutDetail')
             })
           }
         }

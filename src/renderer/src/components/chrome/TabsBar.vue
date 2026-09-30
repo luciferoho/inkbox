@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useDocumentsStore } from '@/stores/documents'
 import { useUiStore } from '@/stores/ui'
+import { t } from '@/i18n'
 
 const docs = useDocumentsStore()
 const ui = useUiStore()
@@ -111,7 +112,7 @@ function detachToWindow(id: number): void {
   })
   const name = tab.name
   docs.closeTab(id)
-  ui.showToast(`已在新窗口打开「${name}」`)
+  ui.showToast(t('tabs.detached', { name }))
 }
 
 function onDragEnd(e: DragEvent): void {
@@ -221,16 +222,16 @@ function menuItems(id: number): MenuItem[] {
   if (idx < 0) return []
   const realCount = docs.tabs.length - 1 // 除去主页
   return [
-    { label: '关闭标签页', act: () => void docs.closeIfClean(docs.tabs[idx]) },
-    { label: '移到新窗口', act: () => detachToWindow(id) },
-    { label: `关闭左侧（${idx - 1}）`, act: () => void docs.closeToLeft(id), disabled: idx <= 1 },
+    { label: t('tabs.ctxClose'), act: () => void docs.closeIfClean(docs.tabs[idx]) },
+    { label: t('tabs.ctxDetach'), act: () => detachToWindow(id) },
+    { label: t('tabs.ctxCloseLeft', { n: idx - 1 }), act: () => void docs.closeToLeft(id), disabled: idx <= 1 },
     {
-      label: `关闭右侧（${docs.tabs.length - idx - 1}）`,
+      label: t('tabs.ctxCloseRight', { n: docs.tabs.length - idx - 1 }),
       act: () => void docs.closeToRight(id),
       disabled: idx === docs.tabs.length - 1
     },
-    { label: '关闭其他', act: () => void docs.closeOthers(id), disabled: realCount <= 1 },
-    { label: '关闭全部', act: () => void docs.closeAllTabs(), danger: true }
+    { label: t('tabs.ctxCloseOthers'), act: () => void docs.closeOthers(id), disabled: realCount <= 1 },
+    { label: t('tabs.ctxCloseAll'), act: () => void docs.closeAllTabs(), danger: true }
   ]
 }
 </script>
@@ -248,7 +249,7 @@ function menuItems(id: number): MenuItem[] {
       <button
         class="tab home"
         :class="{ active: docs.activeId === 0 }"
-        title="主页"
+        :title="$t('tabs.home')"
         @click="docs.activateHome()"
       >
         <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round">
@@ -278,21 +279,22 @@ function menuItems(id: number): MenuItem[] {
         @contextmenu.prevent="openMenu(tab.id, $event)"
       >
         <span class="tab-label">{{ tab.name }}</span>
-        <span v-if="tab.dirty" class="dot" title="未保存" />
+        <span v-if="tab.dirty" class="dot" :title="$t('tabs.dirty')" />
         <svg
           v-if="tab.id === docs.activeId && !tab.dirty"
           class="tab-close"
           viewBox="0 0 10 10"
           width="9"
           height="9"
-          title="关闭标签页"
+          role="button"
+          :aria-label="$t('tabs.ctxClose')"
           @click.stop="docs.closeTab(tab.id)"
         >
           <path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1.2" />
         </svg>
       </button>
       <!-- 新建按钮跟在最后一个标签之后（随标签滚动） -->
-      <button class="new-tab" title="新建文档 (Ctrl+N)" @click="docs.newDoc()">＋</button>
+      <button class="new-tab" :title="$t('tabs.new')" @click="docs.newDoc()">＋</button>
     </div>
 
     <!-- 右键菜单 -->

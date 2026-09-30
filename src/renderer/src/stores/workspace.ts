@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import type { DirEntry } from '@shared/types'
 import { useUiStore } from './ui'
 import { useDocumentsStore } from './documents'
+import { t } from '@/i18n'
 
 export interface TreeDraft {
   mode: 'new-file' | 'new-dir' | 'rename'
@@ -77,7 +78,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.draft = {
         mode: isDir ? 'new-dir' : 'new-file',
         parentPath,
-        value: isDir ? '新建文件夹' : '新建文档.md'
+        value: isDir ? t('ws.newFolderDefault') : t('ws.newFileDefault')
       }
       this.expanded[parentPath] = true
       if (!this.children[parentPath]) void this.loadDir(parentPath)
@@ -122,15 +123,17 @@ export const useWorkspaceStore = defineStore('workspace', {
         await this.loadDir(d.parentPath)
       } catch (err) {
         console.error('[workspace] commit failed:', err)
-        useUiStore().statusMessage = '操作失败（可能已存在同名项）'
+        useUiStore().statusMessage = t('ws.opFailed')
         await this.loadDir(d.parentPath)
       }
     },
 
     async deleteEntry(entry: DirEntry): Promise<void> {
-      const hint = entry.isDir ? '文件夹及其全部内容' : entry.name
-      const ok = await useUiStore().askConfirm('删除确认', `确定删除${hint}？\n${entry.path}`, {
-        okText: '删除',
+      const msg = entry.isDir
+        ? t('ws.delDirMsg', { path: entry.path })
+        : t('ws.delFileMsg', { name: entry.name, path: entry.path })
+      const ok = await useUiStore().askConfirm(t('ws.delTitle'), msg, {
+        okText: t('common.delete'),
         danger: true
       })
       if (!ok) return
@@ -142,10 +145,10 @@ export const useWorkspaceStore = defineStore('workspace', {
         const sepIdx = Math.max(entry.path.lastIndexOf('/'), entry.path.lastIndexOf('\\'))
         const parent = sepIdx > 0 ? entry.path.slice(0, sepIdx) : this.root
         if (parent) await this.loadDir(parent)
-        useUiStore().showToast('已删除')
+        useUiStore().showToast(t('ws.deleted'))
       } catch (err) {
         console.error('[workspace] delete failed:', err)
-        useUiStore().showToast('删除失败')
+        useUiStore().showToast(t('ws.delFailed'))
       }
     }
   }

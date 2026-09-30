@@ -4,6 +4,7 @@ import type { RecentFile } from '@shared/types'
 import { useDocumentsStore } from '@/stores/documents'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUiStore, type EditorMode } from '@/stores/ui'
+import { t } from '@/i18n'
 import SourceEditor from './SourceEditor.vue'
 import Preview from './Preview.vue'
 import WysiwygEditor from './WysiwygEditor.vue'
@@ -16,12 +17,12 @@ const recents = ref<RecentFile[]>([])
 const editorRef = ref<InstanceType<typeof SourceEditor> | null>(null)
 const previewRef = ref<InstanceType<typeof Preview> | null>(null)
 
-const MODES: { key: EditorMode; label: string; tip: string }[] = [
-  { key: 'wysiwyg', label: '即显', tip: '所见即所得（即时渲染）' },
-  { key: 'edit', label: '编辑', tip: '源码模式' },
-  { key: 'split', label: '双栏', tip: '源码 + 预览' },
-  { key: 'preview', label: '预览', tip: '纯预览' }
-]
+const MODES = computed<{ key: EditorMode; label: string; tip: string }[]>(() => [
+  { key: 'wysiwyg', label: t('mode.wysiwyg'), tip: t('mode.tipWysiwyg') },
+  { key: 'edit', label: t('mode.edit'), tip: t('mode.tipEdit') },
+  { key: 'split', label: t('mode.split'), tip: t('mode.tipSplit') },
+  { key: 'preview', label: t('mode.preview'), tip: t('mode.tipPreview') }
+])
 
 onMounted(async () => {
   const cfg = await window.api.app.getConfig()
@@ -46,7 +47,7 @@ async function removeRecent(path: string): Promise<void> {
   const cfg = await window.api.app.getConfig()
   await window.api.app.setConfig({ recent: cfg.recent.filter((r) => r.path !== path) })
   await refreshRecents()
-  ui.showToast('已从最近列表移除')
+  ui.showToast(t('welcome.removedRecent'))
 }
 
 /** 主页（= 欢迎页）：无活动文档或活动的是主页标签 */
@@ -68,10 +69,10 @@ function relTime(ts: number): string {
   const MIN = 60_000
   const HOUR = 3_600_000
   const DAY = 86_400_000
-  if (diff < MIN) return '刚刚'
-  if (diff < HOUR) return `${Math.floor(diff / MIN)} 分钟前`
-  if (diff < DAY) return `${Math.floor(diff / HOUR)} 小时前`
-  if (diff < 7 * DAY) return `${Math.floor(diff / DAY)} 天前`
+  if (diff < MIN) return t('welcome.justNow')
+  if (diff < HOUR) return t('welcome.minAgo', { n: Math.floor(diff / MIN) })
+  if (diff < DAY) return t('welcome.hourAgo', { n: Math.floor(diff / HOUR) })
+  if (diff < 7 * DAY) return t('welcome.dayAgo', { n: Math.floor(diff / DAY) })
   const dt = new Date(ts)
   return `${dt.getFullYear()}-${dt.getMonth() + 1}-${dt.getDate()}`
 }
@@ -104,18 +105,18 @@ function onPreviewSync(line: number, frac: number): void {
           fill="currentColor"
         />
       </svg>
-      <h1>落笔即章</h1>
-      <p class="sub">墨匣纸面 · 即时渲染 Markdown 编辑器</p>
+      <h1>{{ $t('welcome.hero') }}</h1>
+      <p class="sub">{{ $t('welcome.sub') }}</p>
 
       <div class="actions">
-        <button class="btn-primary" @click="docs.newDoc()">新建文档 <kbd>Ctrl+N</kbd></button>
-        <button class="btn-ghost" @click="docs.openFile()">打开文件 <kbd>Ctrl+O</kbd></button>
-        <button class="btn-ghost" @click="ws.openFolder()">打开文件夹</button>
-        <button class="btn-ghost" @click="docs.openSample()">功能示例</button>
+        <button class="btn-primary" @click="docs.newDoc()">{{ $t('welcome.newDoc') }} <kbd>Ctrl+N</kbd></button>
+        <button class="btn-ghost" @click="docs.openFile()">{{ $t('welcome.openFile') }} <kbd>Ctrl+O</kbd></button>
+        <button class="btn-ghost" @click="ws.openFolder()">{{ $t('welcome.openFolder') }}</button>
+        <button class="btn-ghost" @click="docs.openSample()">{{ $t('welcome.sample') }}</button>
       </div>
 
       <div v-if="recents.length" class="recent">
-        <p class="recent-title">最近打开</p>
+        <p class="recent-title">{{ $t('welcome.recent') }}</p>
         <button v-for="r in recents" :key="r.path" class="recent-item" :title="r.path" @click="docs.openPath(r.path)">
           <span class="ri-name">
             {{ recentName(r.path) }}
@@ -125,14 +126,14 @@ function onPreviewSync(line: number, frac: number): void {
           <span
             class="ri-remove"
             role="button"
-            title="从最近列表移除（不删除文件）"
+            :title="$t('welcome.removeRecent')"
             @click.stop="removeRecent(r.path)"
           >
             ✕
           </span>
         </button>
       </div>
-      <p v-else class="recent-empty">暂无最近打开的文件<br />打开或保存的文档会出现在这里</p>
+      <p v-else class="recent-empty">{{ $t('welcome.recentEmpty1') }}<br />{{ $t('welcome.recentEmpty2') }}</p>
     </div>
 
     <!-- 纸卡工作区 -->
@@ -144,7 +145,7 @@ function onPreviewSync(line: number, frac: number): void {
               <span class="name-text">{{ docs.active.name }}</span>
               <span v-if="docs.active.dirty" class="dot" />
             </span>
-            <span class="doc-path">{{ docs.active.path ?? '尚未保存到磁盘' }}</span>
+            <span class="doc-path">{{ docs.active.path ?? $t('welcome.unsavedPath') }}</span>
           </div>
           <div class="mode-switch">
             <button

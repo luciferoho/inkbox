@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
 import { buildExportHtml } from '@/services/exporter'
+import { t } from '@/i18n'
 // pdf.js 按需加载 + 独立 worker 资源（Electron iframe 内嵌 PDF 查看器不可靠，自渲染最稳）
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
@@ -30,10 +31,10 @@ const pdfHost = ref<HTMLElement | null>(null)
 /** PDF 预览页数提示（超过上限时显示） */
 const pdfPageHint = ref('')
 
-const MARGINS: { key: 'normal' | 'narrow' | 'none'; label: string }[] = [
-  { key: 'normal', label: '标准' },
-  { key: 'narrow', label: '窄' },
-  { key: 'none', label: '无' }
+const MARGINS: { key: 'normal' | 'narrow' | 'none'; labelKey: string }[] = [
+  { key: 'normal', labelKey: 'export.mNormal' },
+  { key: 'narrow', labelKey: 'export.mNarrow' },
+  { key: 'none', labelKey: 'export.mNone' }
 ]
 
 function baseName(name: string): string {
@@ -131,7 +132,7 @@ async function renderPdfPreview(b64: string, seq: number): Promise<void> {
       return
     }
   }
-  pdfPageHint.value = total > count ? `仅预览前 ${count} 页，共 ${total} 页` : ''
+  pdfPageHint.value = total > count ? t('export.pagesHint', { n: count, total }) : ''
 }
 
 async function regenerate(): Promise<void> {
@@ -179,12 +180,12 @@ async function doExport(): Promise<void> {
   if (!tab || tab.isHome) return
   const name = fileName.value.trim()
   if (!name) {
-    ui.showToast('请填写导出文件名')
+    ui.showToast(t('export.nameRequired'))
     return
   }
   const body = activePreviewHtml()
   if (body === null) {
-    ui.showToast('空文档无需导出')
+    ui.showToast(t('export.emptyDoc'))
     return
   }
   busy.value = true
@@ -194,7 +195,7 @@ async function doExport(): Promise<void> {
       const path = await window.api.dialog.saveFile(`${name}.html`, 'html')
       if (!path) return
       await window.api.fs.writeFile(path, html)
-      ui.showToast(`已导出 HTML：${path.split(/[\\/]/).pop()}`)
+      ui.showToast(t('export.savedHtml', { name: path.split(/[\\/]/).pop() }))
     } else {
       const saved = await window.api.export.pdf(
         html,
@@ -202,12 +203,12 @@ async function doExport(): Promise<void> {
         `${name}.pdf`
       )
       if (!saved) return
-      ui.showToast(`已导出 PDF：${saved.split(/[\\/]/).pop()}`)
+      ui.showToast(t('export.savedPdf', { name: saved.split(/[\\/]/).pop() }))
     }
     ui.exportOpen = false
   } catch (err) {
     console.error('[export] failed:', err)
-    ui.showToast('导出失败，请重试')
+    ui.showToast(t('export.failedRetry'))
   } finally {
     busy.value = false
   }
@@ -218,19 +219,19 @@ async function doExport(): Promise<void> {
   <Teleport to="body">
     <Transition name="export-dialog">
       <div v-if="ui.exportOpen" class="mask" @click.self="close">
-        <section class="dialog" role="dialog" aria-label="导出文档">
+        <section class="dialog" role="dialog" :aria-label="$t('export.title')">
           <!-- 左列：设置 -->
           <div class="settings">
-            <h2 class="title">导出文档</h2>
+            <h2 class="title">{{ $t('export.title') }}</h2>
             <p class="doc-name" :title="docs.active?.name">{{ docs.active?.name }}</p>
 
             <label class="field">
-              <span class="label">文件名</span>
+              <span class="label">{{ $t('export.fileName') }}</span>
               <input v-model="fileName" class="text-input" spellcheck="false" />
             </label>
 
             <div class="field">
-              <span class="label">格式</span>
+              <span class="label">{{ $t('export.format') }}</span>
               <div class="seg">
                 <button :class="{ on: fmt === 'html' }" @click="fmt = 'html'">HTML</button>
                 <button :class="{ on: fmt === 'pdf' }" @click="fmt = 'pdf'">PDF</button>
@@ -239,7 +240,7 @@ async function doExport(): Promise<void> {
 
             <template v-if="fmt === 'pdf'">
               <div class="field">
-                <span class="label">页边距</span>
+                <span class="label">{{ $t('export.margin') }}</span>
                 <div class="seg">
                   <button
                     v-for="m in MARGINS"
@@ -247,59 +248,57 @@ async function doExport(): Promise<void> {
                     :class="{ on: margin === m.key }"
                     @click="margin = m.key"
                   >
-                    {{ m.label }}
+                    {{ $t(m.labelKey) }}
                   </button>
                 </div>
               </div>
               <div class="field">
-                <span class="label">方向</span>
+                <span class="label">{{ $t('export.orient') }}</span>
                 <div class="seg">
-                  <button :class="{ on: !landscape }" @click="landscape = false">纵向</button>
-                  <button :class="{ on: landscape }" @click="landscape = true">横向</button>
+                  <button :class="{ on: !landscape }" @click="landscape = false">{{ $t('export.portrait') }}</button>
+                  <button :class="{ on: landscape }" @click="landscape = true">{{ $t('export.landscape') }}</button>
                 </div>
               </div>
               <div class="field">
-                <span class="label">页脚页码</span>
+                <span class="label">{{ $t('export.pageNumbers') }}</span>
                 <div class="seg">
-                  <button :class="{ on: !pageNumbers }" @click="pageNumbers = false">关</button>
-                  <button :class="{ on: pageNumbers }" @click="pageNumbers = true">开</button>
+                  <button :class="{ on: !pageNumbers }" @click="pageNumbers = false">{{ $t('common.off') }}</button>
+                  <button :class="{ on: pageNumbers }" @click="pageNumbers = true">{{ $t('common.on') }}</button>
                 </div>
               </div>
             </template>
 
             <p class="hint">
               {{
-                fmt === 'html'
-                  ? '单文件 HTML：样式、公式字体与本地图片全部内联，可直接分享或打开。'
-                  : '以预览排版经打印管线生成 A4 PDF，保留墨块代码与图表背景；开启页码时底部自动留白。'
+                fmt === 'html' ? $t('export.hintHtml') : $t('export.hintPdf')
               }}
             </p>
 
             <div class="actions">
-              <button class="btn cancel" :disabled="busy" @click="close">取消</button>
+              <button class="btn cancel" :disabled="busy" @click="close">{{ $t('common.cancel') }}</button>
               <button class="btn ok" :disabled="busy" @click="doExport">
-                {{ busy ? '导出中…' : '导出' }}
+                {{ busy ? $t('export.doing') : $t('export.do') }}
               </button>
             </div>
           </div>
 
           <!-- 右列：实际产物预览 -->
           <div class="preview">
-            <div v-if="generating" class="preview-mask"><span>正在生成预览…</span></div>
+            <div v-if="generating" class="preview-mask"><span>{{ $t('export.generating') }}</span></div>
             <div v-if="previewFailed" class="preview-mask">
-              <span>{{ fmt === 'pdf' ? '预览生成失败，请重试或调整设置' : '没有可预览的内容' }}</span>
+              <span>{{ fmt === 'pdf' ? $t('export.previewFailed') : $t('export.nothingToPreview') }}</span>
             </div>
             <iframe
               v-if="fmt === 'html' && previewHtml"
               class="preview-frame"
               :srcdoc="previewHtml"
               sandbox=""
-              title="HTML 导出预览"
+              :title="$t('export.title')"
             />
             <div v-else-if="fmt === 'pdf'" ref="pdfHost" class="pdf-host">
               <p v-if="pdfPageHint" class="pdf-hint">{{ pdfPageHint }}</p>
             </div>
-            <div v-else-if="!generating && !previewFailed" class="preview-empty">正在准备预览…</div>
+            <div v-else-if="!generating && !previewFailed" class="preview-empty">{{ $t('export.preparing') }}</div>
           </div>
         </section>
       </div>

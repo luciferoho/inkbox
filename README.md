@@ -62,7 +62,7 @@ npm run dist:dir   # 仅打未打包目录版（release/pkg/win-unpacked，快�
 
 即显模式已知边界：公式/Mermaid 以代码块形态展示（源码/双栏模式可完整渲染）；大纲光标联动仅在源码/双栏生效。
 
-## 当前里程碑：M4 已完成（导入导出 + 打磨）
+## M4 已完成（导入导出 + 打磨）
 
 - **导出 HTML**：单文件内联——墨匣纸面排版样式、KaTeX 公式字体（woff2 转 data URI）、本地图片（`luci-img://` 转 base64）全部打进一个 HTML，可直接分享
 - **导出 PDF**：printToPDF 打印管线，A4 纵/横向、页边距三档（标准/窄/无）、页脚页码（开启时底部自动留白）；导出对话框右侧用 pdf.js 渲染真实产物预览（前 5 页）
@@ -72,10 +72,16 @@ npm run dist:dir   # 仅打未打包目录版（release/pkg/win-unpacked，快�
 - **多窗口与标签**：标签可拖出新窗口、跨窗口拖拽转移（主进程中转），同一文件跨窗口去重；窗口会话快照恢复（标签顺序/激活项/工作区文件夹，崩溃时全量恢复）
 - **会话与托盘**：`restoreTabs`/`restoreFolders` 偏好、关窗行为（退出/最小化到托盘）、快捷键面板
 
-## 下一步（M5 发布）
+## 当前里程碑：M5 核心已完成（发布就绪，v1.0.0）
 
-electron-builder 打包打磨（NSIS + 便携版已有脚本）、自动更新（electron-updater 已接入）、i18n 中英、启动速度与大文件 profiling。
+- **i18n 中英双语**：设置页可选「跟随系统 / 简体中文 / English」，即时生效并持久化。渲染层 vue-i18n（扁平词典，`src/renderer/src/i18n/`），主进程独立词典覆盖原生菜单/托盘/系统对话框/更新通知，切换时菜单与托盘即时重建；CodeMirror 搜索面板短语随语言热替换。en 词典以 TS 类型与中文键逐一绑定，缺译在编译期报错
+- **打包**：`npm run dist` 产出 NSIS 安装版 + 便携版；`dist:dir` 未打包目录版已实测可运行
+- **自动更新**：electron-updater + GitHub Releases（`electron-builder.yml` 的 publish 已指向实际仓库），推送 `v*` 标签的 Release（含 `.blockmap`）后应用内静默更新生效
+
+## 下一步（发布前跟进）
+
+启动/大文件性能 profiling、安装包代码签名（未签名有 SmartScreen 提示）、macOS/Linux 构建、正式发布流程（打 `v1.0.0` 标签 + GitHub Release）。
 
 ## 技术栈
 
-Electron 44 · electron-vite 5 · Vue 3.5 · Pinia · TypeScript 5.9 · CodeMirror 6（M1）· Milkdown（M3）
+Electron 44 · electron-vite 5 · Vue 3.5 · Pinia · vue-i18n 11 · TypeScript 5.9 · CodeMirror 6（M1）· Milkdown（M3）
