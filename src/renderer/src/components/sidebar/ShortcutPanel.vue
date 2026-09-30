@@ -73,7 +73,7 @@ const GROUPS = computed<{ title: string; items: { k: string; d: string }[] }[]>(
 
 <style scoped>
 .sc-panel {
-  width: 272px;
+  width: 300px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -127,25 +127,28 @@ const GROUPS = computed<{ title: string; items: { k: string; d: string }[] }[]>(
   margin: 10px 0 6px;
 }
 
+/* 两列网格：键位列定宽 → 右侧描述全部对齐；均不换行 */
 .sc-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: 156px 1fr;
+  column-gap: 8px;
   align-items: center;
-  gap: 10px;
   padding: 3px 0;
   font-size: 12px;
 }
 
 .sc-keys {
   display: inline-flex;
-  gap: 4px;
-  flex-shrink: 0;
-  min-width: 104px;
+  gap: 3px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .sc-keys kbd {
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  padding: 2px 6px;
+  font-size: 10px;
+  padding: 2px 4px;
   border: 1px solid var(--border);
   border-bottom-width: 2px;
   border-radius: 4px;
@@ -156,5 +159,7 @@ const GROUPS = computed<{ title: string; items: { k: string; d: string }[] }[]>(
 
 .sc-desc {
   color: var(--text-2);
+  line-height: 1.5;
+  min-width: 0;
 }
 </style>
