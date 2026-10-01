@@ -213,11 +213,16 @@ function handlePaste(event: ClipboardEvent, view: EditorView): boolean {
   // 没有标签结构（或只有 <meta> 碎片）的纯文本复制不接管
   if (!html || !/<[a-z!][^>]*>/i.test(html)) return false
   const plain = dt.getData('text/plain') ?? ''
-  const md = htmlToMarkdown(html)
-  if (md === null || md === plain.trim()) return false
+  // 先接管粘贴（preventDefault 必须同步做），转换器惰性加载后异步落稿；
+  // 转换失败/无价值时回退插入纯文本
   event.preventDefault()
-  const { from, to } = view.state.selection.main
-  view.dispatch({ changes: { from, to, insert: md }, scrollIntoView: true })
+  void (async () => {
+    const md = await htmlToMarkdown(html)
+    const insert = md !== null && md !== plain.trim() ? md : plain
+    if (!insert) return
+    const { from, to } = view.state.selection.main
+    view.dispatch({ changes: { from, to, insert }, scrollIntoView: true })
+  })()
   return true
 }
 
@@ -526,7 +531,7 @@ watch(
   }
 )
 
-/* 大纲点击跳转：光标落行并居中 */
+/* 大纲点击跳转：光标落行，目标行定位到视口上方（贴近阅读习惯，顶部留一点边距） */
 watch(
   () => ui.jumpLine,
   (j) => {
@@ -535,7 +540,7 @@ watch(
     const pos = view.state.doc.line(ln).from
     view.dispatch({
       selection: { anchor: pos },
-      effects: EditorView.scrollIntoView(pos, { y: 'center' })
+      effects: EditorView.scrollIntoView(pos, { y: 'start', yMargin: 100 })
     })
   }
 )

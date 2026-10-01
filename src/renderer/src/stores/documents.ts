@@ -192,7 +192,7 @@ export const useDocumentsStore = defineStore('documents', {
       const ui = useUiStore()
       try {
         const html = await window.api.fs.readFile(path)
-        const md = htmlToMarkdown(html)
+        const md = await htmlToMarkdown(html)
         if (md === null) {
           ui.showToast(t('docs.htmlImportEmpty'))
           return

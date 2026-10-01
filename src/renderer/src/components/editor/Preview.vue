@@ -32,7 +32,9 @@ watch(
   () => props.content,
   (content) => {
     window.clearTimeout(renderTimer)
-    renderTimer = window.setTimeout(() => void render(content), 120)
+    // 大文档全文重渲染一次要几百毫秒，防抖拉长避免连续输入时卡顿
+    const delay = content.length > 200_000 ? 450 : 120
+    renderTimer = window.setTimeout(() => void render(content), delay)
   },
   { immediate: true }
 )
@@ -63,7 +65,9 @@ watch(
 
 let rethemeSeq = 0
 
-/** 离屏重渲染全部图表并原地替换（主题切换专用路径） */
+/** 主题切换：视口内的图离屏按新主题重绘后原地替换（无闪烁）；
+ *  视口外的回到占位态入后台队列慢慢补——mermaid 的 run 是全局配置串行的，
+ *  两百张图全量重绘要一分多钟，首屏可见的先换色才是用户关心的 */
 async function rethemeMermaid(): Promise<void> {
   const nodes = [...(body.value?.querySelectorAll<HTMLElement>('.mermaid') ?? [])]
   if (nodes.length === 0) return
@@ -77,6 +81,9 @@ async function rethemeMermaid(): Promise<void> {
     return
   }
   const host = body.value
+  const view = scroller.value?.getBoundingClientRect()
+  const offs: { node: HTMLElement; off: HTMLElement; key: string }[] = []
+  const later: HTMLElement[] = []
   for (const node of nodes) {
     if (seq !== rethemeSeq) return // 主题连切：本轮作废
     const code = node.dataset.mermaidSrc ?? ''
@@ -88,21 +95,42 @@ async function rethemeMermaid(): Promise<void> {
       node.setAttribute('data-processed', 'true')
       continue
     }
-    // 离屏渲染：同宽度、脱离文档流（mermaid 测量需要布局），完成后替换
-    const off = document.createElement('div')
-    off.style.cssText = `position:absolute;left:-9999px;top:0;width:${node.clientWidth || 600}px`
-    off.textContent = code
-    host?.appendChild(off)
+    const r = node.getBoundingClientRect()
+    const visible = view && r.bottom > view.top && r.top < view.bottom
+    if (visible) {
+      // 离屏节点：同宽度、脱离文档流（mermaid 测量需要布局），完成后替换
+      const off = document.createElement('div')
+      off.style.cssText = `position:absolute;left:-9999px;top:0;width:${node.clientWidth || 600}px`
+      off.textContent = code
+      host?.appendChild(off)
+      offs.push({ node, off, key })
+    } else {
+      later.push(node)
+    }
+  }
+  if (offs.length > 0) {
     try {
-      await m.run({ nodes: [off] })
-      node.innerHTML = off.innerHTML
-      node.setAttribute('data-processed', 'true')
-      mermaidCache.set(key, off.innerHTML)
+      await m.run({ nodes: offs.map((o) => o.off), suppressErrors: true })
     } catch (err) {
       console.error('[preview] mermaid retheme failed:', err)
     }
-    off.remove()
+    for (const { node, off, key } of offs) {
+      // 渲染失败的节点无 svg：保持原样（占位交给常规流程），不标 processed
+      if (off.querySelector('svg') && off.isConnected) {
+        node.innerHTML = off.innerHTML
+        node.setAttribute('data-processed', 'true')
+        mermaidCache.set(key, off.innerHTML)
+      }
+      off.remove()
+    }
   }
+  if (seq !== rethemeSeq) return
+  for (const node of later) {
+    node.removeAttribute('data-processed')
+    node.textContent = node.dataset.mermaidSrc ?? ''
+    mermaidQueue.push(node)
+  }
+  if (later.length > 0) void pumpMermaidQueue(m)
   collectBlocks()
 }
 
@@ -257,6 +285,101 @@ function loadMermaid(): Promise<MermaidInstance> {
   return mermaidLoading
 }
 
+/* ---------- mermaid 视口懒渲染 ----------
+ * mermaid 的 run 是串行的且共享全局配置（并发 run 会互相踩），
+ * 大文档几十上百张图全量渲染会卡住主线程一分多钟。
+ * 策略：视口内（含 600px 余量）立即渲染，视口外的注册 IntersectionObserver，
+ * 滚动到附近才入队；后台队列串行消费，渲染完成后延迟合并重收集块映射。 */
+
+let mermaidObserver: IntersectionObserver | null = null
+const mermaidQueue: HTMLElement[] = []
+let mermaidPumping = false
+let collectTimer: number | undefined
+
+/** 块映射延迟重收集（每张图渲染后高度都会变，合并成一次） */
+function scheduleCollect(): void {
+  window.clearTimeout(collectTimer)
+  collectTimer = window.setTimeout(() => collectBlocks(), 150)
+}
+
+function disconnectMermaidObserver(): void {
+  mermaidObserver?.disconnect()
+  mermaidObserver = null
+}
+
+/** 渲染单个占位节点：缓存命中同步替换，否则 mermaid 渲染 + 归档/降级 */
+async function renderMermaidNode(m: MermaidInstance, node: HTMLElement): Promise<void> {
+  if (!node.isConnected || node.getAttribute('data-processed') === 'true') return
+  const code = node.textContent ?? ''
+  const key = `${MERMAID_THEME_VERSION}|${ui.effectiveTheme}|${code}`
+  const hit = mermaidCache.get(key)
+  if (hit !== undefined) {
+    node.innerHTML = hit
+    node.setAttribute('data-processed', 'true')
+    // 源码存档：主题切换的离屏重渲染（rethemeMermaid）凭它还原占位输入
+    node.setAttribute('data-mermaid-src', code)
+    scheduleCollect()
+    return
+  }
+  try {
+    await m.run({ nodes: [node], suppressErrors: true })
+  } catch {
+    /* 失败节点在下方统一降级 */
+  }
+  if (!node.isConnected) return
+  if (node.querySelector('svg')) {
+    node.setAttribute('data-processed', 'true')
+    node.setAttribute('data-mermaid-src', code)
+    mermaidCache.set(key, node.innerHTML)
+  } else {
+    // 渲染失败的节点：mermaid 已写回错误文本，还原源码展示
+    node.classList.add('mermaid-error')
+    node.setAttribute('data-mermaid-src', code)
+    node.textContent = code
+  }
+  scheduleCollect()
+}
+
+/** 后台队列串行消费（全局配置互斥，不能并发 run） */
+async function pumpMermaidQueue(m: MermaidInstance): Promise<void> {
+  if (mermaidPumping) return
+  mermaidPumping = true
+  try {
+    while (mermaidQueue.length > 0) {
+      const node = mermaidQueue.shift()!
+      await renderMermaidNode(m, node)
+    }
+  } finally {
+    mermaidPumping = false
+  }
+}
+
+/** 视口外的占位图进入余量范围 → 入队渲染 */
+function getMermaidObserver(m: MermaidInstance): IntersectionObserver {
+  mermaidObserver ??= new IntersectionObserver(
+    (entries) => {
+      let hit = false
+      for (const en of entries) {
+        if (!en.isIntersecting) continue
+        mermaidObserver?.unobserve(en.target)
+        mermaidQueue.push(en.target as HTMLElement)
+        hit = true
+      }
+      if (hit) void pumpMermaidQueue(m)
+    },
+    { root: scroller.value, rootMargin: '600px 0px' }
+  )
+  return mermaidObserver
+}
+
+/** 视口内（含余量）判断 */
+function nearViewport(node: HTMLElement, marginPx: number): boolean {
+  const view = scroller.value?.getBoundingClientRect()
+  if (!view) return true
+  const r = node.getBoundingClientRect()
+  return r.bottom > view.top - marginPx && r.top < view.bottom + marginPx
+}
+
 async function renderMermaid(): Promise<void> {
   const nodes = body.value?.querySelectorAll<HTMLElement>('.mermaid')
   if (!nodes || nodes.length === 0) return
@@ -271,34 +394,24 @@ async function renderMermaid(): Promise<void> {
     console.error('[preview] mermaid load failed:', err)
     return
   }
+  // 内容已换新 DOM：旧的观察全部作废（观察的是已断开的节点）
+  disconnectMermaidObserver()
+  const observer = getMermaidObserver(m)
+  let immediate = 0
   for (const node of [...nodes]) {
-    if (!node.isConnected) return
+    if (!node.isConnected) continue
     // 已渲染过的节点直接跳过：陈旧渲染回合摸到的都是上一轮成品，
     // 重跑会把 SVG 里的 <style> 文本当源码解析（切主题后图表变 CSS 文字的根因）
     if (node.getAttribute('data-processed') === 'true') continue
-    const code = node.textContent ?? ''
-    const key = `${MERMAID_THEME_VERSION}|${ui.effectiveTheme}|${code}`
-    const hit = mermaidCache.get(key)
-    if (hit !== undefined) {
-      node.innerHTML = hit
-      node.setAttribute('data-processed', 'true')
-      continue
-    }
-    try {
-      node.removeAttribute('data-processed')
-      await m.run({ nodes: [node] })
-      node.setAttribute('data-processed', 'true')
-      // 源码存档：主题切换的离屏重渲染（rethemeMermaid）凭它还原占位输入
-      node.setAttribute('data-mermaid-src', code)
-      mermaidCache.set(key, node.innerHTML)
-    } catch (err) {
-      console.error('[preview] mermaid render failed:', err)
-      node.classList.add('mermaid-error')
-      node.setAttribute('data-mermaid-src', code)
-      node.textContent = code
+    if (nearViewport(node, 600)) {
+      mermaidQueue.push(node)
+      immediate++
+    } else {
+      observer.observe(node)
     }
   }
-  collectBlocks() // svg 高度与占位文本不同，重收集块映射
+  if (immediate > 0) await pumpMermaidQueue(m)
+  else collectBlocks()
 }
 
 /* ---------- 同步滚动 ---------- */
@@ -311,6 +424,14 @@ function collectBlocks(): void {
     top: el.offsetTop,
     height: el.offsetHeight
   }))
+  // 脚注区补锚：markdown-it-footnote 的 section 没有 data-source-line
+  // （脚注定义在源码文末），不补的话源码滚到脚注定义区时预览停在最后
+  // 一个正文块，两边失同步。锚到文档总行数：源码滚到底 ↔ 预览滚到脚注区
+  const foot = body.value.querySelector<HTMLElement>('.footnotes')
+  if (foot) {
+    const totalLines = props.content ? props.content.split('\n').length : 1
+    blocks.push({ line: totalLines, end: totalLines, top: foot.offsetTop, height: foot.offsetHeight })
+  }
 }
 
 /** 视口顶所在块（top 为块的容器内容坐标） */
@@ -514,7 +635,9 @@ onBeforeUnmount(() => {
   scroller.value?.removeEventListener('scroll', onScrollDom)
   scroller.value?.removeEventListener('click', onClickDom)
   resizeObserver?.disconnect()
+  disconnectMermaidObserver()
   window.clearTimeout(renderTimer)
+  window.clearTimeout(collectTimer)
 })
 </script>
 

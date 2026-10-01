@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, watch, computed, defineAsyncComponent } from 'vue'
 import type { RecentFile } from '@shared/types'
 import { useDocumentsStore } from '@/stores/documents'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -7,7 +7,9 @@ import { useUiStore, type EditorMode } from '@/stores/ui'
 import { t } from '@/i18n'
 import SourceEditor from './SourceEditor.vue'
 import Preview from './Preview.vue'
-import WysiwygEditor from './WysiwygEditor.vue'
+// 即显引擎（Milkdown 全家桶）按需加载：默认双栏模式启动用不到，
+// 移出启动包缩短 JS 编译时间（首次切到即显模式时再加载）
+const WysiwygEditor = defineAsyncComponent(() => import('./WysiwygEditor.vue'))
 
 const docs = useDocumentsStore()
 const ws = useWorkspaceStore()

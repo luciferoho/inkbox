@@ -19,7 +19,8 @@
     "dist:dir": "electron-vite build && electron-builder --dir",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web"
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "bigfile": "node scripts/make-bigfile.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

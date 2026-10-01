@@ -113,9 +113,17 @@ npm run dist:dir   # 仅打未打包目录版（release/pkg/win-unpacked，快�
 - **即显模式撤销/重做修复**（1.7 P0 补全）：commonmark 预设不含 history 插件，即显模式 Ctrl+Z 此前完全失效；挂载 `@milkdown/plugin-history` 后撤销/重做可用，全部替换可一步回退
 - **查找替换·实测反馈修复（同日）**：① 即显模式 ↑↓ 不定位——PM 的 scrollIntoView 依赖 DOM 选区、查找条聚焦时失效，改为手动坐标滚动（输入即搜/导航/替换后均定位）。② 补全字匹配开关（`\b`，正则模式下禁用）。③ 编辑/双栏换自建停靠查找条驱动 CM6 `SearchQuery`（内置面板无计数已弃用）：n/N 计数、全部命中琥珀高亮（自写视口高亮插件——CM 自带高亮要求面板打开）、回绕导航、单处/全部替换（一步撤销）、关闭清高亮。④ 预览模式 Ctrl+F 同开查找条（searchOnly 只读形态，不切双栏）：DOM 文本节点高亮 + scrollIntoView 定位，跳过 mermaid/katex，内容重渲染自动重扫。⑤ 查找条组件化三模式共用，空查询显示 0/0；Esc 在条根节点接管（按钮焦点也能关）。
 
+## 1.x 第五批已落地（启动性能优化）
+
+- **启动包瘦身**（发布前跟进项）：入口 chunk 3507→2363KB（-33%），窗口可见时间（first-paint）1568→876ms（-44%）。Milkdown 即显引擎（1MB）/设置页/导出弹窗改为按需异步加载；turndown（富文本粘贴）首次使用时动态加载；highlight.js 从 common 全量改为 core + 34 常用语言显式注册（未注册语言回退纯文本，sh/ts 别名保留）
+- **大文档输入体验**：预览重渲染防抖自适应（>200KB 文档 120→450ms），避免 1MB 文档连续输入时反复全文重渲染卡顿
+- **性能基线数据**（electron-vite preview 实测）：1MB 真实感文档（含代码块/表格 ×2900）打开→CodeMirror 就绪+双栏预览全渲染 580ms；启动剩余 ~750ms 为 Electron 渲染进程固定成本
+- **大文档压测样例**：`npm run bigfile`（scripts/make-bigfile.mjs）生成仓库外层 `inkbox-workspace/压测-大文档.md`（1.03MB，463 章/198 张图表/1850 标题，可参数化重生成；不进安装包、不进 git）
+- **mermaid 视口懒渲染**（压测暴露的瓶颈）：mermaid 渲染串行且全局互斥，198 张图全量渲染要 105 秒且阻塞交互——改为视口 ±600px 余量内立即渲染、视口外滚动到附近才渲染（IntersectionObserver）；主题切换视口内离屏重绘不闪烁、视口外后台按新主题补渲。打开 1MB 图表文档即用（文本 140ms），滚动到图表处 ~1s 出图
+
 ## 下一步（发布前跟进）
 
-启动/大文件性能 profiling、安装包代码签名（未签名有 SmartScreen 提示）、macOS/Linux 构建、正式发布流程（打 `v1.0.0` 标签 + GitHub Release）。1.x 迭代池剩余：导出 LaTeX、PicGo 上传、快捷键自定义、插件系统、Vim 键位。
+安装包代码签名（未签名有 SmartScreen 提示）、macOS/Linux 构建、正式发布流程（打 `v1.0.0` 标签 + GitHub Release）。1.x 迭代池剩余：导出 LaTeX、PicGo 上传、快捷键自定义、插件系统、Vim 键位。
 
 ## 技术栈
 

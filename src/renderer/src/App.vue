@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, nextTick } from 'vue'
+import { onMounted, nextTick, defineAsyncComponent } from 'vue'
 import type { MenuCommand } from '@shared/types'
 import { t } from '@/i18n'
 import { useUiStore } from '@/stores/ui'
@@ -13,10 +13,11 @@ import ShortcutPanel from '@/components/sidebar/ShortcutPanel.vue'
 import EditorArea from '@/components/editor/EditorArea.vue'
 import StatusBar from '@/components/chrome/StatusBar.vue'
 import ImageViewer from '@/components/chrome/ImageViewer.vue'
-import SettingsDialog from '@/components/chrome/SettingsDialog.vue'
-import ExportDialog from '@/components/chrome/ExportDialog.vue'
 import ConfirmDialog from '@/components/chrome/ConfirmDialog.vue'
 import Toast from '@/components/chrome/Toast.vue'
+// 弹窗类按需加载（exporter 连带 pdf/字体资源链，设置页打开频率低）
+const SettingsDialog = defineAsyncComponent(() => import('@/components/chrome/SettingsDialog.vue'))
+const ExportDialog = defineAsyncComponent(() => import('@/components/chrome/ExportDialog.vue'))
 import { useAutosave } from '@/composables/useAutosave'
 import { useDrafts } from '@/composables/useDrafts'
 

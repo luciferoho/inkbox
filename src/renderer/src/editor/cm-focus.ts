@@ -60,9 +60,17 @@ export const luciFocusMode = [
   })
 ]
 
-/** 打字机模式：光标移动/输入时保持当前行处于视口中部（scrollIntoView 已居中则不动） */
+/**
+ * 打字机模式：打字时保持当前行处于视口中部。
+ * 只认输入/删除（CM6 的鼠标点击与键盘移动命令均不设 userEvent，无法区分，
+ * 而点击强制居中会让视口内来回选择时反复上下调整——即用户遇到的抖动）。
+ */
 export const luciTypewriterMode = EditorView.updateListener.of((u) => {
-  if (!(u.docChanged || u.selectionSet) || !u.view.hasFocus) return
+  if (!u.view.hasFocus) return
+  const shouldCenter = u.transactions.some(
+    (tr) => tr.isUserEvent('input.type') || tr.isUserEvent('delete')
+  )
+  if (!shouldCenter) return
   const pos = u.state.selection.main.head
   u.view.dispatch({
     effects: EditorView.scrollIntoView(pos, { y: 'center' })
