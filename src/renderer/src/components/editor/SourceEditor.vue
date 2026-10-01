@@ -13,6 +13,8 @@ import { cmPhrases } from '@/editor/cm-i18n'
 import {
   formattingKeymap,
   cmdBold,
+  continueList,
+  deleteListMarker,
   cmdItalic,
   cmdStrike,
   cmdInlineCode,
@@ -69,10 +71,16 @@ function makeState(content: string): EditorState {
   return EditorState.create({
     doc: content,
     extensions: [
-      // Mod-f 路由到自建查找条（拦在 basicSetup 的 searchKeymap 之前，别再开内置面板）
-      keymap.of([{ key: 'Mod-f', run: () => (ui.requestFind(), true) }]),
+      // Mod-f 路由到自建查找条（拦在 basicSetup 的 searchKeymap 之前，别再开内置面板）；
+      // Enter 续行 / Backspace 删标记同样必须最先注册：lang-markdown 自带 Prec.high 的
+      // markdownKeymap（addKeymap 默认开，已禁用）与 defaultKeymap 都会抢先拦截
+      keymap.of([
+        { key: 'Mod-f', run: () => (ui.requestFind(), true) },
+        { key: 'Enter', run: continueList },
+        { key: 'Backspace', run: deleteListMarker }
+      ]),
       basicSetup,
-      markdown({ base: markdownLanguage, codeLanguages: languages }),
+      markdown({ base: markdownLanguage, codeLanguages: languages, addKeymap: false }),
       search({ top: true }),
       luciFindHighlight(),
       phrasesComp.of(cmPhrases()),

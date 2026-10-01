@@ -1,5 +1,7 @@
 import { type Command, type KeyBinding } from '@codemirror/view'
 import { EditorSelection } from '@codemirror/state'
+import { syntaxTree } from '@codemirror/language'
+import type { SyntaxNode } from '@lezer/common'
 
 /** 选区包裹/解包标记：有选中且已包裹时解包；光标紧邻一对标记（含空对）时移除 */
 function wrapSelection(view: Parameters<Command>[0], open: string, close = open): boolean {
@@ -96,6 +98,81 @@ export const cmdHighlight: Command = wrap('==')
 export const cmdLink: Command = wrap('[', '](https://)')
 export const cmdHeadingUp: Command = (v) => shiftHeading(v, -1)
 export const cmdHeadingDown: Command = (v) => shiftHeading(v, 1)
+
+/* ---------- 列表/引用自动续行（1.10 智能补全） ---------- */
+
+/**
+ * Enter 续行（Typora 习惯）：
+ * - `- item` / `* x` / `+ x` 回车 → 下一项（继承缩进）
+ * - `- [ ] 任务` 回车 → 下一项且勾选框重置为未勾选
+ * - `1. item` / `2) item` 回车 → 序号 +1（保留分隔符样式）
+ * - `> 引用` 回车 → 续引用行
+ * - 空项（标记后无内容）回车 → 删除标记结束列表
+ * - 光标在标记区内回车、或不在列表/引用行 → 交回默认换行
+ */
+export const continueList: Command = (view) => {
+  const { state } = view
+  const range = state.selection.main
+  if (!range.empty) return false
+  const head = range.head
+  // 代码围栏里的 "- x"/"1. x" 是代码不是列表：不续行
+  let fence: SyntaxNode | null = syntaxTree(state).resolveInner(head, -1)
+  while (fence) {
+    if (fence.name === 'FencedCode') return false
+    fence = fence.parent
+  }
+  const line = state.doc.lineAt(head)
+  const m = /^(\s*)(?:([-*+]\s+(?:\[[ xX]\]\s+)?)|(\d+)([.)])\s+|(>\s?))/.exec(line.text)
+  if (!m) return false
+  const markerEnd = m[0].length
+  if (head < line.from + markerEnd) return false // 光标还在标记里：默认换行
+
+  const before = line.text.slice(markerEnd, head - line.from)
+  const after = line.text.slice(head - line.from)
+  // 空项回车：删掉标记与缩进，结束列表（光标落行首）
+  if (!before.trim() && !after.trim()) {
+    view.dispatch(
+      view.state.update({
+        changes: { from: line.from, to: line.from + markerEnd },
+        selection: { anchor: line.from }
+      })
+    )
+    return true
+  }
+  let next: string
+  if (m[4]) next = `${m[1]}${Number(m[3]) + 1}${m[4]} ` // 有序：序号+1，保留 . 或 )
+  else if (m[2]) next = `${m[1]}${m[2].replace(/\[[xX]\]/, '[ ]')}` // 无序/任务：勾选框重置
+  else next = `${m[1]}${m[5]}` // 引用
+  // 显式光标到新项标记后（不带 selection 时光标默认留在插入文本之前，后续输入会落在上一行）
+  view.dispatch(
+    view.state.update({
+      changes: { from: head, insert: `\n${next}` },
+      selection: { anchor: head + 1 + next.length }
+    })
+  )
+  return true
+}
+
+/** 退格删列表标记（补回被禁用的内置 deleteMarkupBackward）：
+ *  光标紧跟标记末尾时，Backspace 一次删掉整个标记而非单个字符（空项退出列表的另一半） */
+export const deleteListMarker: Command = (view) => {
+  const { state } = view
+  const range = state.selection.main
+  if (!range.empty) return false
+  const head = range.head
+  const line = state.doc.lineAt(head)
+  const m = /^(\s*)(?:([-*+]\s+(?:\[[ xX]\]\s+)?)|(\d+)([.)])\s+|(>\s?))/.exec(line.text)
+  if (!m) return false
+  const markerEnd = m[0].length
+  if (head !== line.from + markerEnd) return false // 光标必须紧贴标记尾
+  view.dispatch(
+    view.state.update({
+      changes: { from: line.from, to: line.from + markerEnd },
+      selection: { anchor: line.from }
+    })
+  )
+  return true
+}
 
 export const formattingKeymap: KeyBinding[] = [
   { key: 'Mod-b', run: cmdBold },

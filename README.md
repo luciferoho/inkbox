@@ -120,6 +120,7 @@ npm run dist:dir   # 仅打未打包目录版（release/pkg/win-unpacked，快�
 - **性能基线数据**（electron-vite preview 实测）：1MB 真实感文档（含代码块/表格 ×2900）打开→CodeMirror 就绪+双栏预览全渲染 580ms；启动剩余 ~750ms 为 Electron 渲染进程固定成本
 - **大文档压测样例**：`npm run bigfile`（scripts/make-bigfile.mjs）生成仓库外层 `inkbox-workspace/压测-大文档.md`（1.03MB，463 章/198 张图表/1850 标题，可参数化重生成；不进安装包、不进 git）
 - **mermaid 视口懒渲染**（压测暴露的瓶颈）：mermaid 渲染串行且全局互斥，198 张图全量渲染要 105 秒且阻塞交互——改为视口 ±600px 余量内立即渲染、视口外滚动到附近才渲染（IntersectionObserver）；主题切换视口内离屏重绘不闪烁、视口外后台按新主题补渲。打开 1MB 图表文档即用（文本 140ms），滚动到图表处 ~1s 出图
+- **列表智能续行**（1.10 P1 收官）：Enter 自动续无序/任务（勾选重置）/有序（序号+1，保留 ./) 分隔）/引用/嵌套缩进；空项回车结束列表、Backspace 一次删整段标记；标记内回车与代码围栏不接管（Typora 语义）。自定义实现替换 lang-markdown 内置 keymap（其勾选不重置、空项行为不符）
 
 ## 下一步（发布前跟进）
 
