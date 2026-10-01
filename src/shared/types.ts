@@ -16,6 +16,8 @@ export interface AppConfig {
   restoreTabs: boolean
   /** 再次打开窗口时恢复上次打开的文件夹 */
   restoreFolders: boolean
+  /** 登录系统后自动启动（app.setLoginItemSettings） */
+  openAtLogin: boolean
   /** 点窗口关闭按钮的行为：quit = 退出程序；tray = 最小化到托盘（托盘菜单退出） */
   closeAction: 'quit' | 'tray'
   /** 最近文件，新的在前 */
@@ -48,6 +50,7 @@ export const defaultConfig: AppConfig = {
   autosave: { enabled: true, intervalMs: 15000 },
   restoreTabs: true,
   restoreFolders: true,
+  openAtLogin: false,
   closeAction: 'quit',
   recent: []
 }

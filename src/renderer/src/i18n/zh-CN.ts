@@ -165,6 +165,27 @@ export const zh = {
   'table.alignNone': '恢复默认对齐',
   'table.deleteTable': '删除整个表格',
 
+  // 块悬浮工具栏
+  'block.bold': '加粗 (Ctrl+B)',
+  'block.italic': '斜体 (Ctrl+I)',
+  'block.strike': '删除线 (Ctrl+Shift+X)',
+  'block.code': '行内代码 (Ctrl+Shift+C)',
+  'block.highlight': '高亮',
+  'block.link': '链接 (Ctrl+K)',
+  'block.headingUp': '提升标题级别 (Ctrl+=)',
+  'block.headingDown': '降低标题级别 (Ctrl+-)',
+  'block.insertTable': '插入表格',
+  'block.insertCode': '插入代码块',
+  'block.insertImage': '插入图片（复制到文档旁的 .assets）',
+
+  // 图片修饰（工具条图片上下文）
+  'img.wider': '加宽 10%',
+  'img.narrower': '缩窄 10%',
+  'img.alignLeft': '居左',
+  'img.alignCenter': '居中',
+  'img.alignRight': '居右',
+  'img.resetMods': '清除尺寸与对齐（恢复原始大小）',
+
   // 编辑器（源码模式）
   'editor.saveFirstForImage': '请先保存文档，再粘贴图片',
   'editor.imageSaveFailed': '图片保存失败：{name}',
@@ -269,6 +290,8 @@ export const zh = {
   'settings.pwHint': '按本窗口可用宽度百分比缩放，各窗口独立调整、互不同步；{min}%–100%，100% 时只保留四周间距。',
   'settings.restoreTabs': '恢复标签',
   'settings.restoreFolders': '恢复文件夹',
+  'settings.openAtLogin': '开机自启',
+  'settings.openAtLoginHint': '登录 Windows 后自动启动墨匣。',
   'settings.startupHint':
     '再次打开窗口时，恢复上次打开的文件标签与工作区文件夹。异常退出后下次启动会自动恢复全部内容（含未保存的修改）。',
   'settings.closeAction': '关闭按钮',

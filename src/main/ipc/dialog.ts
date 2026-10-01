@@ -38,6 +38,21 @@ export function registerDialogIpc(): void {
     return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
   })
 
+  /** 块工具栏「插入图片」：选择本地图片（复制进 .assets 由渲染层编排） */
+  ipcMain.handle('dialog:openImage', async (e): Promise<string | null> => {
+    const win = parentWindow(e)
+    const opts: OpenDialogOptions = {
+      title: m('dlgOpenImage'),
+      properties: ['openFile'],
+      filters: [
+        { name: m('dlgImages'), extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] },
+        { name: m('dlgAllFiles'), extensions: ['*'] }
+      ]
+    }
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
+  })
+
   ipcMain.handle(
     'dialog:saveFile',
     async (e, defaultName?: string, kind: 'md' | 'html' = 'md'): Promise<string | null> => {

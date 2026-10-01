@@ -163,6 +163,27 @@ export const en: MsgSchema = {
   'table.alignNone': 'Default alignment',
   'table.deleteTable': 'Delete the whole table',
 
+  // Block toolbar
+  'block.bold': 'Bold (Ctrl+B)',
+  'block.italic': 'Italic (Ctrl+I)',
+  'block.strike': 'Strikethrough (Ctrl+Shift+X)',
+  'block.code': 'Inline code (Ctrl+Shift+C)',
+  'block.highlight': 'Highlight',
+  'block.link': 'Link (Ctrl+K)',
+  'block.headingUp': 'Promote heading (Ctrl+=)',
+  'block.headingDown': 'Demote heading (Ctrl+-)',
+  'block.insertTable': 'Insert table',
+  'block.insertCode': 'Insert code block',
+  'block.insertImage': 'Insert image (copied into .assets next to the document)',
+
+  // Image modifiers (toolbar image context)
+  'img.wider': 'Widen 10%',
+  'img.narrower': 'Narrow 10%',
+  'img.alignLeft': 'Align left',
+  'img.alignCenter': 'Center',
+  'img.alignRight': 'Align right',
+  'img.resetMods': 'Clear size & alignment (back to natural size)',
+
   // Editor (source mode)
   'editor.saveFirstForImage': 'Save the document before pasting images',
   'editor.imageSaveFailed': 'Failed to save image: {name}',
@@ -270,6 +291,8 @@ export const en: MsgSchema = {
   'settings.pwHint': 'Scaled to this window’s available width — adjusted per window and not synced; {min}%–100%. 100% keeps only outer spacing.',
   'settings.restoreTabs': 'Restore tabs',
   'settings.restoreFolders': 'Restore folder',
+  'settings.openAtLogin': 'Launch at startup',
+  'settings.openAtLoginHint': 'Start Inkbox automatically after signing in to Windows.',
   'settings.startupHint':
     'Reopen the tabs and workspace folder from your last session. After an abnormal exit everything is restored automatically (unsaved changes included).',
   'settings.closeAction': 'Close button',

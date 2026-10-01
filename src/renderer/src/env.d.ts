@@ -26,6 +26,7 @@ interface Window {
     dialog: {
       openFile(): Promise<string | null>
       openFolder(): Promise<string | null>
+      openImage(): Promise<string | null>
       saveFile(defaultName?: string, kind?: 'md' | 'html'): Promise<string | null>
     }
     export: {

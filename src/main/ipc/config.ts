@@ -120,8 +120,19 @@ function broadcastConfig(): void {
   }
 }
 
+/** 开机自启：写系统登录项。仅打包后生效——dev 下 process.execPath 是 electron.exe，注册会污染系统登录项 */
+function applyLoginItem(): void {
+  if (!app.isPackaged) return
+  try {
+    app.setLoginItemSettings({ openAtLogin: load().openAtLogin })
+  } catch (err) {
+    console.error('[config] setLoginItemSettings failed:', err)
+  }
+}
+
 export function registerConfigIpc(): void {
   load() // 启动即读：旧配置迁移要在首个窗口读取窗口偏好前完成
+  applyLoginItem()
 
   ipcMain.handle('app:getConfig', () => load())
 
@@ -134,6 +145,7 @@ export function registerConfigIpc(): void {
       autosave: { ...prev.autosave, ...patch.autosave }
     }
     persist()
+    if (patch.openAtLogin !== undefined && patch.openAtLogin !== prev.openAtLogin) applyLoginItem()
     broadcastConfig()
     return cache
   })

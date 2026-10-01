@@ -139,6 +139,19 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 <i class="knob" />
               </button>
             </div>
+            <div class="row">
+              <span class="label">{{ $t('settings.openAtLogin') }}</span>
+              <button
+                class="switch"
+                role="switch"
+                :aria-checked="ui.openAtLogin"
+                :class="{ on: ui.openAtLogin }"
+                @click="ui.setOpenAtLogin(!ui.openAtLogin)"
+              >
+                <i class="knob" />
+              </button>
+            </div>
+            <p class="row-hint">{{ $t('settings.openAtLoginHint') }}</p>
             <p class="row-hint">{{ $t('settings.startupHint') }}</p>
 
             <!-- 窗口 -->

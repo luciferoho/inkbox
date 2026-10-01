@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { EditorView, keymap, type ViewUpdate } from '@codemirror/view'
+import { EditorView, keymap, type Command, type ViewUpdate } from '@codemirror/view'
 import { Compartment, EditorState } from '@codemirror/state'
 import { basicSetup } from 'codemirror'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
@@ -9,7 +9,17 @@ import { search, openSearchPanel } from '@codemirror/search'
 import { indentWithTab } from '@codemirror/commands'
 import { luciTheme } from '@/editor/cm-theme'
 import { cmPhrases } from '@/editor/cm-i18n'
-import { formattingKeymap } from '@/editor/cm-commands'
+import {
+  formattingKeymap,
+  cmdBold,
+  cmdItalic,
+  cmdStrike,
+  cmdInlineCode,
+  cmdHighlight,
+  cmdLink,
+  cmdHeadingUp,
+  cmdHeadingDown
+} from '@/editor/cm-commands'
 import { luciFocusMode, luciTypewriterMode } from '@/editor/cm-focus'
 import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
@@ -22,6 +32,13 @@ import {
   type TableInfo,
   type TableOp
 } from '@/editor/table-utils'
+import {
+  parseImageLine,
+  applyImageMods,
+  stepWidth,
+  widthLabel,
+  type ImageMods
+} from '@/editor/image-utils'
 
 const emit = defineEmits<{ (e: 'scroll-sync', line: number, frac: number): void }>()
 
@@ -40,8 +57,10 @@ const focusComp = new Compartment()
 const typewriterComp = new Compartment()
 /** CodeMirror 内置界面短语（搜索面板等）随语言热切换 */
 const phrasesComp = new Compartment()
-/** 光标所在表格（悬浮工具栏数据源） */
+/** 光标所在表格（停靠工具条的数据源：在表格内 → 表格操作，否则 → 格式化操作） */
 const tableInfo = ref<TableInfo | null>(null)
+/** 光标行内的图片（工具条切换为图片尺寸/对齐操作；表格优先） */
+const imageInfo = ref<ReturnType<typeof parseImageLine> | null>(null)
 
 function makeState(content: string): EditorState {
   return EditorState.create({
@@ -56,8 +75,11 @@ function makeState(content: string): EditorState {
       focusComp.of(ui.focusMode ? luciFocusMode : []),
       typewriterComp.of(ui.typewriterMode ? luciTypewriterMode : []),
       EditorView.updateListener.of((u: ViewUpdate) => {
-        // 表格检测只读状态，放在 applying 守卫之外：整档替换后也要刷新
-        if (u.docChanged || u.selectionSet) updateTableInfo()
+        // 表格/图片检测只读状态，放在 applying 守卫之外：整档替换后也要刷新
+        if (u.docChanged || u.selectionSet) {
+          updateTableInfo()
+          updateImageInfo()
+        }
         if (applying) return
         if (u.docChanged && tabId !== null) {
           docs.updateContent(tabId, u.state.doc.toString())
@@ -88,6 +110,14 @@ function fileExt(mime: string): string {
   return map[mime] ?? 'png'
 }
 
+/** 文档旁的 .assets 目录信息：`dir` 为文档所在目录，`assetsDir` 为资源目录名 */
+function assetsDirFor(docPath: string): { dir: string; assetsDir: string } {
+  const sepIdx = Math.max(docPath.lastIndexOf('/'), docPath.lastIndexOf('\\'))
+  const dir = sepIdx > 0 ? docPath.slice(0, sepIdx) : '.'
+  const base = (docPath.split(/[\\/]/).pop() ?? 'doc').replace(/\.[^.]+$/, '')
+  return { dir, assetsDir: `${base}.assets` }
+}
+
 async function insertImagesFrom(
   dt: DataTransfer | null,
   view: EditorView,
@@ -102,11 +132,7 @@ async function insertImagesFrom(
     ui.showToast(t('editor.saveFirstForImage'))
     return true
   }
-  const docPath = tab.path
-  const sepIdx = Math.max(docPath.lastIndexOf('/'), docPath.lastIndexOf('\\'))
-  const dir = sepIdx > 0 ? docPath.slice(0, sepIdx) : '.'
-  const base = (docPath.split(/[\\/]/).pop() ?? 'doc').replace(/\.[^.]+$/, '')
-  const assetsDir = `${base}.assets`
+  const { dir, assetsDir } = assetsDirFor(tab.path)
   const stamp = new Date()
   const pad = (n: number): string => String(n).padStart(2, '0')
   const ts = `${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}_${pad(
@@ -136,6 +162,33 @@ async function insertImagesFrom(
   })
   ui.showToast(t('editor.imagesInserted', { n: links.length, dir: assetsDir }))
   return true
+}
+
+/** 块工具栏「插入图片」：原生文件选择器 → 复制进 .assets → 插入相对链接 */
+async function insertImageFromDisk(): Promise<void> {
+  if (!view) return
+  const tab = docs.tabs.find((t) => t.id === tabId)
+  if (!tab?.path) {
+    ui.showToast(t('editor.saveFirstForImage'))
+    return
+  }
+  const src = await window.api.dialog.openImage()
+  if (!src) return
+  const { dir, assetsDir } = assetsDirFor(tab.path)
+  const name = src.split(/[\\/]/).pop() ?? 'image'
+  try {
+    // 主进程读 → 主进程写（base64 中转），渲染层不碰磁盘
+    const base64 = await window.api.fs.readBinary(src)
+    await window.api.fs.writeFileBinary(`${dir}/${assetsDir}/${name}`, base64)
+  } catch (err) {
+    console.error('[editor] image copy failed:', err)
+    ui.showToast(t('editor.imageSaveFailed', { name }))
+    return
+  }
+  const pos = view.state.selection.main.head
+  view.dispatch({ changes: { from: pos, insert: `![${name}](./${assetsDir}/${name})\n` } })
+  ui.showToast(t('editor.imagesInserted', { n: 1, dir: assetsDir }))
+  view.focus()
 }
 
 /**
@@ -214,6 +267,55 @@ function canDeleteRow(): boolean {
 
 function canDeleteCol(): boolean {
   return !!tableInfo.value && tableInfo.value.colCount > 1
+}
+
+/* ---------- 图片行检测与尺寸/对齐操作（工具条第三上下文） ---------- */
+
+function updateImageInfo(): void {
+  if (!view || tableInfo.value) {
+    imageInfo.value = null
+    return
+  }
+  const line = view.state.doc.lineAt(view.state.selection.main.head)
+  // 行内只有图片（允许前后空白）才算图片上下文：避免行内图文混排时格式按钮消失
+  imageInfo.value = /^\s*!\[[^\]]*\]\([^)\s]+\)\s*$/.test(line.text) ? parseImageLine(line.text) : null
+}
+
+/** 用新修饰符重写光标行（单事务，可撤销），保持光标在行内 */
+function runImageMods(next: ImageMods | ((cur: ImageMods) => ImageMods)): void {
+  if (!view || !imageInfo.value) return
+  const line = view.state.doc.lineAt(view.state.selection.main.head)
+  const applied = applyImageMods(line.text, typeof next === 'function' ? next(imageInfo.value.mods) : next)
+  if (applied === line.text) return
+  const head = view.state.selection.main.head
+  view.dispatch({
+    changes: { from: line.from, to: line.to, insert: applied },
+    selection: { anchor: Math.min(line.from + applied.length, Math.max(line.from, head - line.from + (applied.length - line.text.length))) }
+  })
+  view.focus()
+}
+
+function runCmd(cmd: Command): void {
+  if (!view) return
+  cmd(view)
+  view.focus()
+}
+
+/** 在光标处插入片段并把光标放到 cursorOffset（相对插入起点的偏移）。
+ *  块级片段（表格/围栏）保证落在独立行：行中插入先断行、片段后补换行，
+ *  避免模板挤进段落里导致语法失效 */
+function insertSnippet(text: string, cursorOffset: number, isBlock = false): void {
+  if (!view) return
+  const pos = view.state.selection.main.head
+  const line = view.state.doc.lineAt(pos)
+  const prefix = isBlock && pos > line.from ? '\n' : ''
+  const suffix = isBlock ? '\n' : ''
+  view.dispatch({
+    changes: { from: pos, insert: prefix + text + suffix },
+    selection: { anchor: pos + prefix.length + cursorOffset },
+    scrollIntoView: true
+  })
+  view.focus()
 }
 
 /* 编辑器滚动 → 通知预览：视口顶行的行号（setTimeout 节流，不依赖渲染帧） */
@@ -364,8 +466,10 @@ watch(
 
 <template>
   <div class="cm-host-wrap">
-    <transition name="tablebar">
-      <div v-if="tableInfo" class="table-bar" @mousedown.prevent>
+    <!-- 停靠工具条：固定在编辑区顶部，不浮动、不遮挡正文。
+         光标在表格内 → 表格结构操作；否则 → 常用格式化操作（作用于选区/光标行） -->
+    <div class="ctx-strip" @mousedown.prevent>
+      <template v-if="tableInfo">
         <span class="tb-size">{{ tableInfo.bodyCount + 1 }} × {{ tableInfo.colCount }}</span>
         <i class="tb-sep" />
         <button :title="$t('table.addRowAbove')" @click="runTableOp({ kind: 'row-above' })">
@@ -404,8 +508,64 @@ watch(
         <button :title="$t('table.deleteTable')" class="danger" @click="runTableOp({ kind: 'table-delete' })">
           <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h8M5.5 4V2.5h3V4M4 4l.5 7.5h5L10 4M6 6.5v3M8 6.5v3" /></svg>
         </button>
-      </div>
-    </transition>
+      </template>
+      <template v-else-if="imageInfo">
+        <!-- 图片上下文：宽度步进 + 三档对齐 + 清除修饰 -->
+        <span class="ctx-hint">图片 · {{ widthLabel(imageInfo.mods) }}</span>
+        <i class="tb-sep" />
+        <button :title="$t('img.wider')" @click="runImageMods((c) => stepWidth(c, 1))">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="3" width="11" height="8" rx="1.5"/><path d="M7 5.5v3M5.75 6.75 7 5.5l1.25 1.25"/></svg>
+        </button>
+        <button :title="$t('img.narrower')" @click="runImageMods((c) => stepWidth(c, -1))">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="3" width="11" height="8" rx="1.5"/><path d="M7 5.5v3M5.75 7.25 7 8.5l1.25-1.25"/></svg>
+        </button>
+        <i class="tb-sep" />
+        <button :title="$t('img.alignLeft')" @click="runImageMods((c) => ({ ...c, align: 'left' }))">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="1.5" y="3.5" width="7" height="7" rx="1"/><path d="M1.5 1.5h11M1.5 12.5h11"/></svg>
+        </button>
+        <button :title="$t('img.alignCenter')" @click="runImageMods((c) => ({ ...c, align: 'center' }))">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1"/><path d="M1.5 1.5h11M1.5 12.5h11"/></svg>
+        </button>
+        <button :title="$t('img.alignRight')" @click="runImageMods((c) => ({ ...c, align: 'right' }))">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="5.5" y="3.5" width="7" height="7" rx="1"/><path d="M1.5 1.5h11M1.5 12.5h11"/></svg>
+        </button>
+        <i class="tb-sep" />
+        <button :title="$t('img.resetMods')" @click="runImageMods({})">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7a5 5 0 1 1 1.5 3.5M2 7V4m0 3h3"/></svg>
+        </button>
+      </template>
+      <template v-else>
+        <button :title="$t('block.bold')" @click="runCmd(cmdBold)"><span class="glyph glyph-b">B</span></button>
+        <button :title="$t('block.italic')" @click="runCmd(cmdItalic)"><span class="glyph glyph-i">I</span></button>
+        <button :title="$t('block.strike')" @click="runCmd(cmdStrike)"><span class="glyph glyph-s">S</span></button>
+        <button :title="$t('block.code')" @click="runCmd(cmdInlineCode)">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 4 1.5 7l3 3M9.5 4l3 3-3 3" /></svg>
+        </button>
+        <button :title="$t('block.highlight')" @click="runCmd(cmdHighlight)">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 11.5h9M8.8 2.2l2.5 2.5-5.4 5.4-3 .5.5-3z" /></svg>
+        </button>
+        <button :title="$t('block.link')" @click="runCmd(cmdLink)">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a2.5 2.5 0 0 0 3.5 0l2-2A2.5 2.5 0 0 0 8 2L7.2 2.8M8 6a2.5 2.5 0 0 0-3.5 0l-2 2A2.5 2.5 0 0 0 6 12l.8-.8" /></svg>
+        </button>
+        <i class="tb-sep" />
+        <button :title="$t('block.headingUp')" @click="runCmd(cmdHeadingUp)">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 11.5V4.5M2 4.5L1 6M2 4.5L3 6" /><text x="5" y="10.5" font-size="8.5" font-weight="700" fill="currentColor" stroke="none" font-family="inherit">H</text></svg>
+        </button>
+        <button :title="$t('block.headingDown')" @click="runCmd(cmdHeadingDown)">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4.5v7M2 11.5l-1-1.5M2 11.5L3 10" /><text x="5" y="10.5" font-size="8.5" font-weight="700" fill="currentColor" stroke="none" font-family="inherit">H</text></svg>
+        </button>
+        <i class="tb-sep" />
+        <button :title="$t('block.insertTable')" @click="insertSnippet('| 列1 | 列2 |\n| --- | --- |\n|  |  |', 2, true)">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="1.5" y="2.5" width="11" height="9" rx="1" /><path d="M1.5 5.7h11M1.5 8.4h11M5 5.7v5.8M9 5.7v5.8" /></svg>
+        </button>
+        <button :title="$t('block.insertCode')" @click="insertSnippet('```\n\n```', 4, true)">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M4 4.5 2 7l2 2.5M10 4.5 12 7l-2 2.5" /><path d="M8.2 3l-2.4 8" /></svg>
+        </button>
+        <button :title="$t('block.insertImage')" @click="insertImageFromDisk">
+          <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="1.5" y="2.5" width="11" height="9" rx="1.5" /><circle cx="5" cy="5.8" r="1" /><path d="M12.5 9.5 9.6 6.6l-5 4.9" /></svg>
+        </button>
+      </template>
+    </div>
     <div ref="host" class="cm-host" />
   </div>
 </template>
@@ -427,20 +587,21 @@ watch(
   overflow: hidden;
 }
 
-/* 表格悬浮工具栏：光标进入表格时浮现于编辑器右上角 */
-.table-bar {
-  position: absolute;
-  top: 6px;
-  right: 14px;
-  z-index: 20;
+/* 停靠工具条：编辑区顶部固定一行（非浮动），内容随光标上下文切换（表格/格式化） */
+.ctx-strip {
   display: flex;
   align-items: center;
   gap: 1px;
-  padding: 3px 6px;
+  padding: 3px 8px;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: var(--shadow-pop);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ctx-strip::-webkit-scrollbar {
+  display: none;
 }
 
 .tb-size {
@@ -448,6 +609,7 @@ watch(
   font-size: 10.5px;
   color: var(--text-2);
   padding: 0 5px;
+  flex-shrink: 0;
 }
 
 .tb-sep {
@@ -458,7 +620,7 @@ watch(
   flex-shrink: 0;
 }
 
-.table-bar button {
+.ctx-strip button {
   width: 26px;
   height: 24px;
   display: grid;
@@ -468,29 +630,48 @@ watch(
   flex-shrink: 0;
 }
 
-.table-bar button:hover:not(:disabled) {
+.ctx-strip button:hover:not(:disabled) {
   background: var(--accent-soft);
   color: var(--accent-strong);
 }
 
-.table-bar button.danger:hover:not(:disabled) {
+.ctx-strip button.danger:hover:not(:disabled) {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
 }
 
-.table-bar button:disabled {
+.ctx-strip button:disabled {
   opacity: 0.35;
   cursor: default;
 }
 
-.tablebar-enter-active,
-.tablebar-leave-active {
-  transition: opacity 0.12s ease, transform 0.12s ease;
+/* 文本字形图标（B/I/S，WPS 习惯）：衬线感弱化，直接用字重/字形表达 */
+.glyph {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  line-height: 1;
 }
 
-.tablebar-enter-from,
-.tablebar-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
+.glyph-b {
+  font-weight: 700;
+}
+
+.glyph-i {
+  font-style: italic;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+.glyph-s {
+  text-decoration: line-through;
+}
+
+/* 图片上下文的当前状态提示（宽度值） */
+.ctx-hint {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-2);
+  padding: 0 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 </style>

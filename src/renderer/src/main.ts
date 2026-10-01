@@ -19,6 +19,7 @@ function installBrowserMock(): void {
     autosave: { enabled: true, intervalMs: 15000 },
     restoreTabs: true,
     restoreFolders: true,
+    openAtLogin: false,
     closeAction: 'quit' as const,
     recent: [] as { path: string; ts: number }[]
   }
@@ -56,6 +57,7 @@ function installBrowserMock(): void {
     dialog: {
       openFile: async () => null,
       openFolder: async () => null,
+      openImage: async () => null,
       saveFile: async () => null
     },
     export: {

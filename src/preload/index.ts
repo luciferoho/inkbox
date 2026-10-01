@@ -42,6 +42,8 @@ const api = {
   dialog: {
     openFile: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFile'),
     openFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFolder'),
+    /** 块工具栏「插入图片」：选择本地图片文件 */
+    openImage: (): Promise<string | null> => ipcRenderer.invoke('dialog:openImage'),
     saveFile: (defaultName?: string, kind: 'md' | 'html' = 'md'): Promise<string | null> =>
       ipcRenderer.invoke('dialog:saveFile', defaultName, kind)
   },

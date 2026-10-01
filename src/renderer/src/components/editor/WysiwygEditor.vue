@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Editor, rootCtx, defaultValueCtx, editorViewOptionsCtx, editorViewCtx } from '@milkdown/kit/core'
+import {
+  Editor,
+  rootCtx,
+  defaultValueCtx,
+  editorViewOptionsCtx,
+  editorViewCtx,
+  serializerCtx,
+  remarkCtx,
+  remarkPluginsCtx
+} from '@milkdown/kit/core'
 import { commonmark } from '@milkdown/kit/preset/commonmark'
 import { gfm } from '@milkdown/kit/preset/gfm'
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
@@ -34,7 +43,7 @@ let pending: string | null = null
 function applyReplace(markdown: string): void {
   applying = true
   try {
-    editor?.action(replaceAll(markdown))
+    editor?.action(replaceAll(toWysiwygSource(markdown)))
   } finally {
     applying = false
   }
@@ -108,6 +117,108 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   return false
 }
 
+/* ---------- 本地相对路径图片 ⇄ luci-img://（数据层改写） ---------- */
+
+/**
+ * remark mdast 清洗：Milkdown 的 image schema 声明 `validate: "string"`，
+ * 而 remark 对无 alt/title 的图片给出 null → PM 校验抛 RangeError →
+ * Milkdown 的 addNode 把失败静默吞掉 → 图片节点蒸发（段落一起消失）。
+ * 在 remark 解析后、PM 转换前把 null 归一化为空串。
+ */
+interface MdastNode {
+  type?: string
+  alt?: unknown
+  title?: unknown
+  children?: MdastNode[]
+}
+
+function normalizeImageNulls() {
+  return (tree: MdastNode): void => {
+    const walk = (n: MdastNode): void => {
+      if (n.type === 'image') {
+        if (n.alt === null || n.alt === undefined) n.alt = ''
+        if (n.title === null || n.title === undefined) n.title = ''
+      }
+      n.children?.forEach((c) => walk(c))
+    }
+    walk(tree)
+  }
+}
+
+/**
+ * Milkdown/ProseMirror 按 src 字面值渲染 <img>，相对路径相对应用源解析必裂图；
+ * 在 DOM 层改写会被 ProseMirror 的 DOM 同步恢复（上一版方案无效的根因）。
+ * 改在数据层：进入即显时把相对路径转为 luci-img:// 绝对协议（state 里显示正确），
+ * markdownUpdated 序列化时转回相对路径（store/磁盘上永远是原始相对路径）。
+ * 代码围栏内的伪图片文本不动（逐行 + 围栏状态扫描）。
+ */
+function buildLuciUrl(absPath: string): string {
+  return (
+    'luci-img://' +
+    encodeURIComponent(absPath).replace(/%2F/gi, '/').replace(/\(/g, '%28').replace(/\)/g, '%29')
+  )
+}
+
+function docDirOf(): string | null {
+  const p = docs.active?.path
+  if (!p) return null
+  const sepIdx = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
+  return sepIdx > 0 ? p.slice(0, sepIdx).replace(/\\/g, '/') : null
+}
+
+/** 相对路径图片 → luci-img://（跳过协议/绝对/锚点与代码围栏） */
+function toWysiwygSource(md: string): string {
+  const docDir = docDirOf()
+  if (!docDir) return md
+  const lines = md.split('\n')
+  let fence: string | null = null
+  for (let i = 0; i < lines.length; i++) {
+    const fm = /^(\s*)(`{3,}|~{3,})/.exec(lines[i])
+    if (fm) {
+      if (fence === null) fence = fm[2].slice(0, 1).repeat(3)
+      else if (lines[i].trimStart().startsWith(fence)) fence = null
+      continue
+    }
+    if (fence !== null) continue
+    lines[i] = lines[i].replace(
+      /(\]\()([^)\s]+)(\))/g,
+      (whole, open: string, src: string, close: string) => {
+        if (/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/|#)/.test(src)) return whole
+        let rel = src.replace(/^\.\//, '')
+        try {
+          rel = decodeURIComponent(rel)
+        } catch {
+          /* 游离 % 序列按原样 */
+        }
+        return `${open}${buildLuciUrl(`${docDir}/${rel}`)}${close}`
+      }
+    )
+  }
+  return lines.join('\n')
+}
+
+/** luci-img:// → 原始相对路径（文档目录内的）；目录外的保留绝对路径 */
+function fromWysiwygSource(md: string): string {
+  const docDir = docDirOf()
+  if (!docDir) return md
+  return md.replace(/\]\(luci-img:\/\/([^)\s]+)\)/g, (_whole, enc: string) => {
+    let abs: string
+    try {
+      abs = decodeURIComponent(enc)
+    } catch {
+      return `](luci-img://${enc})`
+    }
+    const normDir = docDir.toLowerCase()
+    const normAbs = abs.replace(/\\/g, '/')
+    if (normAbs.toLowerCase().startsWith(normDir + '/')) {
+      return `](./${normAbs.slice(normDir.length + 1)})`
+    }
+    return `](${normAbs})`
+  })
+}
+
+/* ---------- 生命周期 ---------- */
+
 onMounted(() => {
   if (!host.value) return
   // 点击即显区域任意位置都要让编辑器拿到焦点，避免"点了但打不了字"
@@ -115,10 +226,15 @@ onMounted(() => {
   const instance = Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, host.value!)
-      ctx.set(defaultValueCtx, docs.active?.content ?? '')
+      ctx.set(defaultValueCtx, toWysiwygSource(docs.active?.content ?? ''))
+      // remarkPluginsCtx 元素格式为 { plugin, options }（core 按 plug.plugin 取值 use）
+      ctx.update(remarkPluginsCtx, (ps) => [
+        ...ps,
+        { plugin: normalizeImageNulls, options: {} } as never
+      ])
       ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
         if (applying || tabId === null) return
-        docs.updateContent(tabId, markdown)
+        docs.updateContent(tabId, fromWysiwygSource(markdown))
       })
       ctx.update(editorViewOptionsCtx, (prev) => ({
         ...prev,
@@ -131,6 +247,30 @@ onMounted(() => {
     .use(listener)
   void instance.create().then((e) => {
     editor = e
+    // 开发期调试钩子：CDP 查 PM 文档 JSON / 序列化输出 / 内部 remark mdast
+    // （定位解析/序列化丢失层）
+    if (!import.meta.env.PROD) {
+      ;(window as unknown as Record<string, unknown>).__milkDebug = {
+        doc: () =>
+          editor?.action((ctx) => ctx.get(editorViewCtx).state.doc.toJSON()),
+        md: () =>
+          editor?.action((ctx) => {
+            const ser = ctx.get(serializerCtx)
+            const view = ctx.get(editorViewCtx)
+            return String(ser(view.state.doc))
+          }),
+        remark: (src: string) =>
+          editor?.action((ctx) => {
+            const proc = ctx.get(remarkCtx)
+            const tree = proc.runSync(proc.parse(src)) as unknown as MdastNode
+            const walk = (n: MdastNode): unknown =>
+              n.type === 'image'
+                ? { type: n.type, alt: n.alt, title: n.title }
+                : { type: n.type, kids: (n.children ?? []).map(walk) }
+            return JSON.stringify(walk(tree))
+          })
+      }
+    }
     if (pending !== null) {
       const md = pending
       pending = null
@@ -158,7 +298,7 @@ function onHostMousedown(): void {
   }
 }
 
-/* 切换标签：整档替换（编辑器未就绪时暂存，create 完成后应用） */
+/* 切换标签：整档替换（编辑器未就绪时暂存，create 完成后应用），并回到顶部 */
 watch(
   () => docs.activeId,
   (id) => {
@@ -166,6 +306,7 @@ watch(
     const markdown = docs.active?.content ?? ''
     if (editor) applyReplace(markdown)
     else pending = markdown
+    if (host.value) host.value.scrollTop = 0
   }
 )
 

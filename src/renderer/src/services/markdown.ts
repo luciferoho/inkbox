@@ -7,6 +7,8 @@ import mark from 'markdown-it-mark'
 import sub from 'markdown-it-sub'
 import sup from 'markdown-it-sup'
 import footnote from 'markdown-it-footnote'
+// full = GitHub 名单全量词表（bare/light 为精简版）
+import { full as emoji } from 'markdown-it-emoji'
 
 /**
  * 统一的 markdown 渲染管线：
@@ -16,7 +18,7 @@ import footnote from 'markdown-it-footnote'
  * - 链接强制新窗口打开
  * - 数学公式 $...$ / $$...$$（katex 懒加载，见 ensureMath）
  * - mermaid 围栏 → 占位 div，由 Preview 异步渲染
- * - 扩展语法：==高亮== ^上标~下标 脚注 [TOC]
+ * - 扩展语法：==高亮== ^上标~下标 脚注 [TOC] :emoji: 短代码
  */
 export const md: MarkdownIt = MarkdownItDefault({
   html: false,
@@ -32,7 +34,12 @@ export const md: MarkdownIt = MarkdownItDefault({
     }
     return ''
   }
-}).use(mark).use(sub).use(sup).use(footnote)
+})
+  .use(mark)
+  .use(sub)
+  .use(sup)
+  .use(footnote)
+  .use(emoji)
 
 /* 顶层块附源码行号（token.map 为 0 基，[start, end)）：供双栏同步滚动插值 */
 md.core.ruler.push('luci_source_line', (state: StateCore) => {
@@ -137,19 +144,61 @@ md.validateLink = (url: string): boolean => {
   return defaultValidateLink(url)
 }
 
-/* 相对路径图片 → luci-img:// 协议（本地文件）；文档目录经 render(src, { docDir }) 传入 */
-const defaultImage: RendererRule =
-  md.renderer.rules.image ??
-  ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+/* 相对路径图片 → luci-img:// 协议（本地文件）；文档目录经 render(src, { docDir }) 传入。
+ * alt 支持 `![文字|60%|center](src)` 修饰符（尺寸/对齐，与 editor/image-utils 同一套语法）。
+ * 注意 alt 属性在默认规则里由 children 文本渲染而来，这里必须显式经
+ * renderInlineAsText 取原文、解析修饰符后自行 renderToken（defaultImage 会覆盖回去） */
 md.renderer.rules.image = (tokens, idx, options, env, self) => {
   const tok = tokens[idx]
   const raw = String(tok.attrGet('src') ?? '')
   const docDir: string | undefined = (env as { docDir?: string } | undefined)?.docDir
   if (raw && docDir && !/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/|#)/.test(raw)) {
-    const abs = docDir.replace(/[\\/]+$/, '') + '/' + raw.replace(/^\.\//, '')
+    // markdown-it 对链接目标做过一次百分号编码（中文/空格 → %XX）：先解码回原始文件名
+    // 再重组，否则 encodeURIComponent 二次编码会让主进程解码后剩字面量 % 路径（404 裂图）
+    let rel = raw.replace(/^\.\//, '')
+    try {
+      rel = decodeURIComponent(rel)
+    } catch {
+      /* 游离 % 序列：按原样拼接 */
+    }
+    const abs = docDir.replace(/[\\/]+$/, '').replace(/\\/g, '/') + '/' + rel
     tok.attrSet('src', 'luci-img://' + encodeURIComponent(abs).replace(/%2F/gi, '/'))
   }
-  return defaultImage(tokens, idx, options, env, self)
+  // alt 原文（children 渲染成文本，含 | 修饰符）
+  let alt = ''
+  try {
+    alt = self.renderInlineAsText(tok.children ?? [], options, env)
+  } catch {
+    alt = tok.content ?? ''
+  }
+  const styles: string[] = []
+  let width: string | undefined
+  let height: string | undefined
+  let altOut = alt
+  if (alt.includes('|')) {
+    const pipe = alt.indexOf('|')
+    altOut = alt.slice(0, pipe)
+    for (const t of alt.slice(pipe + 1).split('|')) {
+      const tk = t.trim()
+      if (/^(left|center|right)$/i.test(tk)) {
+        if (tk.toLowerCase() === 'center') styles.push('display:block', 'margin-inline:auto')
+        else if (tk.toLowerCase() === 'right') styles.push('display:block', 'margin-left:auto', 'margin-right:0')
+        else styles.push('display:block', 'margin-right:auto', 'margin-left:0')
+      } else if (/^\d+(\.\d+)?%$/.test(tk)) width = tk
+      else {
+        const wh = /^(\d+)x(\d+)$/.exec(tk)
+        if (wh) {
+          width = `${wh[1]}px`
+          height = `${wh[2]}px`
+        } else if (/^\d+(px)?$/i.test(tk)) width = tk.endsWith('px') ? tk : `${tk}px`
+      }
+    }
+  }
+  tok.attrSet('alt', altOut)
+  if (width) styles.unshift(`width:${width}`)
+  if (height) styles.unshift(`height:${height}`)
+  if (styles.length) tok.attrSet('style', styles.join(';'))
+  return self.renderToken(tokens, idx, options)
 }
 
 /** 带文档目录渲染（相对图片解析用） */

@@ -42,7 +42,7 @@ const luciBase = EditorView.theme({
     backgroundColor: 'transparent'
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
-    backgroundColor: 'var(--accent-soft) !important'
+    backgroundColor: 'var(--selection) !important'
   },
   '.cm-selectionMatch': {
     backgroundColor: 'var(--accent-soft)'

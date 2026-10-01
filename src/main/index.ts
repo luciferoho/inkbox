@@ -21,6 +21,11 @@ if (!gotLock) {
   // 禁用沙箱外的特权页面，收敛安全面
   app.enableSandbox()
 
+  // 开发期固定调试端口：CDP 直连真实窗口排查渲染层问题（打包版不开启）
+  if (!app.isPackaged) {
+    app.commandLine.appendSwitch('remote-debugging-port', '9222')
+  }
+
   /** 应用由 Luci 更名 Inkbox：迁移旧 userData 里的配置，避免主题/最近文件丢失 */
   function migrateLegacyConfig(): void {
     const cfg = join(app.getPath('userData'), 'config.json')

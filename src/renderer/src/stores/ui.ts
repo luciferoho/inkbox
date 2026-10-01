@@ -30,6 +30,8 @@ export const useUiStore = defineStore('ui', {
     restoreTabs: true,
     /* 再次打开窗口时恢复上次打开的文件夹（默认开） */
     restoreFolders: true,
+    /* 登录系统后自动启动（主进程写系统登录项，仅打包后生效） */
+    openAtLogin: false,
     /* 点窗口关闭按钮的行为：quit = 退出程序；tray = 最小化到托盘 */
     closeAction: 'quit' as 'quit' | 'tray',
     statusMessage: t('ui.ready'),
@@ -96,6 +98,7 @@ export const useUiStore = defineStore('ui', {
       this.autosaveIntervalMs = Math.max(3000, cfg.autosave.intervalMs)
       this.restoreTabs = cfg.restoreTabs ?? true
       this.restoreFolders = cfg.restoreFolders ?? true
+      this.openAtLogin = cfg.openAtLogin ?? false
       this.closeAction = cfg.closeAction ?? 'quit'
       this.editorPrefs = { ...cfg.editor }
       this.applyTheme()
@@ -173,6 +176,10 @@ export const useUiStore = defineStore('ui', {
     async setRestoreFolders(v: boolean): Promise<void> {
       this.restoreFolders = v
       await window.api.app.setConfig({ restoreFolders: v })
+    },
+    async setOpenAtLogin(v: boolean): Promise<void> {
+      this.openAtLogin = v
+      await window.api.app.setConfig({ openAtLogin: v })
     },
     async setCloseAction(v: 'quit' | 'tray'): Promise<void> {
       this.closeAction = v

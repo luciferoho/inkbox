@@ -35,23 +35,74 @@ watch(
   { immediate: true }
 )
 
-/** 换文档（docDir 变化）时立即重渲染，图片相对路径才能正确解析 */
+/** 换文档（docDir 变化）时立即重渲染并回到顶部：图片相对路径才能正确解析，
+ *  滚动位置也不能沿用上一篇文档的（源码面板切标签会归零，两边口径一致） */
 watch(
   () => props.docDir,
-  () => void render(props.content)
+  () => {
+    if (scroller.value) scroller.value.scrollTop = 0
+    void render(props.content)
+  }
 )
 
-/** 主题切换 → 清缓存重渲染图表（mermaid 主题不同）。必须重新 initialize：
- *  实例只在首次加载时初始化一次，不重置的话后续 run 仍用旧主题配色，
- *  表现为切主题后图表底色/文字错乱 */
+/** 主题切换 → 只重渲染 mermaid 图表：其余内容的颜色全走 CSS 变量，
+ *  [data-theme] 切换即自动跟随，无需重建 DOM。图表颜色是渲染时内联的，
+ *  在离屏节点按新主题画好再原地替换——无占位塌陷、无闪烁、滚动不丢。
+ *  （不能用清空 html 重建的路子：整页闪一下 + 滚动位置丢失；
+ *  也不能移除 data-processed 原地重跑：run 会把 SVG 内部文本当源码） */
 watch(
   () => ui.effectiveTheme,
   () => {
     mermaidCache.clear()
     if (mermaidMod) initMermaidTheme(mermaidMod)
-    void render(props.content)
+    void rethemeMermaid()
   }
 )
+
+let rethemeSeq = 0
+
+/** 离屏重渲染全部图表并原地替换（主题切换专用路径） */
+async function rethemeMermaid(): Promise<void> {
+  const nodes = [...(body.value?.querySelectorAll<HTMLElement>('.mermaid') ?? [])]
+  if (nodes.length === 0) return
+  const seq = ++rethemeSeq
+  let m: MermaidInstance
+  try {
+    m = await loadMermaid()
+    initMermaidTheme(m)
+  } catch (err) {
+    console.error('[preview] mermaid load failed:', err)
+    return
+  }
+  const host = body.value
+  for (const node of nodes) {
+    if (seq !== rethemeSeq) return // 主题连切：本轮作废
+    const code = node.dataset.mermaidSrc ?? ''
+    if (!code || !node.isConnected) continue // 无源码（未渲染占位）交给常规 render 流程
+    const key = `${MERMAID_THEME_VERSION}|${ui.effectiveTheme}|${code}`
+    const hit = mermaidCache.get(key)
+    if (hit !== undefined) {
+      node.innerHTML = hit
+      node.setAttribute('data-processed', 'true')
+      continue
+    }
+    // 离屏渲染：同宽度、脱离文档流（mermaid 测量需要布局），完成后替换
+    const off = document.createElement('div')
+    off.style.cssText = `position:absolute;left:-9999px;top:0;width:${node.clientWidth || 600}px`
+    off.textContent = code
+    host?.appendChild(off)
+    try {
+      await m.run({ nodes: [off] })
+      node.innerHTML = off.innerHTML
+      node.setAttribute('data-processed', 'true')
+      mermaidCache.set(key, off.innerHTML)
+    } catch (err) {
+      console.error('[preview] mermaid retheme failed:', err)
+    }
+    off.remove()
+  }
+  collectBlocks()
+}
 
 async function render(content: string): Promise<void> {
   const seq = ++renderSeq
@@ -73,13 +124,123 @@ let mermaidMod: MermaidInstance | null = null
 let mermaidLoading: Promise<MermaidInstance> | null = null
 const mermaidCache = new Map<string, string>()
 
-/** 按当前生效主题配置 mermaid（加载时与主题切换后各调一次） */
+/**
+ * 按当前生效主题配置 mermaid（加载时与主题切换后各调一次）。
+ * 用 base 主题 + 全量 themeVariables：墨匣纸面琥珀系配色，文字对比度
+ * 显式拉满（默认主题的序列图消息文字/饼图图例在浅色底上看不清，导出同病）。
+ * 字体用具体字栈（SVG 内联样式，CSS 变量在导出 HTML 里不可依赖）。
+ */
+const MERMAID_FONT = "'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', sans-serif"
+
+/** 主题配置版本：进 mermaid 渲染缓存 key——改配色后旧缓存自动失效（缓存 key 只含
+ *  theme|code，改 themeVariables 不换版本的话用户看到的永远是旧渲染） */
+const MERMAID_THEME_VERSION = '2'
+
+const MERMAID_LIGHT = {
+  background: 'transparent',
+  fontFamily: MERMAID_FONT,
+  fontSize: '14px',
+  // 通用（flowchart/类图等）。edgeLabelBackground 用实际背景色值而非 'transparent'：
+  // mermaid 的 fade() 会把 'transparent' 按黑色混出 rgba(0,0,0,.5) 的暗底
+  primaryColor: '#f3e5cf',
+  primaryTextColor: '#2b2420',
+  primaryBorderColor: '#c9701f',
+  lineColor: '#9c8f7f',
+  textColor: '#2b2420',
+  edgeLabelBackground: '#f6f2ec',
+  // 序列图
+  actorBkg: '#f3e5cf',
+  actorTextColor: '#2b2420',
+  actorBorder: '#c9701f',
+  actorLineColor: '#d8cfc0',
+  signalColor: '#6b5f52',
+  signalTextColor: '#4a4036',
+  labelBoxBkgColor: '#f3e5cf',
+  labelBoxBorderColor: '#c9701f',
+  labelTextColor: '#4a4036',
+  loopTextColor: '#4a4036',
+  noteBkgColor: '#fdf3e0',
+  noteTextColor: '#4a4036',
+  noteBorderColor: '#e0c9a0',
+  activationBkgColor: '#f3e5cf',
+  // 饼图（ECharts 质感：不透明扇区 + 纸面描边间隔 + 深色图例/标题）
+  pieTitleTextColor: '#2b2420',
+  pieTitleTextSize: '19px',
+  pieSectionTextColor: '#ffffff',
+  pieSectionTextSize: '13px',
+  pieLegendTextColor: '#4a4036',
+  pieLegendTextSize: '13px',
+  pieStrokeColor: '#f6f2ec',
+  pieStrokeWidth: '2px',
+  pieOpacity: '1',
+  pie1: '#c9701f',
+  pie2: '#2e7f72',
+  pie3: '#a85a32',
+  pie4: '#7c7267',
+  pie5: '#e0a458',
+  pie6: '#5bb8a8',
+  pie7: '#8a5a3a',
+  pie8: '#b0a494',
+  pie9: '#d98e4a',
+  pie10: '#3a9c8c',
+  pie11: '#c2503e',
+  pie12: '#9c8f7f'
+}
+
+const MERMAID_DARK = {
+  background: 'transparent',
+  fontFamily: MERMAID_FONT,
+  fontSize: '14px',
+  primaryColor: '#3b3128',
+  primaryTextColor: '#eae2d6',
+  primaryBorderColor: '#e6a054',
+  lineColor: '#a89d8e',
+  textColor: '#eae2d6',
+  edgeLabelBackground: '#1d1814',
+  actorBkg: '#3b3128',
+  actorTextColor: '#eae2d6',
+  actorBorder: '#e6a054',
+  actorLineColor: '#4a4036',
+  signalColor: '#c0b4a4',
+  signalTextColor: '#eae2d6',
+  labelBoxBkgColor: '#3b3128',
+  labelBoxBorderColor: '#e6a054',
+  labelTextColor: '#eae2d6',
+  loopTextColor: '#eae2d6',
+  noteBkgColor: '#332a21',
+  noteTextColor: '#eae2d6',
+  noteBorderColor: '#5b5044',
+  activationBkgColor: '#3b3128',
+  pieTitleTextColor: '#eae2d6',
+  pieTitleTextSize: '19px',
+  pieSectionTextColor: '#1d1814',
+  pieSectionTextSize: '13px',
+  pieLegendTextColor: '#eae2d6',
+  pieLegendTextSize: '13px',
+  pieStrokeColor: '#1d1814',
+  pieStrokeWidth: '2px',
+  pieOpacity: '1',
+  pie1: '#e6a054',
+  pie2: '#5bb8a8',
+  pie3: '#d98e4a',
+  pie4: '#a89d8e',
+  pie5: '#f0b26e',
+  pie6: '#7cc8b8',
+  pie7: '#c09070',
+  pie8: '#c0b4a4',
+  pie9: '#e6b880',
+  pie10: '#8ad0c0',
+  pie11: '#d66a55',
+  pie12: '#8a7d6d'
+}
+
 function initMermaidTheme(inst: MermaidInstance): void {
+  const dark = ui.effectiveTheme === 'dark'
   inst.initialize({
     startOnLoad: false,
     securityLevel: 'strict',
-    theme: ui.effectiveTheme === 'dark' ? 'dark' : 'default',
-    fontFamily: 'var(--font-ui)'
+    theme: 'base',
+    themeVariables: dark ? MERMAID_DARK : MERMAID_LIGHT
   })
 }
 
@@ -96,9 +257,13 @@ function loadMermaid(): Promise<MermaidInstance> {
 async function renderMermaid(): Promise<void> {
   const nodes = body.value?.querySelectorAll<HTMLElement>('.mermaid')
   if (!nodes || nodes.length === 0) return
+  // 每轮渲染前都应用当前主题配置：initialize 只是设配置对象，开销可忽略。
+  // 不能只靠"首次加载/切主题时"调用——组件 HMR 重挂载不触发主题 watch，
+  // 实例会一直用旧配置渲染（曾导致改配色后用户侧图表纹丝不动）
   let m: MermaidInstance
   try {
     m = await loadMermaid()
+    initMermaidTheme(m)
   } catch (err) {
     console.error('[preview] mermaid load failed:', err)
     return
@@ -109,7 +274,7 @@ async function renderMermaid(): Promise<void> {
     // 重跑会把 SVG 里的 <style> 文本当源码解析（切主题后图表变 CSS 文字的根因）
     if (node.getAttribute('data-processed') === 'true') continue
     const code = node.textContent ?? ''
-    const key = `${ui.effectiveTheme}|${code}`
+    const key = `${MERMAID_THEME_VERSION}|${ui.effectiveTheme}|${code}`
     const hit = mermaidCache.get(key)
     if (hit !== undefined) {
       node.innerHTML = hit
@@ -120,6 +285,8 @@ async function renderMermaid(): Promise<void> {
       node.removeAttribute('data-processed')
       await m.run({ nodes: [node] })
       node.setAttribute('data-processed', 'true')
+      // 源码存档：主题切换的离屏重渲染（rethemeMermaid）凭它还原占位输入
+      node.setAttribute('data-mermaid-src', code)
       mermaidCache.set(key, node.innerHTML)
     } catch (err) {
       console.error('[preview] mermaid render failed:', err)

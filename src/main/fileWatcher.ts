@@ -33,8 +33,9 @@ export function registerFileWatcherIpc(): void {
     if (!path || watching.has(path)) return
     try {
       const watcher = watch(dirname(path), (_event, filename) => {
-        // filename 为 null（部分平台）时保守视为命中
-        if (filename && basename(path) !== filename) return
+        // 只认明确指向本文件的事件：filename 为 null 时跳过——保守视为命中会把
+        // 同目录其他文件的匿名事件误报成本文件修改（配合渲染层内容比对已足够）
+        if (!filename || basename(path) !== filename) return
         const state = watching.get(path)
         if (state) schedule(path, state)
       })

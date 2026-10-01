@@ -16,6 +16,8 @@
   --accent: #c9701f;
   --accent-strong: #b16014;
   --accent-soft: rgba(201, 112, 31, 0.12);
+  /* 文本选区：与琥珀色 ==高亮==/搜索命中区分开，对比度足够醒目 */
+  --selection: rgba(58, 118, 190, 0.5);
   --danger: #c2503e;
   --ok: #2e7f72;
 
@@ -57,6 +59,7 @@
   --accent: #e6a054;
   --accent-strong: #f0b26e;
   --accent-soft: rgba(230, 160, 84, 0.14);
+  --selection: rgba(124, 170, 222, 0.55);
   --danger: #d66a55;
   --ok: #5bb8a8;
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.25), 0 10px 28px rgba(0, 0, 0, 0.22);
@@ -90,7 +93,7 @@ body {
 }
 
 ::selection {
-  background: var(--accent-soft);
+  background: var(--selection);
   color: var(--text);
 }
 

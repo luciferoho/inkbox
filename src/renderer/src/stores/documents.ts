@@ -17,6 +17,9 @@ export interface DocTab {
   dirty: boolean
   /** 主页标签：不可关闭/不可拖拽/不参与保存 */
   isHome?: boolean
+  /** 最近一次由本应用成功写盘的内容快照。外部修改检测用：磁盘内容与它一致
+   *  即为自身保存的回声（自动保存后 300ms 内继续输入也不误报）。null = 从未写过 */
+  savedContent?: string | null
 }
 
 function makeHomeTab(): DocTab {
@@ -159,7 +162,14 @@ export const useDocumentsStore = defineStore('documents', {
       }
       try {
         const content = await window.api.fs.readFile(path)
-        const tab: DocTab = { id: nextId++, path, name: basename(path), content, dirty: false }
+        const tab: DocTab = {
+          id: nextId++,
+          path,
+          name: basename(path),
+          content,
+          dirty: false,
+          savedContent: content
+        }
         this.tabs.push(tab)
         this.activeId = tab.id
         window.api.watch.watch(path)
@@ -218,10 +228,14 @@ export const useDocumentsStore = defineStore('documents', {
       }
       const prevPath = tab.path
       try {
-        await window.api.fs.writeFile(path, tab.content)
+        // 先取写盘的确切内容：await 期间用户可能继续输入，写完再读 tab.content
+        // 会把「没写进磁盘的新内容」记成快照，外部修改检测就认不出自身保存的回声
+        const written = tab.content
+        await window.api.fs.writeFile(path, written)
         tab.path = path
         tab.name = basename(path)
         tab.dirty = false
+        tab.savedContent = written // 记录写盘快照：外部修改检测凭它识别自身保存的回声
         // 另存 = 换了被监听文件；备份已落盘，清掉
         if (prevPath && prevPath !== path) {
           window.api.watch.unwatch(prevPath)
@@ -358,9 +372,14 @@ export const useDocumentsStore = defineStore('documents', {
         ui.showToast(t('docs.fileGone', { name: tab.name }))
         return
       }
-      if (disk === tab.content) return // 自身自动保存或无实质变化
+      if (disk === tab.content) return // 内容一致（外部改成相同内容或无实质变化）
+      // 自身保存的回声：磁盘仍是上次写盘的内容，编辑器里的更新是保存后继续输入
+      if (tab.savedContent !== null && tab.savedContent !== undefined && disk === tab.savedContent) {
+        return
+      }
       if (!tab.dirty) {
         tab.content = disk
+        tab.savedContent = disk
         tab.dirty = false
         ui.notifyReload()
         ui.showToast(t('docs.reloaded', { name: tab.name }))
@@ -373,6 +392,7 @@ export const useDocumentsStore = defineStore('documents', {
       )
       if (ok) {
         tab.content = disk
+        tab.savedContent = disk
         tab.dirty = false
         ui.notifyReload()
         ui.showToast(t('docs.reloaded', { name: tab.name }))
