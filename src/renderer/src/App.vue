@@ -76,10 +76,7 @@ function dispatch(cmd: MenuCommand): void {
       ui.toggleSearchPanel()
       break
     case 'edit:find':
-      // 即显/预览模式没有源码编辑器实例，先切回双栏再开查找面板
-      if (ui.editorMode === 'preview' || ui.editorMode === 'wysiwyg') {
-        ui.setEditorMode('split')
-      }
+      // 三模式各自打开停靠查找条：即显（PM 插件，可替换）/ 源码+双栏（CM6，可替换）/ 预览（DOM 高亮，只读）
       ui.requestFind()
       break
     case 'app:settings':

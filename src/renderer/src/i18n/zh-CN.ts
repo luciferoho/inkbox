@@ -224,6 +224,21 @@ export const zh = {
   'sc.exitCode': '退出代码块',
   'sc.afterCode': '代码块后接续正文',
 
+  // 即显模式查找条
+  'find.search': '查找',
+  'find.replaceWith': '替换为',
+  'find.replace': '替换',
+  'find.replaceAll': '全部替换',
+  'find.prev': '上一个（Shift+Enter）',
+  'find.next': '下一个（Enter）',
+  'find.case': '区分大小写',
+  'find.regex': '正则表达式',
+  'find.wholeWord': '全字匹配',
+  'find.tgDisabled': '正则模式下不可用',
+  'find.close': '关闭（Esc）',
+  'find.noMatch': '无结果',
+  'find.badPattern': '正则无效',
+
   // 墨脊
   'rail.outline': '大纲',
   'rail.files': '工作区',

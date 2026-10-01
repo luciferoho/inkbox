@@ -170,3 +170,16 @@
 .wysiwyg-host .luci-prose span[data-type='hard-break'] + br {
   content: '';
 }
+
+/* 查找替换命中高亮（decoration 打在文本上，需全局样式） */
+.wysiwyg-host .luci-prose .pm-find-hit {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 2px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.wysiwyg-host .luci-prose .pm-find-hit-active {
+  background: color-mix(in srgb, var(--accent) 62%, transparent);
+  box-shadow: 0 0 0 1px var(--accent-strong);
+}

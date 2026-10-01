@@ -222,6 +222,21 @@ export const en: MsgSchema = {
   'sc.exitCode': 'Leave code block',
   'sc.afterCode': 'Continue prose after code block',
 
+  // WYSIWYG find bar
+  'find.search': 'Find',
+  'find.replaceWith': 'Replace with',
+  'find.replace': 'Replace',
+  'find.replaceAll': 'Replace all',
+  'find.prev': 'Previous (Shift+Enter)',
+  'find.next': 'Next (Enter)',
+  'find.case': 'Match case',
+  'find.regex': 'Regular expression',
+  'find.wholeWord': 'Match whole word',
+  'find.tgDisabled': 'Unavailable in regex mode',
+  'find.close': 'Close (Esc)',
+  'find.noMatch': 'No results',
+  'find.badPattern': 'Invalid regex',
+
   // Activity rail
   'rail.outline': 'Outline',
   'rail.files': 'Files',

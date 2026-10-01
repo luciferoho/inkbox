@@ -2,6 +2,8 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ensureMath, renderWithDir } from '@/services/markdown'
 import { useUiStore } from '@/stores/ui'
+import { buildRegex, type FindQuery } from '@/find-shared'
+import FindBar from './FindBar.vue'
 import '@/assets/preview.css'
 
 const props = defineProps<{ content: string; docDir: string | null }>()
@@ -115,6 +117,7 @@ async function render(content: string): Promise<void> {
   if (seq !== renderSeq) return
   collectBlocks()
   await renderMermaid()
+  if (findOpen.value) pvSearch() // 内容重渲染重置了 DOM，开着查找就重扫
 }
 
 /* ---------- mermaid 异步渲染（带缓存） ---------- */
@@ -356,6 +359,136 @@ function syncToLine(line: number, _frac: number): void {
 
 defineExpose({ syncToLine })
 
+/* ---------- 查找（预览只读：DOM 高亮定位，无替换） ---------- */
+
+const findOpen = ref(false)
+const findQuery = ref<FindQuery>({ text: '', caseSensitive: false, regexp: false, wholeWord: false })
+const findCount = ref(0)
+const findActive = ref(-1)
+const findError = ref(false)
+const findBarRef = ref<InstanceType<typeof FindBar> | null>(null)
+/** 当前命中元素（v-html 内容重渲染后由 pvSearch 重建） */
+let findHits: HTMLElement[] = []
+let findSeq = 0
+
+function pvClearHighlights(): void {
+  const root = body.value
+  if (!root) return
+  root.querySelectorAll('.pv-find-hit').forEach((el) => {
+    el.replaceWith(document.createTextNode(el.textContent ?? ''))
+  })
+  root.normalize() // 合并被拆开的相邻文本节点，避免下轮匹配错位
+  findHits = []
+}
+
+/** 全文收集文本节点（跳过图表/公式），命中包一层高亮 span */
+function pvSearch(): void {
+  const root = body.value
+  if (!root) return
+  const seq = ++findSeq
+  pvClearHighlights()
+  const q = findQuery.value
+  if (q.regexp) {
+    try {
+      new RegExp(q.text, q.caseSensitive ? '' : 'i')
+      findError.value = false
+    } catch {
+      findError.value = true
+    }
+  } else {
+    findError.value = false
+  }
+  if (!q.text || findError.value) {
+    findCount.value = 0
+    findActive.value = -1
+    return
+  }
+  const re = buildRegex(q)
+  if (!re) {
+    findError.value = true
+    findCount.value = 0
+    return
+  }
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(n) {
+      const p = n.parentElement
+      if (!p || !n.nodeValue) return NodeFilter.FILTER_REJECT
+      if (p.closest('.mermaid, .katex, script, style, .pv-find-hit')) return NodeFilter.FILTER_REJECT
+      return NodeFilter.FILTER_ACCEPT
+    }
+  })
+  const texts: Text[] = []
+  while (walker.nextNode()) texts.push(walker.currentNode as Text)
+  const hits: HTMLElement[] = []
+  for (const node of texts) {
+    if (seq !== findSeq) return // 期间内容重渲染：本轮作废
+    const text = node.nodeValue ?? ''
+    re.lastIndex = 0
+    const ranges: [number, number][] = []
+    let m: RegExpExecArray | null
+    while ((m = re.exec(text))) {
+      if (!m[0]) {
+        re.lastIndex++ // 零宽匹配防死循环
+        continue
+      }
+      ranges.push([m.index, m.index + m[0].length])
+      if (ranges.length >= 500) break
+    }
+    if (!ranges.length) continue
+    const frag = document.createDocumentFragment()
+    let last = 0
+    for (const [s, e] of ranges) {
+      if (s > last) frag.appendChild(document.createTextNode(text.slice(last, s)))
+      const span = document.createElement('span')
+      span.className = 'pv-find-hit'
+      span.textContent = text.slice(s, e)
+      frag.appendChild(span)
+      hits.push(span)
+      last = e
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)))
+    node.parentNode?.replaceChild(frag, node)
+  }
+  findHits = hits
+  findCount.value = hits.length
+  findActive.value = hits.length ? 0 : -1
+  if (hits.length) pvShowHit(0)
+}
+
+function pvShowHit(i: number): void {
+  findHits.forEach((el, k) => el.classList.toggle('pv-find-hit-active', k === i))
+  // scrollIntoView 不依赖焦点，预览面板无焦点也能定位
+  findHits[i]?.scrollIntoView({ block: 'center' })
+}
+
+function pvNav(dir: 1 | -1): void {
+  if (!findHits.length) return
+  findActive.value = (findActive.value + dir + findHits.length) % findHits.length
+  pvShowHit(findActive.value)
+}
+
+function pvClose(): void {
+  findOpen.value = false
+  pvClearHighlights()
+  findCount.value = 0
+  findActive.value = -1
+}
+
+watch(findQuery, () => {
+  if (findOpen.value) pvSearch()
+})
+
+/* 预览模式 Ctrl+F：只搜索定位，不做替换（不再切回双栏） */
+watch(
+  () => ui.findRequest,
+  () => {
+    if (ui.editorMode !== 'preview') return
+    findOpen.value = true
+    pvSearch()
+    void nextTick(() => findBarRef.value?.focusInput())
+  }
+)
+
 /* ---------- 图片点击 → 查看器 ---------- */
 
 function onClickDom(e: MouseEvent): void {
@@ -386,15 +519,38 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="scroller" class="preview-scroll">
-    <div v-if="html" ref="body" class="md-preview" v-html="html" />
-    <div v-else class="preview-empty">{{ $t('preview.empty') }}</div>
+  <div class="preview-wrap">
+    <!-- 查找条：停靠在预览顶部，只搜索定位（无替换区） -->
+    <FindBar
+      v-if="findOpen"
+      ref="findBarRef"
+      search-only
+      :query="findQuery"
+      :count="findCount"
+      :active="findActive"
+      :error="findError"
+      @update:query="findQuery = $event"
+      @nav="pvNav"
+      @close="pvClose"
+    />
+    <div ref="scroller" class="preview-scroll">
+      <div v-if="html" ref="body" class="md-preview" v-html="html" />
+      <div v-else class="preview-empty">{{ $t('preview.empty') }}</div>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.preview-scroll {
+.preview-wrap {
   height: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   position: relative; /* 作为 offsetTop 参照 */
 }
@@ -404,5 +560,18 @@ onBeforeUnmount(() => {
   color: var(--text-2);
   font-size: 12.5px;
   text-align: center;
+}
+</style>
+
+<style>
+/* 查找命中高亮：打在 v-html 内容上，作用域样式够不到；限定在预览容器内避免泄漏 */
+.md-preview .pv-find-hit {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 2px;
+}
+
+.md-preview .pv-find-hit-active {
+  background: color-mix(in srgb, var(--accent) 62%, transparent);
+  box-shadow: 0 0 0 1px var(--accent-strong);
 }
 </style>

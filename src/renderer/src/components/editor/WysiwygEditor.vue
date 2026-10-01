@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
 import {
   Editor,
   rootCtx,
@@ -13,11 +13,24 @@ import {
 import { commonmark } from '@milkdown/kit/preset/commonmark'
 import { gfm } from '@milkdown/kit/preset/gfm'
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
-import { replaceAll } from '@milkdown/kit/utils'
+import { history } from '@milkdown/kit/plugin/history'
+import { replaceAll, $prose } from '@milkdown/kit/utils'
 import { TextSelection, type EditorState } from '@milkdown/kit/prose/state'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { useDocumentsStore } from '@/stores/documents'
 import { useUiStore } from '@/stores/ui'
+import {
+  createFindPlugin,
+  onFindStatus,
+  findOpen as pmFindOpen,
+  findClose as pmFindClose,
+  findSetQuery,
+  findGo as pmFindGo,
+  findReplaceCurrent,
+  findReplaceAll
+} from '@/editor/pm-find'
+import type { FindQuery, FindStatus } from '@/find-shared'
+import FindBar from './FindBar.vue'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
 import '@milkdown/kit/prose/gapcursor/style/gapcursor.css'
 import '@milkdown/kit/prose/tables/style/tables.css'
@@ -217,12 +230,100 @@ function fromWysiwygSource(md: string): string {
   })
 }
 
+/* ---------- 查找替换（Ctrl+F，ProseMirror 层实现见 editor/pm-find.ts） ---------- */
+
+/** 查询状态是唯一真源：FindBar 编辑 → findQuery → watch 驱动插件 */
+const findBarOpen = ref(false)
+const findQuery = ref<FindQuery>({ text: '', caseSensitive: false, regexp: false, wholeWord: false })
+const replaceText = ref('')
+const findCount = ref(0)
+const findActive = ref(-1)
+const findError = ref(false)
+const findBarRef = ref<InstanceType<typeof FindBar> | null>(null)
+
+/** 插件状态 → Vue 回显（插件经 onFindStatus 推送） */
+function syncFindStatus(s: FindStatus): void {
+  findBarOpen.value = s.open
+  findCount.value = s.count
+  findActive.value = s.active
+  findError.value = s.error
+}
+
+function getView(): EditorView | null {
+  try {
+    return editor?.action((ctx) => ctx.get(editorViewCtx)) ?? null
+  } catch {
+    return null
+  }
+}
+
+/** 打开查找条：有非空单行选区时预填为搜索词（Typora 习惯） */
+function openFind(): void {
+  const view = getView()
+  if (!view) return
+  const { from, to, empty } = view.state.selection
+  if (!empty && to - from <= 200) {
+    const text = view.state.doc.textBetween(from, to, '\n', '')
+    if (text && !text.includes('\n')) findQuery.value = { ...findQuery.value, text }
+  }
+  pmFindOpen(view, { ...findQuery.value })
+  void nextTick(() => findBarRef.value?.focusInput())
+}
+
+function closeFind(): void {
+  const view = getView()
+  if (!view) return
+  pmFindClose(view)
+  view.focus()
+}
+
+function goFind(dir: 1 | -1): void {
+  const view = getView()
+  if (view) pmFindGo(view, dir)
+}
+
+function doReplace(): void {
+  const view = getView()
+  if (view) findReplaceCurrent(view, replaceText.value)
+}
+
+function doReplaceAll(): void {
+  const view = getView()
+  if (view) findReplaceAll(view, replaceText.value)
+}
+
+watch(findQuery, (q) => {
+  const view = getView()
+  if (view && findBarOpen.value) findSetQuery(view, { ...q })
+})
+
+/* 菜单 Ctrl+F → 打开即显查找条（不再切回双栏） */
+watch(
+  () => ui.findRequest,
+  () => {
+    if (ui.editorMode === 'wysiwyg') openFind()
+  }
+)
+
+/* 兜底：浏览器 mock 下没有 Electron 菜单，Ctrl+F 直接接管 */
+function onWinKeydown(e: KeyboardEvent): void {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
+    e.preventDefault()
+    openFind()
+  }
+}
+
 /* ---------- 生命周期 ---------- */
+
+/* 查找插件：每次挂载都要一个全新 PM 插件实例（工厂在 Editor 创建时调用） */
+const findProse = $prose(() => createFindPlugin())
 
 onMounted(() => {
   if (!host.value) return
   // 点击即显区域任意位置都要让编辑器拿到焦点，避免"点了但打不了字"
   host.value.addEventListener('mousedown', onHostMousedown)
+  window.addEventListener('keydown', onWinKeydown)
+  onFindStatus(syncFindStatus)
   const instance = Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, host.value!)
@@ -245,6 +346,9 @@ onMounted(() => {
     .use(commonmark)
     .use(gfm)
     .use(listener)
+    // 撤销/重做（1.7 P0）：commonmark 预设不含 history，不挂载即显模式 Ctrl+Z 完全失效
+    .use(history)
+    .use(findProse)
   void instance.create().then((e) => {
     editor = e
     // 开发期调试钩子：CDP 查 PM 文档 JSON / 序列化输出 / 内部 remark mdast
@@ -281,6 +385,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   host.value?.removeEventListener('mousedown', onHostMousedown)
+  window.removeEventListener('keydown', onWinKeydown)
+  onFindStatus(null)
   try {
     editor?.destroy()
   } catch {
@@ -322,12 +428,38 @@ watch(
 </script>
 
 <template>
-  <div ref="host" class="wysiwyg-host" />
+  <div class="wysiwyg-wrap">
+    <!-- 查找条：停靠在面板顶部，不遮挡正文（Esc 关闭后完全移除） -->
+    <FindBar
+      v-if="findBarOpen"
+      ref="findBarRef"
+      :query="findQuery"
+      :replace="replaceText"
+      :count="findCount"
+      :active="findActive"
+      :error="findError"
+      @update:query="findQuery = $event"
+      @update:replace="replaceText = $event"
+      @nav="goFind"
+      @replace="doReplace"
+      @replace-all="doReplaceAll"
+      @close="closeFind"
+    />
+    <div ref="host" class="wysiwyg-host" />
+  </div>
 </template>
 
 <style scoped>
-.wysiwyg-host {
+.wysiwyg-wrap {
   height: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wysiwyg-host {
+  flex: 1;
+  min-height: 0;
   min-width: 0;
   overflow-y: auto;
   position: relative;

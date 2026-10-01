@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EditorView, keymap, type Command, type ViewUpdate } from '@codemirror/view'
 import { Compartment, EditorState } from '@codemirror/state'
 import { basicSetup } from 'codemirror'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
-import { search, openSearchPanel } from '@codemirror/search'
+import { search, SearchQuery, setSearchQuery, findNext, findPrevious, replaceNext, replaceAll as cmReplaceAll } from '@codemirror/search'
+import { luciFindHighlight, setLuciFindQuery } from '@/editor/cm-find-highlight'
 import { indentWithTab } from '@codemirror/commands'
 import { luciTheme } from '@/editor/cm-theme'
 import { cmPhrases } from '@/editor/cm-i18n'
@@ -23,6 +24,8 @@ import {
 import { luciFocusMode, luciTypewriterMode } from '@/editor/cm-focus'
 import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
+import type { FindQuery } from '@/find-shared'
+import FindBar from './FindBar.vue'
 import { htmlToMarkdown } from '@/services/richPaste'
 import { t } from '@/i18n'
 import {
@@ -66,9 +69,12 @@ function makeState(content: string): EditorState {
   return EditorState.create({
     doc: content,
     extensions: [
+      // Mod-f 路由到自建查找条（拦在 basicSetup 的 searchKeymap 之前，别再开内置面板）
+      keymap.of([{ key: 'Mod-f', run: () => (ui.requestFind(), true) }]),
       basicSetup,
       markdown({ base: markdownLanguage, codeLanguages: languages }),
       search({ top: true }),
+      luciFindHighlight(),
       phrasesComp.of(cmPhrases()),
       keymap.of([indentWithTab, ...formattingKeymap]),
       luciTheme,
@@ -79,6 +85,7 @@ function makeState(content: string): EditorState {
         if (u.docChanged || u.selectionSet) {
           updateTableInfo()
           updateImageInfo()
+          if (findBarOpen.value) recountMatches()
         }
         if (applying) return
         if (u.docChanged && tabId !== null) {
@@ -395,11 +402,127 @@ watch(
   }
 )
 
-/* 菜单 Ctrl+F → 打开查找面板 */
+/* ---------- 查找替换（自建停靠条驱动 CM6 SearchQuery；内置面板无计数已弃用） ---------- */
+
+const findBarOpen = ref(false)
+const findQuery = ref<FindQuery>({ text: '', caseSensitive: false, regexp: false, wholeWord: false })
+const findReplaceText = ref('')
+const findCount = ref(0)
+const findActive = ref(-1)
+const findError = ref(false)
+const findBarRef = ref<InstanceType<typeof FindBar> | null>(null)
+
+function regexInvalid(q: FindQuery): boolean {
+  if (!q.regexp) return false
+  try {
+    new RegExp(q.text, q.caseSensitive ? '' : 'i')
+    return false
+  } catch {
+    return true
+  }
+}
+
+function cmQuery(q: FindQuery): SearchQuery {
+  return new SearchQuery({
+    search: q.text,
+    replace: findReplaceText.value,
+    caseSensitive: q.caseSensitive,
+    regexp: q.regexp,
+    // 正则模式下全字匹配由用户自写 \b（与 VS Code 一致）
+    wholeWord: q.wholeWord && !q.regexp
+  })
+}
+
+/** 应用查询到 CM 搜索状态（导航/替换命令用）与高亮器（自带高亮要求面板打开，弃用） */
+function applySearchQuery(navigate: boolean): void {
+  if (!view) return
+  const q = findQuery.value
+  const cmq = cmQuery(q)
+  view.dispatch({
+    effects: [setSearchQuery.of(cmq), setLuciFindQuery.of(regexInvalid(q) ? null : cmq)]
+  })
+  findError.value = regexInvalid(q)
+  if (navigate && q.text && !findError.value) findNext(view)
+  recountMatches()
+}
+
+/** 全文计数（SearchCursor 迭代）+ 以光标为界算当前序号 */
+function recountMatches(): void {
+  if (!view) return
+  const q = findQuery.value
+  findError.value = regexInvalid(q)
+  if (!q.text || findError.value) {
+    findCount.value = 0
+    findActive.value = -1
+    return
+  }
+  const cursor = cmQuery(q).getCursor(view.state.doc)
+  const head = view.state.selection.main.head
+  let total = 0
+  let before = 0
+  for (let r = cursor.next(); !r.done; r = cursor.next()) {
+    const hit = r.value as { from: number; to: number }
+    if (hit.to <= head) before++
+    total++
+  }
+  findCount.value = total
+  findActive.value = total ? Math.min(before - 1, total - 1) : -1
+}
+
+function openFindUi(): void {
+  if (!view) return
+  const main = view.state.selection.main
+  if (!main.empty && main.to - main.from <= 200) {
+    const text = view.state.sliceDoc(main.from, main.to)
+    if (text && !text.includes('\n')) findQuery.value = { ...findQuery.value, text }
+  }
+  findBarOpen.value = true
+  applySearchQuery(true)
+  void nextTick(() => findBarRef.value?.focusInput())
+}
+
+function closeFindUi(): void {
+  findBarOpen.value = false
+  // 清查询 = 清除正文里的命中高亮
+  if (view) {
+    view.dispatch({
+      effects: [setSearchQuery.of(new SearchQuery({ search: '' })), setLuciFindQuery.of(null)]
+    })
+  }
+}
+
+function findNav(dir: 1 | -1): void {
+  if (!view) return
+  if (dir === 1) findNext(view)
+  else findPrevious(view)
+  recountMatches()
+}
+
+function doFindReplace(): void {
+  if (!view || !findQuery.value.text || findError.value) return
+  replaceNext(view)
+  recountMatches()
+}
+
+function doFindReplaceAll(): void {
+  if (!view || !findQuery.value.text || findError.value) return
+  cmReplaceAll(view)
+  recountMatches()
+}
+
+watch(findQuery, () => {
+  if (findBarOpen.value) applySearchQuery(true)
+})
+
+watch(findReplaceText, () => {
+  if (findBarOpen.value) applySearchQuery(false)
+})
+
+/* 菜单 Ctrl+F → 打开停靠查找条（仅源码可见时；即显模式由 WysiwygEditor 处理） */
 watch(
   () => ui.findRequest,
   () => {
-    if (view) openSearchPanel(view)
+    if (view && (ui.editorMode === 'edit' || ui.editorMode === 'split')) openFindUi()
   }
 )
 
@@ -466,6 +589,22 @@ watch(
 
 <template>
   <div class="cm-host-wrap">
+    <!-- 查找条：停靠在编辑区最顶部（工具条之上），不遮挡正文 -->
+    <FindBar
+      v-if="findBarOpen"
+      ref="findBarRef"
+      :query="findQuery"
+      :replace="findReplaceText"
+      :count="findCount"
+      :active="findActive"
+      :error="findError"
+      @update:query="findQuery = $event"
+      @update:replace="findReplaceText = $event"
+      @nav="findNav"
+      @replace="doFindReplace"
+      @replace-all="doFindReplaceAll"
+      @close="closeFindUi"
+    />
     <!-- 停靠工具条：固定在编辑区顶部，不浮动、不遮挡正文。
          光标在表格内 → 表格结构操作；否则 → 常用格式化操作（作用于选区/光标行） -->
     <div class="ctx-strip" @mousedown.prevent>
@@ -673,5 +812,20 @@ watch(
   padding: 0 5px;
   flex-shrink: 0;
   white-space: nowrap;
+}
+</style>
+
+<style>
+/* 查找命中高亮（自建高亮器 + CM 内置类双保险），琥珀系与即显/预览一致 */
+.cm-editor .cm-searchMatch,
+.cm-editor .cm-luci-find-hit {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 2px;
+}
+
+.cm-editor .cm-searchMatch-selected,
+.cm-editor .cm-luci-find-hit-active {
+  background: color-mix(in srgb, var(--accent) 62%, transparent);
+  box-shadow: 0 0 0 1px var(--accent-strong);
 }
 </style>
