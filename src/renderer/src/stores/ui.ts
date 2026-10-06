@@ -302,12 +302,12 @@ export const useUiStore = defineStore('ui', {
       this.typewriterMode = !this.typewriterMode
       this.showToast(this.typewriterMode ? t('ui.typewriterOn') : t('ui.typewriterOff'))
     },
-    /** 禅模式：隐藏标签栏/状态栏/侧栏，退出时恢复侧栏 */
+    /** 禅模式：隐藏标签栏/状态栏/墨脊与侧栏，退出时恢复侧栏；
+     *  快捷键面板不强制关闭——它是随叫随到的参考层，Ctrl+/ 在禅模式下同样可开 */
     toggleZen(): void {
       if (!this.zenMode) {
         this._zenPrevSidebar = this.sidebarOpen
         this.sidebarOpen = false
-        this.shortcutPanelOpen = false
       } else {
         this.sidebarOpen = this._zenPrevSidebar
       }

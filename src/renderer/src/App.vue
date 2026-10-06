@@ -76,6 +76,10 @@ function dispatch(cmd: MenuCommand): void {
     case 'view:toggleSearch':
       ui.toggleSearchPanel()
       break
+    case 'view:toggleShortcuts':
+      // 快捷键面板在禅模式下也可用（墨脊隐藏后的唯一入口）
+      ui.toggleShortcutPanel()
+      break
     case 'edit:find':
       // 三模式各自打开停靠查找条：即显（PM 插件，可替换）/ 源码+双栏（CM6，可替换）/ 预览（DOM 高亮，只读）
       ui.requestFind()
@@ -200,7 +204,7 @@ async function handleRequestClose(): Promise<void> {
 </script>
 
 <template>
-  <div class="app">
+  <div class="app" :class="{ 'app-zen': ui.zenMode }">
     <TitleBar />
     <TabsBar v-if="!ui.zenMode" />
     <div class="app-body">

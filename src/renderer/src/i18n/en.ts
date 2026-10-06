@@ -213,6 +213,7 @@ export const en: MsgSchema = {
   'sc.focus': 'Focus mode',
   'sc.typewriter': 'Typewriter mode',
   'sc.zen': 'Zen mode',
+  'sc.shortcutPanel': 'Shortcut panel',
 
   'sc.cycleTab': 'Next / prev tab',
   'sc.toggleSidebar': 'Toggle sidebar',

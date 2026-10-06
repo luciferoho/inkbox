@@ -88,6 +88,7 @@ export type MenuCommand =
   | 'view:toggleTypewriter'
   | 'view:toggleZen'
   | 'view:toggleSearch'
+  | 'view:toggleShortcuts'
   | 'edit:find'
   | 'app:settings'
   | 'help:sample'

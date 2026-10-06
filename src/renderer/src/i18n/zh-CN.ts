@@ -215,6 +215,7 @@ export const zh = {
   'sc.focus': '专注模式',
   'sc.typewriter': '打字机模式',
   'sc.zen': '禅模式',
+  'sc.shortcutPanel': '快捷键面板',
 
   'sc.cycleTab': '下一 / 上一标签',
   'sc.toggleSidebar': '折叠/展开侧栏',

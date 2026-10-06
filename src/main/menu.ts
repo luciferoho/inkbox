@@ -97,6 +97,7 @@ export function createMenu(win: BrowserWindow): void {
         item('view:toggleTypewriter', m('mTypewriter')),
         item('view:toggleZen', m('mZen')),
         item('view:toggleSearch', m('mSearch')),
+        item('view:toggleShortcuts', m('mShortcutPanel')),
         item('app:settings', m('mSettings')),
         { type: 'separator' },
         { role: 'resetZoom', label: m('mActualSize') },

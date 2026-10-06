@@ -151,6 +151,12 @@ kbd {
   flex: 1;
 }
 
+/* 禅模式：标签栏/状态栏被 v-if 移除，网格行必须随实际子元素收缩——
+   否则 app-body 自动补位进 38px 的第二行，正文被压扁成看不见也点不到的细条 */
+.app.app-zen {
+  grid-template-rows: 44px minmax(0, 1fr);
+}
+
 /* ---------- 通用控件 ---------- */
 .btn-primary {
   display: inline-flex;

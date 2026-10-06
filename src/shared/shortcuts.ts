@@ -32,6 +32,7 @@ export const SHORTCUT_COMMANDS: ShortcutCommand[] = [
   { id: 'view:toggleTypewriter', labelKey: 'sc.typewriter', group: 'view', accel: 'F9' },
   { id: 'view:toggleZen', labelKey: 'sc.zen', group: 'view', accel: 'F10' },
   { id: 'view:toggleSearch', labelKey: 'sc.workspaceSearch', group: 'view', accel: 'CmdOrCtrl+Shift+F' },
+  { id: 'view:toggleShortcuts', labelKey: 'sc.shortcutPanel', group: 'view', accel: 'CmdOrCtrl+/' },
   { id: 'app:settings', labelKey: 'sc.settings', group: 'view', accel: 'CmdOrCtrl+,' }
 ]
 
