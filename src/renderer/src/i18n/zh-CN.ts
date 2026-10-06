@@ -188,7 +188,9 @@ export const zh = {
 
   // 编辑器（源码模式）
   'editor.saveFirstForImage': '请先保存文档，再粘贴图片',
-  'editor.imageSaveFailed': '图片保存失败：{name}',
+  'editor.imageSaveFailed': '图片保存失败：{name}',  'editor.imageUploaded': '已上传图床：{name}',
+  'editor.imageUploadFailed': '图床上传失败，已回退本地保存',
+
   'editor.imagesInserted': '已插入 {n} 张图片到 {dir}/',
 
   // 大纲节点 / 文件树节点
@@ -300,7 +302,11 @@ export const zh = {
   'settings.gLayout': '排版',
   'settings.gStartup': '启动',
   'settings.gWindow': '窗口',
-  'settings.gEditor': '编辑',  'settings.gShortcuts': '快捷键',
+  'settings.gEditor': '编辑',  'settings.gUpload': '图床',
+  'settings.uploadEnabled': '启用图床上传（PicGo）',
+  'settings.uploadServer': 'PicGo 服务地址',
+  'settings.uploadHint': '开启后粘贴/拖拽/插入图片先上传图床，失败自动回退本地 .assets；需本机运行 PicGo 并在其设置中开启 Server（默认 http://127.0.0.1:36677/upload）',
+  'settings.gShortcuts': '快捷键',
   'settings.scRebind': '修改',
   'settings.scReset': '恢复默认',
   'settings.scDisabled': '未设置',

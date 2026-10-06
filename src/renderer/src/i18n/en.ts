@@ -186,7 +186,9 @@ export const en: MsgSchema = {
 
   // Editor (source mode)
   'editor.saveFirstForImage': 'Save the document before pasting images',
-  'editor.imageSaveFailed': 'Failed to save image: {name}',
+  'editor.imageSaveFailed': 'Failed to save image: {name}',  'editor.imageUploaded': 'Uploaded to image host: {name}',
+  'editor.imageUploadFailed': 'Upload failed, saved to local .assets instead',
+
   'editor.imagesInserted': 'Inserted {n} image(s) into {dir}/',
 
   // Outline node / file tree node
@@ -301,7 +303,11 @@ export const en: MsgSchema = {
   'settings.gLayout': 'Typography',
   'settings.gStartup': 'Startup',
   'settings.gWindow': 'Window',
-  'settings.gEditor': 'Editing',  'settings.gShortcuts': 'Shortcuts',
+  'settings.gEditor': 'Editing',  'settings.gUpload': 'Image hosting',
+  'settings.uploadEnabled': 'Upload images (PicGo)',
+  'settings.uploadServer': 'PicGo server URL',
+  'settings.uploadHint': 'Pasted/dropped/inserted images upload to the host first and fall back to local .assets on failure. Requires PicGo running with its Server enabled (default http://127.0.0.1:36677/upload)',
+  'settings.gShortcuts': 'Shortcuts',
   'settings.scRebind': 'Change',
   'settings.scReset': 'Reset',
   'settings.scDisabled': 'Not set',

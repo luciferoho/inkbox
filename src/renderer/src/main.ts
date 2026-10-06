@@ -175,6 +175,10 @@ function installBrowserMock(): void {
       },
       onConfigChanged: () => () => undefined
     },
+    image: {
+      // 浏览器 mock：没有图床可传，统一回退本地（mock FS）
+      upload: async () => ({ ok: false, error: 'mock' })
+    },
     win: {
       minimize: () => undefined,
       toggleMaximize: () => undefined,

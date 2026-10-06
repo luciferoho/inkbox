@@ -295,6 +295,34 @@ function resetOne(id: MenuCommand): void {
               </div>
             </div>
 
+            <!-- 图床：PicGo server 协议上传 -->
+            <h3 class="group-title">{{ $t('settings.gUpload') }}</h3>
+            <div class="row">
+              <span class="label">{{ $t('settings.uploadEnabled') }}</span>
+              <button
+                class="switch"
+                role="switch"
+                :aria-checked="ui.upload.enabled"
+                :class="{ on: ui.upload.enabled }"
+                @click="ui.setUpload({ enabled: !ui.upload.enabled })"
+              >
+                <i class="knob" />
+              </button>
+            </div>
+            <div class="row">
+              <span class="label">{{ $t('settings.uploadServer') }}</span>
+              <input
+                v-model="ui.upload.server"
+                class="url-input"
+                type="text"
+                spellcheck="false"
+                :disabled="!ui.upload.enabled"
+                :title="$t('settings.uploadServer')"
+                @change="ui.setUpload({ server: ui.upload.server.trim() })"
+              />
+            </div>
+            <p class="row-hint">{{ $t('settings.uploadHint') }}</p>
+
             <!-- 快捷键：应用级命令可改键，行内录制 -->
             <h3 class="group-title">{{ $t('settings.gShortcuts') }}</h3>
             <div
@@ -483,6 +511,28 @@ input[type='range']::-webkit-slider-thumb {
   background: var(--surface-2);
   border: 1px solid var(--border);
   transition: background 0.15s;
+}
+
+/* 图床服务地址输入 */
+.url-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.url-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.url-input:disabled {
+  opacity: 0.45;
 }
 
 /* 快捷键段：命令名不压缩，键帽 + 操作靠右 */

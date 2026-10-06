@@ -128,12 +128,65 @@ function fileExt(mime: string): string {
   return map[mime] ?? 'png'
 }
 
+/** 文件名 → MIME（工具条插入本地图片用；未知扩展按 png） */
+function mimeFromName(name: string): string {
+  const map: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    bmp: 'image/bmp',
+    svg: 'image/svg+xml'
+  }
+  return map[name.split('.').pop()?.toLowerCase() ?? ''] ?? 'image/png'
+}
+
 /** 文档旁的 .assets 目录信息：`dir` 为文档所在目录，`assetsDir` 为资源目录名 */
 function assetsDirFor(docPath: string): { dir: string; assetsDir: string } {
   const sepIdx = Math.max(docPath.lastIndexOf('/'), docPath.lastIndexOf('\\'))
   const dir = sepIdx > 0 ? docPath.slice(0, sepIdx) : '.'
   const base = (docPath.split(/[\\/]/).pop() ?? 'doc').replace(/\.[^.]+$/, '')
   return { dir, assetsDir: `${base}.assets` }
+}
+
+/** Uint8Array → base64（分段避免 String.fromCharCode 展开上限） */
+function toBase64(buf: Uint8Array): string {
+  let bin = ''
+  for (let k = 0; k < buf.length; k += 0x8000) {
+    bin += String.fromCharCode(...buf.subarray(k, k + 0x8000))
+  }
+  return btoa(bin)
+}
+
+/**
+ * 单张图片落点：开启图床上传先传 PicGo server（成功返回远端链接）；
+ * 未开启/失败回退本地 .assets 落盘。null = 两条路都失败（调用方跳过该图）。
+ */
+async function persistImage(
+  file: { name: string; type: string },
+  buf: Uint8Array,
+  dir: string,
+  assetsDir: string
+): Promise<string | null> {
+  const name = file.name
+  if (ui.upload.enabled) {
+    const res = await window.api.image.upload(name, `data:${file.type};base64,${toBase64(buf)}`)
+    if (res.ok && res.url) {
+      ui.showToast(t('editor.imageUploaded', { name }))
+      return `![${name}](${res.url})`
+    }
+    console.warn('[editor] image upload failed, fallback to .assets:', res.error)
+    ui.showToast(t('editor.imageUploadFailed'))
+  }
+  try {
+    await window.api.fs.writeFileBinary(`${dir}/${assetsDir}/${name}`, toBase64(buf))
+    return `![${name}](./${assetsDir}/${name})`
+  } catch (err) {
+    console.error('[editor] image save failed:', err)
+    ui.showToast(t('editor.imageSaveFailed', { name }))
+    return null
+  }
 }
 
 async function insertImagesFrom(
@@ -161,28 +214,19 @@ async function insertImagesFrom(
   for (const [i, file] of files.entries()) {
     const name = `IMG_${ts}${files.length > 1 ? `_${i + 1}` : ''}.${fileExt(file.type)}`
     const buf = new Uint8Array(await file.arrayBuffer())
-    let bin = ''
-    for (let k = 0; k < buf.length; k += 0x8000) {
-      bin += String.fromCharCode(...buf.subarray(k, k + 0x8000))
-    }
-    try {
-      await window.api.fs.writeFileBinary(`${dir}/${assetsDir}/${name}`, btoa(bin))
-      links.push(`![${name}](./${assetsDir}/${name})`)
-    } catch (err) {
-      console.error('[editor] image save failed:', err)
-      ui.showToast(t('editor.imageSaveFailed', { name }))
-    }
+    const link = await persistImage({ name, type: file.type }, buf, dir, assetsDir)
+    if (link) links.push(link)
   }
   if (links.length === 0) return true
   const pos = view.state.selection.main.head
   view.dispatch({
     changes: { from: pos, insert: links.join('\n') + '\n' }
   })
-  ui.showToast(t('editor.imagesInserted', { n: links.length, dir: assetsDir }))
+  if (!ui.upload.enabled) ui.showToast(t('editor.imagesInserted', { n: links.length, dir: assetsDir }))
   return true
 }
 
-/** 块工具栏「插入图片」：原生文件选择器 → 复制进 .assets → 插入相对链接 */
+/** 块工具栏「插入图片」：原生文件选择器 → 图床/复制进 .assets → 插入链接 */
 async function insertImageFromDisk(): Promise<void> {
   if (!view) return
   const tab = docs.tabs.find((t) => t.id === tabId)
@@ -194,18 +238,22 @@ async function insertImageFromDisk(): Promise<void> {
   if (!src) return
   const { dir, assetsDir } = assetsDirFor(tab.path)
   const name = src.split(/[\\/]/).pop() ?? 'image'
+  // 主进程读（base64 中转），上传或落盘都在这条链路上
+  let base64: string
   try {
-    // 主进程读 → 主进程写（base64 中转），渲染层不碰磁盘
-    const base64 = await window.api.fs.readBinary(src)
-    await window.api.fs.writeFileBinary(`${dir}/${assetsDir}/${name}`, base64)
+    base64 = await window.api.fs.readBinary(src)
   } catch (err) {
-    console.error('[editor] image copy failed:', err)
+    console.error('[editor] image read failed:', err)
     ui.showToast(t('editor.imageSaveFailed', { name }))
     return
   }
+  const type = mimeFromName(name)
+  const buf = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+  const link = await persistImage({ name, type }, buf, dir, assetsDir)
+  if (!link) return
   const pos = view.state.selection.main.head
-  view.dispatch({ changes: { from: pos, insert: `![${name}](./${assetsDir}/${name})\n` } })
-  ui.showToast(t('editor.imagesInserted', { n: 1, dir: assetsDir }))
+  view.dispatch({ changes: { from: pos, insert: `${link}\n` } })
+  if (!ui.upload.enabled) ui.showToast(t('editor.imagesInserted', { n: 1, dir: assetsDir }))
   view.focus()
 }
 

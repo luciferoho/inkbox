@@ -76,6 +76,9 @@ interface Window {
       setWindowPrefs(key: string, patch: Partial<import('@shared/types').WindowPrefs>): Promise<void>
       onConfigChanged(cb: (cfg: import('@shared/types').AppConfig) => void): () => void
     }
+    image: {
+      upload(fileName: string, dataUrl: string): Promise<{ ok: boolean; url?: string; error?: string }>
+    }
     win: {
       minimize(): void
       toggleMaximize(): void

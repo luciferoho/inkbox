@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { AppConfig, WindowPrefs } from '@shared/types'
+import { defaultConfig, type AppConfig, type WindowPrefs } from '@shared/types'
 import type { ShortcutOverrides } from '@shared/shortcuts'
 import { i18n, resolveLocale, t, type LocalePref } from '@/i18n'
 import { useDocumentsStore } from './documents'
@@ -37,6 +37,8 @@ export const useUiStore = defineStore('ui', {
     closeAction: 'quit' as 'quit' | 'tray',
     /* 应用级命令快捷键覆盖（shared/shortcuts 注册表之外用默认值） */
     shortcuts: {} as ShortcutOverrides,
+    /* 图床上传（PicGo server 协议）：粘贴/拖拽/插入图片先传图床，失败回退本地 */
+    upload: { enabled: false, server: 'http://127.0.0.1:36677/upload' },
     statusMessage: t('ui.ready'),
     /* 编辑器跨组件请求（计数器/序列号触发 watch） */
     findRequest: 0,
@@ -104,6 +106,7 @@ export const useUiStore = defineStore('ui', {
       this.openAtLogin = cfg.openAtLogin ?? false
       this.closeAction = cfg.closeAction ?? 'quit'
       this.shortcuts = cfg.shortcuts ?? {}
+      this.upload = { ...defaultConfig.upload, ...cfg.upload }
       this.editorPrefs = { ...cfg.editor }
       this.applyTheme()
       this.applyEditorPrefs()
@@ -193,6 +196,11 @@ export const useUiStore = defineStore('ui', {
   async setShortcuts(next: ShortcutOverrides): Promise<void> {
     this.shortcuts = { ...next }
     await window.api.app.setConfig({ shortcuts: next })
+  },
+  /** 图床上传偏好（全局，跨窗口同步）；必须展开成普通对象过 IPC（reactive Proxy 静默失败） */
+  async setUpload(patch: Partial<AppConfig['upload']>): Promise<void> {
+    this.upload = { ...this.upload, ...patch }
+    await window.api.app.setConfig({ upload: { ...this.upload } })
   },
     async setThemePref(pref: ThemePref): Promise<void> {
       this.themePref = pref

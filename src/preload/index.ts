@@ -144,6 +144,11 @@ const api = {
       return () => ipcRenderer.removeListener('app:configChanged', listener)
     }
   },
+  image: {
+    /** 图床上传（PicGo server 协议）：返回 {ok, url} 或 {ok:false, error}，失败由调用方回退本地 */
+    upload: (fileName: string, dataUrl: string): Promise<{ ok: boolean; url?: string; error?: string }> =>
+      ipcRenderer.invoke('image:upload', fileName, dataUrl)
+  },
   win: {
     minimize: (): void => ipcRenderer.send('win:minimize'),
     toggleMaximize: (): void => ipcRenderer.send('win:toggleMaximize'),

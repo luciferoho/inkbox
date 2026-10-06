@@ -25,6 +25,12 @@ export interface AppConfig {
   openAtLogin: boolean
   /** 点窗口关闭按钮的行为：quit = 退出程序；tray = 最小化到托盘（托盘菜单退出） */
   closeAction: 'quit' | 'tray'
+  /** 图床上传（PicGo server 协议）：开启后粘贴/拖拽/插入图片先传图床，失败回退本地 .assets */
+  upload: {
+    enabled: boolean
+    /** PicGo 兼容服务端上传接口（PicGo 应用设置里开启 Server 后的地址） */
+    server: string
+  }
   /** 最近文件，新的在前 */
   recent: RecentFile[]
 }
@@ -58,6 +64,7 @@ export const defaultConfig: AppConfig = {
   openAtLogin: false,
   closeAction: 'quit',
   shortcuts: {},
+  upload: { enabled: false, server: 'http://127.0.0.1:36677/upload' },
   recent: []
 }
 
