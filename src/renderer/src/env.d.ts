@@ -27,7 +27,7 @@ interface Window {
       openFile(): Promise<string | null>
       openFolder(): Promise<string | null>
       openImage(): Promise<string | null>
-      saveFile(defaultName?: string, kind?: 'md' | 'html'): Promise<string | null>
+      saveFile(defaultName?: string, kind?: 'md' | 'html' | 'tex'): Promise<string | null>
     }
     export: {
       pdf(html: string, opts: import('@shared/types').PdfExportOptions, defaultName?: string): Promise<string | null>

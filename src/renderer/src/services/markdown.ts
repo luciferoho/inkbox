@@ -313,6 +313,8 @@ function installMathRules(): void {
     if (!silent) {
       const token = state.push('html_inline', '', 0)
       token.content = katexRender(tex, false)
+      // 原始 TeX 存 meta：导出 LaTeX 需要公式源码（content 已是渲染 HTML）
+      token.meta = { tex }
       state.pos = end + 1
     } else {
       state.pos = end + 1

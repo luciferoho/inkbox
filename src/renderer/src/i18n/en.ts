@@ -291,6 +291,8 @@ export const en: MsgSchema = {
   'export.savedHtml': 'HTML exported: {name}',
   'export.savedPdf': 'PDF exported: {name}',
   'export.savedPng': 'PNG exported: {name}',
+  'export.savedLaTeX': 'LaTeX exported: {name}',
+  'export.hintLaTeX': 'Generates a ctexart document (compile with XeLaTeX; Chinese relies on the ctex package). Images are referenced by relative path - export next to the document',
   'export.pngTruncated': 'Image exceeded 16000px — the extra part was cut off',
   'export.emptyDoc': 'Nothing to export in an empty document',
   'export.failedRetry': 'Export failed — please try again',

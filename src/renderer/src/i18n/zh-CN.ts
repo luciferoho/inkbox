@@ -290,6 +290,8 @@ export const zh = {
   'export.savedHtml': '已导出 HTML：{name}',
   'export.savedPdf': '已导出 PDF：{name}',
   'export.savedPng': '已导出 PNG：{name}',
+  'export.savedLaTeX': '已导出 LaTeX：{name}',
+  'export.hintLaTeX': '生成 ctexart 文档（需 XeLaTeX 编译，中文依赖 ctex 宏包）；图片按相对路径引用，建议与文档同目录导出',
   'export.pngTruncated': '长图超过 16000px，超出部分已截断',
   'export.emptyDoc': '空文档无需导出',
   'export.failedRetry': '导出失败，请重试',

@@ -10,7 +10,7 @@ function mdOpenFilters(): { name: string; extensions: string[] }[] {
   ]
 }
 
-const SAVE_KINDS: Record<string, string> = { md: 'Markdown', html: 'HTML' }
+const SAVE_KINDS: Record<string, string> = { md: 'Markdown', html: 'HTML', tex: 'LaTeX' }
 
 function parentWindow(e: IpcMainInvokeEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(e.sender)
@@ -55,17 +55,18 @@ export function registerDialogIpc(): void {
 
   ipcMain.handle(
     'dialog:saveFile',
-    async (e, defaultName?: string, kind: 'md' | 'html' = 'md'): Promise<string | null> => {
+    async (e, defaultName?: string, kind: 'md' | 'html' | 'tex' = 'md'): Promise<string | null> => {
       const win = parentWindow(e)
+      const exts: Record<string, string[]> = {
+        md: ['md', 'markdown', 'mdown', 'txt'],
+        html: ['html'],
+        tex: ['tex']
+      }
       const opts: SaveDialogOptions = {
-        title: kind === 'html' ? m('dlgExportHtml') : m('dlgSaveMd'),
+        title:
+          kind === 'html' ? m('dlgExportHtml') : kind === 'tex' ? m('dlgExportLaTeX') : m('dlgSaveMd'),
         defaultPath: defaultName ?? m('dlgUntitledMd'),
-        filters: [
-          {
-            name: SAVE_KINDS[kind] ?? 'Markdown',
-            extensions: kind === 'html' ? ['html'] : ['md', 'markdown', 'mdown', 'txt']
-          }
-        ]
+        filters: [{ name: SAVE_KINDS[kind] ?? 'Markdown', extensions: exts[kind] ?? exts.md }]
       }
       const r = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
       return r.canceled || !r.filePath ? null : r.filePath

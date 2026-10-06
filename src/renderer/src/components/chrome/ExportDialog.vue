@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
 import { buildExportHtml } from '@/services/exporter'
+import { mdToLaTeX } from '@/services/latex'
 import { t } from '@/i18n'
 // pdf.js 按需加载 + 独立 worker 资源（Electron iframe 内嵌 PDF 查看器不可靠，自渲染最稳）
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
@@ -18,11 +19,12 @@ const PREVIEW_MAX_PAGES = 5
 const ui = useUiStore()
 const docs = useDocumentsStore()
 
-const fmt = ref<'html' | 'pdf' | 'png'>('html')
+type ExportFmt = 'html' | 'pdf' | 'png' | 'latex'
+const fmt = ref<ExportFmt>('html')
 /** 按标签记忆导出格式：开关弹窗保留所选，关标签即清除（下方 watch 剪枝） */
-const fmtByTab = new Map<number, 'html' | 'pdf' | 'png'>()
+const fmtByTab = new Map<number, ExportFmt>()
 /** 新标签的默认格式 = 列表第一个 */
-const FMT_DEFAULT: 'html' | 'pdf' | 'png' = 'png'
+const FMT_DEFAULT: ExportFmt = 'png'
 const margin = ref<'normal' | 'narrow' | 'none'>('normal')
 const landscape = ref(false)
 const pageNumbers = ref(false)
@@ -31,6 +33,8 @@ const busy = ref(false)
 const previewHtml = ref('')
 const previewFailed = ref(false)
 const generating = ref(false)
+/** LaTeX 格式的实时转换预览（等宽文本展示） */
+const texPreview = ref('')
 const pdfHost = ref<HTMLElement | null>(null)
 /** PDF 预览页数提示（超过上限时显示） */
 const pdfPageHint = ref('')
@@ -38,10 +42,11 @@ const pdfPageHint = ref('')
 const exportError = ref('')
 
 /** 各格式的说明文案键 */
-const HINT_KEYS: Record<'html' | 'pdf' | 'png', string> = {
+const HINT_KEYS: Record<ExportFmt, string> = {
   html: 'export.hintHtml',
   pdf: 'export.hintPdf',
-  png: 'export.hintPng'
+  png: 'export.hintPng',
+  latex: 'export.hintLaTeX'
 }
 
 const MARGINS: { key: 'normal' | 'narrow' | 'none'; labelKey: string }[] = [
@@ -172,6 +177,17 @@ async function renderPdfPreview(b64: string, seq: number): Promise<void> {
 async function regenerate(): Promise<void> {
   const tab = docs.active
   if (!tab || tab.isHome || !ui.exportOpen) return
+  // LaTeX：不需要预览 DOM，直接转 markdown 源码
+  if (fmt.value === 'latex') {
+    const seq = ++genSeq
+    generating.value = true
+    clearPdfHost()
+    previewHtml.value = ''
+    texPreview.value = mdToLaTeX(tab.content)
+    previewFailed.value = false
+    if (seq === genSeq) generating.value = false
+    return
+  }
   const body = activePreviewHtml()
   if (body === null) {
     previewFailed.value = true
@@ -218,6 +234,23 @@ async function doExport(): Promise<void> {
   const name = fileName.value.trim()
   if (!name) {
     ui.showToast(t('export.nameRequired'))
+    return
+  }
+  // LaTeX 直接转 markdown 源码：不依赖预览 DOM（单栏/即显模式也能导出）
+  if (fmt.value === 'latex') {
+    busy.value = true
+    try {
+      const tex = mdToLaTeX(tab.content)
+      const path = await window.api.dialog.saveFile(`${name}.tex`, 'tex')
+      if (!path) return
+      await window.api.fs.writeFile(path, tex)
+      ui.showToast(t('export.savedLaTeX', { name: path.split(/[\\/]/).pop() }))
+      ui.exportOpen = false
+    } catch (err) {
+      exportError.value = err instanceof Error ? err.message : String(err)
+    } finally {
+      busy.value = false
+    }
     return
   }
   const body = activePreviewHtml()
@@ -282,6 +315,7 @@ async function doExport(): Promise<void> {
                 <button :class="{ on: fmt === 'png' }" @click="fmt = 'png'">PNG</button>
                 <button :class="{ on: fmt === 'pdf' }" @click="fmt = 'pdf'">PDF</button>
                 <button :class="{ on: fmt === 'html' }" @click="fmt = 'html'">HTML</button>
+                <button :class="{ on: fmt === 'latex' }" @click="fmt = 'latex'">LaTeX</button>
               </div>
             </div>
 
@@ -345,6 +379,7 @@ async function doExport(): Promise<void> {
             <div v-else-if="fmt === 'pdf'" ref="pdfHost" class="pdf-host">
               <p v-if="pdfPageHint" class="pdf-hint">{{ pdfPageHint }}</p>
             </div>
+            <pre v-else-if="fmt === 'latex'" class="tex-view">{{ texPreview }}</pre>
             <div v-else-if="!generating && !previewFailed" class="preview-empty">{{ $t('export.preparing') }}</div>
           </div>
         </section>
@@ -557,6 +592,22 @@ async function doExport(): Promise<void> {
   border-radius: 2px;
   box-shadow: 0 2px 14px rgba(20, 16, 12, 0.28);
   flex-shrink: 0;
+}
+
+/* LaTeX 预览：等宽源码全文 */
+.tex-view {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: auto;
+  padding: 20px 24px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
 }
 
 .pdf-hint {
