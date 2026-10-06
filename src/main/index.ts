@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url'
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createMainWindow } from './window'
-import { createMenu } from './menu'
+import { createMenu, setShortcutOverrides } from './menu'
 import { registerIpcHandlers } from './ipc'
 import { createTray, markQuitting, resetQuitting, showMainWindow } from './tray'
 import { initAutoUpdate } from './updater'
@@ -59,6 +59,8 @@ if (!gotLock) {
     })
 
     const win = createMainWindow()
+    // 快捷键覆盖表先于菜单注入（6.7 自定义加速键随启动生效）
+    setShortcutOverrides(getConfig().shortcuts)
     createMenu(win)
     createTray()
     // 启动 10s 后检查更新（GitHub Releases 有新版本才提示，未配置/失败静默）

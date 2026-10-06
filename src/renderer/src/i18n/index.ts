@@ -2,6 +2,7 @@ import { createI18n } from 'vue-i18n'
 import { zh, type MsgKey } from './zh-CN'
 import { en } from './en'
 
+export type { MsgKey } from './zh-CN'
 export type LocalePref = 'system' | 'zh-CN' | 'en'
 
 /** system 偏好的实际解析：浏览器语言前缀 zh 归中文，其余归英文 */

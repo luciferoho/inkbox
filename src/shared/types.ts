@@ -1,8 +1,13 @@
+import type { ShortcutOverrides } from './shortcuts'
+export type { ShortcutOverrides } from './shortcuts'
+
 /** 应用配置（userData/config.json 持久化，跨窗口同步） */
 export interface AppConfig {
   theme: 'light' | 'dark' | 'system'
   /** 界面语言：system = 跟随系统；主进程菜单/托盘与渲染层同步切换 */
   locale: 'system' | 'zh-CN' | 'en'
+  /** 应用级命令快捷键覆盖（见 shared/shortcuts）：id → 加速键，'' = 禁用，缺省用默认 */
+  shortcuts?: ShortcutOverrides
   /** 正文排版（全局）：纸面宽度在各窗口独立，见 WindowPrefs */
   editor: {
     fontSize: number
@@ -52,6 +57,7 @@ export const defaultConfig: AppConfig = {
   restoreFolders: true,
   openAtLogin: false,
   closeAction: 'quit',
+  shortcuts: {},
   recent: []
 }
 

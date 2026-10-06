@@ -6,10 +6,17 @@ import {
   defaultWindowPrefs,
   type AppConfig,
   type RecentFile,
+  type ShortcutOverrides,
   type WindowPrefs
 } from '@shared/types'
 import { rebuildMenus, setLocale } from '../i18n'
-import { createMenu } from '../menu'
+import {
+  createMenu,
+  debugMenuAccels,
+  debugMenuInvoke,
+  setMenuSuspended,
+  setShortcutOverrides
+} from '../menu'
 import { retranslateTray } from '../tray'
 
 /** 简单 JSON 配置存储（userData/config.json），深度合并默认值 */
@@ -30,6 +37,16 @@ function normalizeRecent(raw: unknown): RecentFile[] {
     .filter((r) => r.path !== '')
 }
 
+/** 快捷键覆盖表：只收字符串键值（命令 id → 加速键，'' = 禁用） */
+function normalizeShortcuts(raw: unknown): ShortcutOverrides {
+  const out: ShortcutOverrides = {}
+  if (!raw || typeof raw !== 'object') return out
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'string') out[k] = v
+  }
+  return out
+}
+
 function load(): AppConfig {
   if (cache) return cache
   try {
@@ -45,6 +62,7 @@ function load(): AppConfig {
         lineHeight: Number(rawEditor.lineHeight) || defaultConfig.editor.lineHeight
       },
       autosave: { ...defaultConfig.autosave, ...raw.autosave },
+      shortcuts: normalizeShortcuts(raw.shortcuts),
       recent: normalizeRecent(raw.recent)
     }
     // 旧版把纸宽/侧栏宽存在全局 config：迁入 w1 的窗口偏好（一次性，读不到就跳过）
@@ -146,6 +164,11 @@ export function registerConfigIpc(): void {
     }
     persist()
     if (patch.openAtLogin !== undefined && patch.openAtLogin !== prev.openAtLogin) applyLoginItem()
+    // 快捷键覆盖变化：注入菜单层并重建（渲染层经 broadcastConfig 拿到同一份表）
+    if (patch.shortcuts !== undefined) {
+      setShortcutOverrides(cache.shortcuts)
+      rebuildMenus(createMenu)
+    }
     broadcastConfig()
     return cache
   })
@@ -168,4 +191,13 @@ export function registerConfigIpc(): void {
     rebuildMenus(createMenu)
     retranslateTray()
   })
+
+  /** 改键录制期间挂起应用菜单：加速器会抢在渲染层之前消费按键，录制须先摘掉 */
+  ipcMain.on('app:shortcutsCapture', (_e, on: boolean) => setMenuSuspended(!!on))
+
+  // dev-only 验证钩子：真窗口注入不了 OS 键击，用活体菜单读加速器/触发命令
+  if (!app.isPackaged) {
+    ipcMain.handle('app:debugMenuAccels', () => debugMenuAccels())
+    ipcMain.handle('app:debugMenuInvoke', (_e, id: string) => debugMenuInvoke(id))
+  }
 }

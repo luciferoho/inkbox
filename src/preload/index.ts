@@ -126,6 +126,12 @@ const api = {
     /** 切换界面语言：主进程同步重建菜单/托盘文案 */
     setLocale: (locale: AppConfig['locale']): Promise<void> =>
       ipcRenderer.invoke('app:setLocale', locale),
+    /** 改键录制期间挂起应用菜单（加速器会抢在渲染层之前消费按键） */
+    setShortcutsCapture: (on: boolean): void => ipcRenderer.send('app:shortcutsCapture', on),
+    /** dev-only：活体菜单加速器快照 / 按命令 id 触发菜单项（真窗口注入不了 OS 键击时验证用） */
+    debugMenuAccels: (): Promise<Record<string, string | null>> =>
+      ipcRenderer.invoke('app:debugMenuAccels'),
+    debugMenuInvoke: (id: string): Promise<boolean> => ipcRenderer.invoke('app:debugMenuInvoke', id),
     /** 窗口私有偏好（纸宽/侧栏宽）：按窗口键存取，不跨窗口同步 */
     getWindowPrefs: (key: string): Promise<WindowPrefs> =>
       ipcRenderer.invoke('app:getWindowPrefs', key),

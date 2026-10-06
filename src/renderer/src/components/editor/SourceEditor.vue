@@ -72,10 +72,13 @@ function makeState(content: string): EditorState {
     doc: content,
     extensions: [
       // Mod-f 路由到自建查找条（拦在 basicSetup 的 searchKeymap 之前，别再开内置面板）；
+      // Electron 下应用菜单统一接管全局键（可改键，见 shared/shortcuts），这里只给浏览器 mock 兜底；
       // Enter 续行 / Backspace 删标记同样必须最先注册：lang-markdown 自带 Prec.high 的
       // markdownKeymap（addKeymap 默认开，已禁用）与 defaultKeymap 都会抢先拦截
       keymap.of([
-        { key: 'Mod-f', run: () => (ui.requestFind(), true) },
+        ...(navigator.userAgent.includes('Electron')
+          ? []
+          : [{ key: 'Mod-f', run: () => (ui.requestFind(), true) }]),
         { key: 'Enter', run: continueList },
         { key: 'Backspace', run: deleteListMarker }
       ]),

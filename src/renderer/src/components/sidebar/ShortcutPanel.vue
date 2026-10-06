@@ -1,39 +1,48 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useUiStore } from '@/stores/ui'
-import { t } from '@/i18n'
+import { t, type MsgKey } from '@/i18n'
+import { SHORTCUT_COMMANDS, effectiveShortcuts, accelKeys } from '@shared/shortcuts'
 
-/** 右侧快捷键面板：墨脊键盘图标开关，宽度过渡折叠/展开 */
+/** 右侧快捷键面板：墨脊键盘图标开关，宽度过渡折叠/展开。
+ *  应用级命令来自注册表（改键后实时跟随），编辑器内格式键仍为固定清单。 */
 const ui = useUiStore()
 
-const GROUPS = computed<{ title: string; items: { k: string; d: string }[] }[]>(() => [
+const eff = computed(() => effectiveShortcuts(ui.shortcuts))
+
+/* 注册表组：常用 = 文件命令；视图与模式 = 视图/外观/设置；查找挂在编辑组首行动态渲染 */
+const REG_GROUPS = computed(() => [
   {
     title: t('sc.gCommon'),
-    items: [
-      { k: 'Ctrl+N', d: t('sc.newDoc') },
-      { k: 'Ctrl+O', d: t('sc.openFile') },
-      { k: 'Ctrl+Shift+O', d: t('sc.openFolder') },
-      { k: 'Ctrl+S', d: t('sc.save') },
-      { k: 'Ctrl+Shift+S', d: t('sc.saveAs') },
-      { k: 'Ctrl+E', d: t('sc.export') },
-      { k: 'Ctrl+W', d: t('sc.closeTab') },
-      { k: 'Ctrl+Shift+F', d: t('sc.workspaceSearch') },
-      { k: 'Ctrl+Tab / Ctrl+Shift+Tab', d: t('sc.cycleTab') },
-      { k: 'Ctrl+\\', d: t('sc.toggleSidebar') },
-      { k: 'Ctrl+,', d: t('sc.settings') }
-    ]
+    items: SHORTCUT_COMMANDS.filter((c) => c.group === 'file').map((c) => ({
+      id: c.id,
+      label: t(c.labelKey as MsgKey),
+      keys: accelKeys(eff.value[c.id])
+    }))
   },
+  {
+    title: t('sc.gView'),
+    items: SHORTCUT_COMMANDS.filter((c) => c.group === 'view').map((c) => ({
+      id: c.id,
+      label: t(c.labelKey as MsgKey),
+      keys: accelKeys(eff.value[c.id])
+    }))
+  }
+])
+
+const findKeys = computed(() => accelKeys(eff.value['edit:find']))
+
+/* 固定键组：编辑器内格式键与即显模式操作（不支持自定义） */
+const STATIC_GROUPS = computed<{ title: string; items: { k: string; d: string }[] }[]>(() => [
   {
     title: t('sc.gEdit'),
     items: [
-      { k: 'Ctrl+F', d: t('sc.find') },
       { k: 'Ctrl+B', d: t('sc.bold') },
       { k: 'Ctrl+I', d: t('sc.italic') },
       { k: 'Ctrl+K', d: t('sc.link') },
       { k: 'Ctrl+Shift+X', d: t('sc.strike') },
       { k: 'Ctrl+Shift+C', d: t('sc.inlineCode') },
-      { k: 'Ctrl+= / Ctrl+-', d: t('sc.heading') },
-      { k: 'F8 / F9', d: t('sc.focusTypewriter') }
+      { k: 'Ctrl+= / Ctrl+-', d: t('sc.heading') }
     ]
   },
   {
@@ -58,13 +67,35 @@ const GROUPS = computed<{ title: string; items: { k: string; d: string }[] }[]>(
       </button>
     </div>
     <div class="sc-body">
-      <section v-for="g in GROUPS" :key="g.title" class="sc-group">
+      <section v-for="g in REG_GROUPS" :key="g.title" class="sc-group">
+        <p class="sc-title">{{ g.title }}</p>
+        <div v-for="it in g.items" :key="it.id" class="sc-item">
+          <span class="sc-keys">
+            <template v-if="it.keys.length">
+              <kbd v-for="(key, i) in it.keys" :key="i">{{ key }}</kbd>
+            </template>
+            <kbd v-else class="unset">{{ $t('settings.scDisabled') }}</kbd>
+          </span>
+          <span class="sc-desc">{{ it.label }}</span>
+        </div>
+      </section>
+      <section v-for="g in STATIC_GROUPS" :key="g.title" class="sc-group">
         <p class="sc-title">{{ g.title }}</p>
         <div v-for="it in g.items" :key="it.k" class="sc-item">
           <span class="sc-keys">
             <kbd v-for="(key, i) in it.k.split(' / ')" :key="i">{{ key }}</kbd>
           </span>
           <span class="sc-desc">{{ it.d }}</span>
+        </div>
+        <!-- 查找替换为可改键命令，动态渲染在本组末行 -->
+        <div v-if="g.title === $t('sc.gEdit')" class="sc-item">
+          <span class="sc-keys">
+            <template v-if="findKeys.length">
+              <kbd v-for="(key, i) in findKeys" :key="i">{{ key }}</kbd>
+            </template>
+            <kbd v-else class="unset">{{ $t('settings.scDisabled') }}</kbd>
+          </span>
+          <span class="sc-desc">{{ $t('sc.find') }}</span>
         </div>
       </section>
     </div>
@@ -155,6 +186,11 @@ const GROUPS = computed<{ title: string; items: { k: string; d: string }[] }[]>(
   background: var(--bg);
   color: var(--text);
   white-space: nowrap;
+}
+
+.sc-keys kbd.unset {
+  color: var(--text-2);
+  opacity: 0.7;
 }
 
 .sc-desc {

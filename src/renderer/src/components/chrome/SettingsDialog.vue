@@ -1,7 +1,18 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useUiStore, type ThemePref } from '@/stores/ui'
 import type { LocalePref } from '@/i18n'
+import type { MenuCommand } from '@shared/types'
+import {
+  SHORTCUT_COMMANDS,
+  effectiveShortcuts,
+  accelKeys,
+  accelFromEvent,
+  isValidAccel,
+  normalizeForCompare,
+  RESERVED_ACCELS
+} from '@shared/shortcuts'
+import { t, type MsgKey } from '@/i18n'
 
 /** 偏好设置弹层：所有改动即时生效并持久化（userData/config.json） */
 const ui = useUiStore()
@@ -31,6 +42,86 @@ function onKeydown(e: KeyboardEvent): void {
 
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+
+/* ---------- 快捷键自定义：行内录制改键，录制期间主进程挂起应用菜单 ---------- */
+
+const captureId = ref<MenuCommand | null>(null)
+const eff = computed(() => effectiveShortcuts(ui.shortcuts))
+
+function startCapture(id: MenuCommand): void {
+  stopCapture()
+  captureId.value = id
+  window.api.app.setShortcutsCapture(true)
+  // 捕获阶段监听：抢在设置弹窗自身 Esc（冒泡）之前消费按键
+  window.addEventListener('keydown', onCaptureKey, true)
+}
+
+function stopCapture(): void {
+  if (captureId.value === null) return
+  captureId.value = null
+  window.removeEventListener('keydown', onCaptureKey, true)
+  window.api.app.setShortcutsCapture(false)
+}
+
+/** 录制中关掉弹窗/组件卸载：必须恢复应用菜单 */
+watch(
+  () => ui.settingsOpen,
+  (open) => {
+    if (!open) stopCapture()
+  }
+)
+onBeforeUnmount(stopCapture)
+
+function onCaptureKey(e: KeyboardEvent): void {
+  e.preventDefault()
+  e.stopPropagation()
+  if (e.key === 'Escape') {
+    stopCapture()
+    return
+  }
+  const id = captureId.value
+  if (id === null) return
+  // 单独 Backspace/Delete = 清除该命令的快捷键
+  if ((e.key === 'Backspace' || e.key === 'Delete') && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+    void applyAccel(id, '')
+    return
+  }
+  const accel = accelFromEvent(e)
+  if (accel !== null) void applyAccel(id, accel)
+}
+
+async function applyAccel(id: MenuCommand, accel: string): Promise<void> {
+  if (accel !== '') {
+    if (!isValidAccel(accel)) {
+      ui.showToast(t('settings.scNeedMod'))
+      return // 保持录制态，可直接再按
+    }
+    const norm = normalizeForCompare(accel)
+    for (const other of SHORTCUT_COMMANDS) {
+      if (other.id !== id && normalizeForCompare(eff.value[other.id]) === norm) {
+        ui.showToast(t('settings.scConflict', { name: t(other.labelKey as MsgKey) }))
+        return
+      }
+    }
+    if (RESERVED_ACCELS.some((r) => normalizeForCompare(r) === norm)) {
+      ui.showToast(t('settings.scReserved'))
+      return
+    }
+  }
+  // 与默认值相同则删除覆盖项（配置里只留真实偏离），恢复默认按钮随之隐藏
+  const def = SHORTCUT_COMMANDS.find((c) => c.id === id)?.accel
+  const next = { ...ui.shortcuts }
+  if (accel === def) delete next[id]
+  else next[id] = accel
+  await ui.setShortcuts(next)
+  stopCapture()
+}
+
+function resetOne(id: MenuCommand): void {
+  const next = { ...ui.shortcuts }
+  delete next[id]
+  void ui.setShortcuts(next)
+}
 </script>
 
 <template>
@@ -203,6 +294,39 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                 </button>
               </div>
             </div>
+
+            <!-- 快捷键：应用级命令可改键，行内录制 -->
+            <h3 class="group-title">{{ $t('settings.gShortcuts') }}</h3>
+            <div
+              v-for="c in SHORTCUT_COMMANDS"
+              :key="c.id"
+              class="row sc-row"
+              :class="{ capturing: captureId === c.id }"
+            >
+              <span class="label sc-label" :title="$t(c.labelKey as MsgKey)">{{ $t(c.labelKey as MsgKey) }}</span>
+              <template v-if="captureId === c.id">
+                <span class="sc-capture">{{ $t('settings.scCapture') }}</span>
+              </template>
+              <template v-else>
+                <span class="sc-keys">
+                  <template v-if="accelKeys(eff[c.id]).length">
+                    <kbd v-for="(k, i) in accelKeys(eff[c.id])" :key="i">{{ k }}</kbd>
+                  </template>
+                  <span v-else class="sc-unset">{{ $t('settings.scDisabled') }}</span>
+                </span>
+                <span class="sc-actions">
+                  <button class="sc-btn" @click="startCapture(c.id)">{{ $t('settings.scRebind') }}</button>
+                  <button
+                    v-if="ui.shortcuts[c.id] !== undefined"
+                    class="sc-btn"
+                    @click="resetOne(c.id)"
+                  >
+                    {{ $t('settings.scReset') }}
+                  </button>
+                </span>
+              </template>
+            </div>
+            <p class="row-hint">{{ $t('settings.scHint') }}</p>
           </div>
         </section>
       </div>
@@ -359,6 +483,76 @@ input[type='range']::-webkit-slider-thumb {
   background: var(--surface-2);
   border: 1px solid var(--border);
   transition: background 0.15s;
+}
+
+/* 快捷键段：命令名不压缩，键帽 + 操作靠右 */
+.sc-row.capturing {
+  background: var(--accent-soft);
+  border-radius: var(--radius-m);
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.sc-row .label {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sc-keys {
+  display: inline-flex;
+  gap: 3px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.sc-keys kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.sc-unset {
+  font-size: 11px;
+  color: var(--text-2);
+  opacity: 0.75;
+}
+
+.sc-capture {
+  font-size: 11.5px;
+  color: var(--accent-strong);
+  flex: 1;
+  min-width: 0;
+}
+
+.sc-actions {
+  display: inline-flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sc-btn {
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.sc-btn:hover {
+  color: var(--accent-strong);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .switch .knob {

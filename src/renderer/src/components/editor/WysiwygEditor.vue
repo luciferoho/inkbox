@@ -305,8 +305,10 @@ watch(
   }
 )
 
-/* 兜底：浏览器 mock 下没有 Electron 菜单，Ctrl+F 直接接管 */
+/* 兜底：浏览器 mock 下没有 Electron 菜单，Ctrl+F 直接接管；
+   Electron 下加速键由应用菜单统一接管（可改键），旧的硬编码键不再生效 */
 function onWinKeydown(e: KeyboardEvent): void {
+  if (navigator.userAgent.includes('Electron')) return
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
     e.preventDefault()
     openFind()

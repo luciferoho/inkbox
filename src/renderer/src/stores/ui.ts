@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import type { AppConfig, WindowPrefs } from '@shared/types'
+import type { ShortcutOverrides } from '@shared/shortcuts'
 import { i18n, resolveLocale, t, type LocalePref } from '@/i18n'
 import { useDocumentsStore } from './documents'
 
@@ -34,6 +35,8 @@ export const useUiStore = defineStore('ui', {
     openAtLogin: false,
     /* 点窗口关闭按钮的行为：quit = 退出程序；tray = 最小化到托盘 */
     closeAction: 'quit' as 'quit' | 'tray',
+    /* 应用级命令快捷键覆盖（shared/shortcuts 注册表之外用默认值） */
+    shortcuts: {} as ShortcutOverrides,
     statusMessage: t('ui.ready'),
     /* 编辑器跨组件请求（计数器/序列号触发 watch） */
     findRequest: 0,
@@ -100,6 +103,7 @@ export const useUiStore = defineStore('ui', {
       this.restoreFolders = cfg.restoreFolders ?? true
       this.openAtLogin = cfg.openAtLogin ?? false
       this.closeAction = cfg.closeAction ?? 'quit'
+      this.shortcuts = cfg.shortcuts ?? {}
       this.editorPrefs = { ...cfg.editor }
       this.applyTheme()
       this.applyEditorPrefs()
@@ -181,10 +185,15 @@ export const useUiStore = defineStore('ui', {
       this.openAtLogin = v
       await window.api.app.setConfig({ openAtLogin: v })
     },
-    async setCloseAction(v: 'quit' | 'tray'): Promise<void> {
-      this.closeAction = v
-      await window.api.app.setConfig({ closeAction: v })
-    },
+  async setCloseAction(v: 'quit' | 'tray'): Promise<void> {
+    this.closeAction = v
+    await window.api.app.setConfig({ closeAction: v })
+  },
+  /** 应用级快捷键覆盖（改键/清除/恢复默认）：持久化后主进程重建菜单并广播各窗口跟随 */
+  async setShortcuts(next: ShortcutOverrides): Promise<void> {
+    this.shortcuts = { ...next }
+    await window.api.app.setConfig({ shortcuts: next })
+  },
     async setThemePref(pref: ThemePref): Promise<void> {
       this.themePref = pref
       this.applyTheme()
