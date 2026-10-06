@@ -72,7 +72,7 @@ function decodeUrl(raw: string): string {
 
 /** 图片：本地路径 → includegraphics（按 alt 修饰符定宽/对齐）；远程 → 链接占位 */
 function renderImage(tok: Token, notes: Map<string, string>): string {
-  const src = decodeUrl(tok.attrGet('src') ?? '')
+  const src = decodeUrl(String(tok.attrGet('src') ?? ''))
   const alt = renderAsText(tok.children ?? [])
   const info = parseImageLine(`![${alt}](x)`)
   const altText = esc(info?.alt ?? alt)
@@ -145,7 +145,7 @@ function renderInline(children: Token[], notes: Map<string, string>): string {
         out += '}'
         break
       case 'link_open':
-        out += `\\href{${escUrl(decodeUrl(tok.attrGet('href') ?? ''))}}{`
+        out += `\\href{${escUrl(decodeUrl(String(tok.attrGet('href') ?? '')))}}{`
         break
       case 'link_close':
         out += '}'
@@ -209,7 +209,7 @@ function renderTable(rows: Token[], notes: Map<string, string>): string {
   const headerCells: string[] = []
   for (const tok of trs[0]) {
     if (tok.type !== 'th_open') continue
-    const style = tok.attrGet('style') ?? ''
+    const style = String(tok.attrGet('style') ?? '')
     aligns.push(/center/.test(style) ? 'c' : /right/.test(style) ? 'r' : 'l')
   }
   // 无表头的表格（理论上 markdown-it 必有 thead）：按第一行列数兜底

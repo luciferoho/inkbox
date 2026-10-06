@@ -132,10 +132,11 @@ npm run dist:dir   # 仅打未打包目录版（release/pkg/win-unpacked，快�
 
 - **PicGo 图床上传**（6.8 落地）：设置页新增「图床」分组——启用开关 + PicGo 服务地址（默认 `http://127.0.0.1:36677/upload`）。开启后**粘贴 / 拖拽 / 块工具条插入**的图片先上传图床（PicGo server 协议：`POST {list:[dataURL]}` → `{success,result:[url]}`，30s 超时），成功直接插入远端链接；服务未开启、拒绝或连不上时自动回退本地 `.assets` 落盘并轻提示，永不丢图。默认关闭，兼容任何实现该协议的服务端
 - **导出 LaTeX**（5.5 落地，导出矩阵收官）：导出弹窗新增 LaTeX 格式——token 树转换生成 ctexart 文档（XeLaTeX 编译，中文走 ctex）：标题/强调/删除线/高亮/上下标/行内代码、代码块 listings（常见语言着色）、三种列表与任务勾选、引用、表格（对齐列）、公式 passthrough、脚注内联、[TOC]→\tableofcontents、emoji 短代码转 unicode；正文全量转义。图片按 alt 修饰符定宽/居中，本地相对路径引用、远程图片转链接。右侧预览区实时展示生成的 .tex 源码；单栏/即显模式也可导出（直接转源码，不依赖预览 DOM）
+- **Vim 模式**（源码/双栏）：设置页「编辑」组开关（默认关）。开启后源码与双栏编辑器启用 vim 键位（`@replit/codemirror-vim` 动态加载，不增加启动体积），状态栏显示 NORMAL/INSERT 徽标；插入态保留列表续行/删标记等 Typora 语义，普通态完整 vim 行为（hjkl/x/dd/gg 等）；即显模式不受影响
 
 ## 下一步（发布前跟进）
 
-安装包代码签名（未签名有 SmartScreen 提示）、macOS/Linux 构建、正式发布流程（打 `v1.0.0` 标签 + GitHub Release）。1.x 迭代池剩余：插件系统（远期）、Vim 键位。
+安装包代码签名（未签名有 SmartScreen 提示）、macOS/Linux 构建、正式发布流程（打 `v1.0.0` 标签 + GitHub Release）。1.x 功能迭代全部收官，仅剩插件系统（远期）。
 
 ## 技术栈
 

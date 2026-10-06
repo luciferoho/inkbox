@@ -269,6 +269,19 @@ function resetOne(id: MenuCommand): void {
             <!-- 编辑 -->
             <h3 class="group-title">{{ $t('settings.gEditor') }}</h3>
             <div class="row">
+              <span class="label">{{ $t('settings.vimMode') }}</span>
+              <button
+                class="switch"
+                role="switch"
+                :aria-checked="ui.vimMode"
+                :class="{ on: ui.vimMode }"
+                @click="ui.setVimMode(!ui.vimMode)"
+              >
+                <i class="knob" />
+              </button>
+            </div>
+            <p class="row-hint">{{ $t('settings.vimModeHint') }}</p>
+            <div class="row">
               <span class="label">{{ $t('settings.autosave') }}</span>
               <button
                 class="switch"

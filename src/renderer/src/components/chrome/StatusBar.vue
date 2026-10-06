@@ -27,6 +27,9 @@ const saveLabel = computed(() => {
 <template>
   <footer class="statusbar">
     <div class="left">
+      <span v-if="ui.vimMode" class="vim-chip" :class="{ ins: ui.vimInsert }" :title="$t('status.vimTitle')">
+        {{ ui.vimInsert ? 'INSERT' : 'NORMAL' }}
+      </span>
       <span v-if="saveLabel" class="save-state" :class="{ dirty: ui.saveState === 'dirty' }">
         <i class="pip" />{{ saveLabel }}
       </span>
@@ -95,6 +98,23 @@ const saveLabel = computed(() => {
   align-items: center;
   gap: 5px;
   color: var(--ok);
+}
+
+/* Vim 模式徽标：等宽键帽风，普通态灰、插入态琥珀 */
+.vim-chip {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+
+.vim-chip.ins {
+  color: var(--accent-strong);
+  border-color: var(--accent);
 }
 
 .save-state.dirty {

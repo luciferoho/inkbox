@@ -92,6 +92,7 @@ export const en: MsgSchema = {
   'status.autosaveOn': 'Autosave',
   'status.autosaveOff': 'Autosave off',
   'status.lineTitle': 'Line {n}',
+  'status.vimTitle': 'Vim mode (toggle in settings): NORMAL / INSERT',
 
   // Welcome page
   'welcome.hero': 'Write, flow',
@@ -305,7 +306,9 @@ export const en: MsgSchema = {
   'settings.gLayout': 'Typography',
   'settings.gStartup': 'Startup',
   'settings.gWindow': 'Window',
-  'settings.gEditor': 'Editing',  'settings.gUpload': 'Image hosting',
+  'settings.gEditor': 'Editing',  'settings.vimMode': 'Vim mode (source/split)',
+  'settings.vimModeHint': 'Enables vim keybindings in source & split editing with a mode status bar; live (WYSIWYG) mode is unaffected. In normal mode Enter/Backspace keep vim semantics, list continuation stays in insert mode',
+  'settings.gUpload': 'Image hosting',
   'settings.uploadEnabled': 'Upload images (PicGo)',
   'settings.uploadServer': 'PicGo server URL',
   'settings.uploadHint': 'Pasted/dropped/inserted images upload to the host first and fall back to local .assets on failure. Requires PicGo running with its Server enabled (default http://127.0.0.1:36677/upload)',

@@ -94,6 +94,7 @@ export const zh = {
   'status.autosaveOn': '自动保存',
   'status.autosaveOff': '自动保存已关',
   'status.lineTitle': '第 {n} 行',
+  'status.vimTitle': 'Vim 模式（设置中开关）：NORMAL 普通 / INSERT 插入',
 
   // 欢迎页
   'welcome.hero': '落笔即章',
@@ -304,7 +305,9 @@ export const zh = {
   'settings.gLayout': '排版',
   'settings.gStartup': '启动',
   'settings.gWindow': '窗口',
-  'settings.gEditor': '编辑',  'settings.gUpload': '图床',
+  'settings.gEditor': '编辑',  'settings.vimMode': 'Vim 模式（源码/双栏）',
+  'settings.vimModeHint': '源码与双栏模式启用 vim 键位（含模式指示条）；即显模式不受影响。普通模式下 Enter/Backspace 回归 vim 语义，插入态保留列表续行',
+  'settings.gUpload': '图床',
   'settings.uploadEnabled': '启用图床上传（PicGo）',
   'settings.uploadServer': 'PicGo 服务地址',
   'settings.uploadHint': '开启后粘贴/拖拽/插入图片先上传图床，失败自动回退本地 .assets；需本机运行 PicGo 并在其设置中开启 Server（默认 http://127.0.0.1:36677/upload）',

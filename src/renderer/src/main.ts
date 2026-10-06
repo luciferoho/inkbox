@@ -17,6 +17,8 @@ function installBrowserMock(): void {
     locale: 'system' as const,
     editor: { fontSize: 16, lineHeight: 1.7 },
     autosave: { enabled: true, intervalMs: 15000 },
+    upload: { enabled: false, server: 'http://127.0.0.1:36677/upload' },
+    vimMode: false,
     restoreTabs: true,
     restoreFolders: true,
     openAtLogin: false,

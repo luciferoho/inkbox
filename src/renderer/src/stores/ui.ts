@@ -39,6 +39,10 @@ export const useUiStore = defineStore('ui', {
     shortcuts: {} as ShortcutOverrides,
     /* 图床上传（PicGo server 协议）：粘贴/拖拽/插入图片先传图床，失败回退本地 */
     upload: { enabled: false, server: 'http://127.0.0.1:36677/upload' },
+    /* Vim 模式（源码/双栏）：动态装卸 vim 键位扩展 */
+    vimMode: false,
+    /* Vim 插入态（状态栏徽标；SourceEditor 的 updateListener 回报） */
+    vimInsert: false,
     statusMessage: t('ui.ready'),
     /* 编辑器跨组件请求（计数器/序列号触发 watch） */
     findRequest: 0,
@@ -107,6 +111,7 @@ export const useUiStore = defineStore('ui', {
       this.closeAction = cfg.closeAction ?? 'quit'
       this.shortcuts = cfg.shortcuts ?? {}
       this.upload = { ...defaultConfig.upload, ...cfg.upload }
+      this.vimMode = cfg.vimMode ?? false
       this.editorPrefs = { ...cfg.editor }
       this.applyTheme()
       this.applyEditorPrefs()
@@ -201,6 +206,11 @@ export const useUiStore = defineStore('ui', {
   async setUpload(patch: Partial<AppConfig['upload']>): Promise<void> {
     this.upload = { ...this.upload, ...patch }
     await window.api.app.setConfig({ upload: { ...this.upload } })
+  },
+  /** Vim 模式开关（全局，跨窗口同步） */
+  async setVimMode(v: boolean): Promise<void> {
+    this.vimMode = v
+    await window.api.app.setConfig({ vimMode: v })
   },
     async setThemePref(pref: ThemePref): Promise<void> {
       this.themePref = pref

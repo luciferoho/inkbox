@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EditorView, keymap, type Command, type ViewUpdate } from '@codemirror/view'
-import { Compartment, EditorState } from '@codemirror/state'
+import { Compartment, EditorState, type Extension } from '@codemirror/state'
 import { basicSetup } from 'codemirror'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
@@ -60,6 +60,44 @@ let lockUntil = 0
 /** 专注/打字机模式按需装卸 */
 const focusComp = new Compartment()
 const typewriterComp = new Compartment()
+/** Vim 模式按需装卸：扩展体动态 import（~40KB 不进入口 chunk），已加载后缓存复用 */
+const vimComp = new Compartment()
+type VimModule = typeof import('@replit/codemirror-vim')
+let vimApi: VimModule | null = null
+let vimExt: Extension[] | null = null
+
+async function loadVim(): Promise<VimModule> {
+  vimApi ??= await import('@replit/codemirror-vim')
+  // 注意：不能传 { status: true }——其面板工厂在 view.cm 挂载前执行会抛错，
+  // CM 会把整个 vim 扩展回滚（上游 bug）；模式指示由状态栏徽标自行实现
+  if (!vimExt) vimExt = [vimApi.vim()]
+  return vimApi
+}
+
+/** Vim 普通/可视模式下让位：Enter/Backspace 的 typora 语义只在插入态（或未开 vim）生效 */
+function vimOwnsKey(v: EditorView): boolean {
+  if (!ui.vimMode || !vimApi) return false
+  const vim = vimApi.getCM(v)?.state.vim
+  return !!vim && !vim.insertMode
+}
+
+/** 普通态键位显式委托给 vim 命令解析（lib 的 keymap 不接管 Enter/Backspace，需手动转发） */
+function vimHandle(v: EditorView, key: string): boolean {
+  if (!vimOwnsKey(v) || !vimApi) return false
+  const cm = vimApi.getCM(v)
+  if (cm) vimApi?.Vim.handleKey(cm, key, 'mapping')
+  return true
+}
+
+async function syncVim(on: boolean): Promise<void> {
+  if (!on) {
+    view?.dispatch({ effects: vimComp.reconfigure([]) })
+    ui.vimInsert = false
+    return
+  }
+  await loadVim()
+  view?.dispatch({ effects: vimComp.reconfigure(vimExt as Extension[]) })
+}
 /** CodeMirror 内置界面短语（搜索面板等）随语言热切换 */
 const phrasesComp = new Compartment()
 /** 光标所在表格（停靠工具条的数据源：在表格内 → 表格操作，否则 → 格式化操作） */
@@ -79,8 +117,8 @@ function makeState(content: string): EditorState {
         ...(navigator.userAgent.includes('Electron')
           ? []
           : [{ key: 'Mod-f', run: () => (ui.requestFind(), true) }]),
-        { key: 'Enter', run: continueList },
-        { key: 'Backspace', run: deleteListMarker }
+        { key: 'Enter', run: (v) => (vimOwnsKey(v) ? vimHandle(v, '<CR>') : continueList(v)) },
+        { key: 'Backspace', run: (v) => (vimOwnsKey(v) ? vimHandle(v, '<BS>') : deleteListMarker(v)) }
       ]),
       basicSetup,
       markdown({ base: markdownLanguage, codeLanguages: languages, addKeymap: false }),
@@ -91,7 +129,12 @@ function makeState(content: string): EditorState {
       luciTheme,
       focusComp.of(ui.focusMode ? luciFocusMode : []),
       typewriterComp.of(ui.typewriterMode ? luciTypewriterMode : []),
+      vimComp.of(ui.vimMode && vimExt ? vimExt : []),
       EditorView.updateListener.of((u: ViewUpdate) => {
+        // Vim 插入态回报（状态栏徽标），先于 applying 守卫
+        if (ui.vimMode && vimApi) {
+          ui.vimInsert = !!vimApi.getCM(u.view)?.state.vim?.insertMode
+        }
         // 表格/图片检测只读状态，放在 applying 守卫之外：整档替换后也要刷新
         if (u.docChanged || u.selectionSet) {
           updateTableInfo()
@@ -439,6 +482,8 @@ onMounted(() => {
   view.scrollDOM.addEventListener('scroll', onScrollDom, { passive: true })
   // 点击编辑区任意位置（含内边距/行号间隙）都要拿到焦点，避免"点了但打不了字"
   host.value.addEventListener('mousedown', onHostMousedown)
+  // 启动即开着 Vim 模式：动态加载后挂载（首次引入 lib 再缓存）
+  if (ui.vimMode) void syncVim(true)
 })
 
 function onHostMousedown(): void {
@@ -643,6 +688,8 @@ watch(
   () => ui.typewriterMode,
   (on) => view?.dispatch({ effects: typewriterComp.reconfigure(on ? luciTypewriterMode : []) })
 )
+/* Vim 模式热切换（懒加载扩展体） */
+watch(() => ui.vimMode, (on) => void syncVim(on))
 
 /* 语言切换：CodeMirror 内置界面短语热替换 */
 watch(
