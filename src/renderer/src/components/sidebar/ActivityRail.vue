@@ -105,7 +105,7 @@ function pick(mode: 'outline' | 'files' | 'search'): void {
 
 .rail-btn:hover:not(:disabled) {
   color: var(--rail-icon-hover);
-  background: rgba(255, 244, 230, 0.08);
+  background: var(--rail-hover);
 }
 
 .rail-btn:disabled {
@@ -115,7 +115,7 @@ function pick(mode: 'outline' | 'files' | 'search'): void {
 
 .rail-btn.active {
   color: var(--rail-icon-hover);
-  background: rgba(255, 244, 230, 0.1);
+  background: var(--accent-soft);
 }
 
 /* 琥珀左缘指示条 */

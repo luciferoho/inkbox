@@ -196,7 +196,7 @@ async function regenerate(): Promise<void> {
   const seq = ++genSeq
   generating.value = true
   try {
-    const html = await buildExportHtml(tab.name, body, { forPrint: fmt.value === 'pdf' })
+    const html = await buildExportHtml(tab.name, body, { forPrint: fmt.value === 'pdf', theme: ui.effectiveTheme })
     if (seq !== genSeq) return
     if (fmt.value === 'pdf') {
       const b64 = await window.api.export.previewPdf(html, {
@@ -260,7 +260,7 @@ async function doExport(): Promise<void> {
   }
   busy.value = true
   try {
-    const html = await buildExportHtml(tab.name, body, { forPrint: fmt.value === 'pdf' })
+    const html = await buildExportHtml(tab.name, body, { forPrint: fmt.value === 'pdf', theme: ui.effectiveTheme })
     if (fmt.value === 'html') {
       const path = await window.api.dialog.saveFile(`${name}.html`, 'html')
       if (!path) return

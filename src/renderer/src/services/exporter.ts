@@ -65,6 +65,34 @@ const IMG_MIME: Record<string, string> = {
   svg: 'image/svg+xml'
 }
 
+/* 代码块语法令牌（与 base.css 双主题同名，导出产物脱离应用也要有值） */
+const CODE_TOKENS_LIGHT = `
+  --code-bg: #f2ecdf;
+  --code-fg: #2b2420;
+  --code-edge: rgba(38, 32, 25, 0.08);
+  --code-comment: #9c9184;
+  --code-keyword: #b16014;
+  --code-string: #57783b;
+  --code-number: #b8503f;
+  --code-title: #3565a3;
+  --code-attr: #8a6d2f;
+  --code-type: #7a55c0;
+  --code-deletion: #c2503e;
+`
+const CODE_TOKENS_DARK = `
+  --code-bg: #26201a;
+  --code-fg: #ece4d8;
+  --code-edge: rgba(255, 244, 230, 0.07);
+  --code-comment: #8a7f70;
+  --code-keyword: #f4c67f;
+  --code-string: #a8c98a;
+  --code-number: #e8a3a0;
+  --code-title: #9fc6e8;
+  --code-attr: #d4b483;
+  --code-type: #c9b3f0;
+  --code-deletion: #d66a55;
+`
+
 /* 纸面亮色主题的设计令牌（导出固定亮色：分享与打印观感一致） */
 const EXPORT_TOKENS = `
 :root {
@@ -83,6 +111,10 @@ const EXPORT_TOKENS = `
   --font-mono: 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
   --preview-font-size: 16px;
   --preview-line-height: 1.7;
+${CODE_TOKENS_LIGHT}
+}
+[data-theme='dark'] {
+${CODE_TOKENS_DARK}
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 `
@@ -154,6 +186,8 @@ function escapeHtml(s: string): string {
 export interface BuildExportOptions {
   /** true = 打印/PDF 用：白底、打印密度、分页保护 */
   forPrint?: boolean
+  /** 导出主题：代码块等配色跟随应用当前明暗（缺省 light） */
+  theme?: 'light' | 'dark'
 }
 
 export async function buildExportHtml(
@@ -199,9 +233,10 @@ body { background: #f6f2ec; padding: 40px 20px 64px; }
 }
 `
 
-  /* 关键：容器必须带 .md-preview，preview.css 的全部排版规则以它为前缀 */
+  /* 关键：容器必须带 .md-preview，preview.css 的全部排版规则以它为前缀。
+     data-theme 注入导出主题：代码块/语法色随应用当前明暗 */
   return `<!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="${opts.theme ?? 'light'}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

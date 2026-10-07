@@ -7,7 +7,11 @@
 
   /* 纸面 Light（默认） */
   --bg: #f6f2ec;
-  --bg-rail: #26201a;
+  /* 墨脊（活动栏）随主题：亮色下与纸面同族，比 surface-2 再深一档做层次 */
+  --bg-rail: #ece4d7;
+  --rail-icon: rgba(43, 36, 32, 0.62);
+  --rail-icon-hover: #b16014;
+  --rail-hover: rgba(43, 36, 32, 0.07);
   --surface: #ffffff;
   --surface-2: #efe9e0;
   --border: #e4dcd0;
@@ -21,9 +25,18 @@
   --danger: #c2503e;
   --ok: #2e7f72;
 
-  /* 墨脊上的固定色（不随主题翻转） */
-  --rail-icon: rgba(255, 244, 230, 0.72);
-  --rail-icon-hover: #f4c67f;
+  /* 代码块（浅底暖纸）与语法配色：hljs 各类目一令牌，preview/wysiwyg/导出共用 */
+  --code-bg: #f2ecdf;
+  --code-fg: #2b2420;
+  --code-edge: rgba(38, 32, 25, 0.08);
+  --code-comment: #9c9184;
+  --code-keyword: #b16014;
+  --code-string: #57783b;
+  --code-number: #b8503f;
+  --code-title: #3565a3;
+  --code-attr: #8a6d2f;
+  --code-type: #7a55c0;
+  --code-deletion: #c2503e;
 
   /* 形状与阴影 */
   --radius-s: 6px;
@@ -51,6 +64,9 @@
 
   --bg: #1d1814;
   --bg-rail: #14100c;
+  --rail-icon: rgba(255, 244, 230, 0.72);
+  --rail-icon-hover: #f4c67f;
+  --rail-hover: rgba(255, 244, 230, 0.08);
   --surface: #272019;
   --surface-2: #332a21;
   --border: #3b3128;
@@ -64,6 +80,19 @@
   --ok: #5bb8a8;
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.25), 0 10px 28px rgba(0, 0, 0, 0.22);
   --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.4);
+
+  /* 代码块（暗底暖墨）：维持深底形态，令牌与亮色同名 */
+  --code-bg: #26201a;
+  --code-fg: #ece4d8;
+  --code-edge: rgba(255, 244, 230, 0.07);
+  --code-comment: #8a7f70;
+  --code-keyword: #f4c67f;
+  --code-string: #a8c98a;
+  --code-number: #e8a3a0;
+  --code-title: #9fc6e8;
+  --code-attr: #d4b483;
+  --code-type: #c9b3f0;
+  --code-deletion: #d66a55;
 }
 
 /* ---------- Reset ---------- */
