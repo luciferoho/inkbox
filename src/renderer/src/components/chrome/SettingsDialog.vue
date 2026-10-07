@@ -365,9 +365,7 @@ function togglePlugin(p: PluginInfo): void {
               </template>
               <template v-else>
                 <span class="sc-keys">
-                  <template v-if="accelKeys(eff[c.id]).length">
-                    <kbd v-for="(k, i) in accelKeys(eff[c.id])" :key="i">{{ k }}</kbd>
-                  </template>
+                  <kbd v-if="accelKeys(eff[c.id]).length">{{ accelKeys(eff[c.id]).join('+') }}</kbd>
                   <span v-else class="sc-unset">{{ $t('settings.scDisabled') }}</span>
                 </span>
                 <span class="sc-actions">

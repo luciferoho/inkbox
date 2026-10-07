@@ -9,6 +9,7 @@ import { search, SearchQuery, setSearchQuery, findNext, findPrevious, replaceNex
 import { luciFindHighlight, setLuciFindQuery } from '@/editor/cm-find-highlight'
 import { indentWithTab } from '@codemirror/commands'
 import { luciTheme } from '@/editor/cm-theme'
+import { yamlFrontmatter } from '@/editor/cm-frontmatter'
 import { cmPhrases } from '@/editor/cm-i18n'
 import {
   formattingKeymap,
@@ -121,7 +122,7 @@ function makeState(content: string): EditorState {
         { key: 'Backspace', run: (v) => (vimOwnsKey(v) ? vimHandle(v, '<BS>') : deleteListMarker(v)) }
       ]),
       basicSetup,
-      markdown({ base: markdownLanguage, codeLanguages: languages, addKeymap: false }),
+      markdown({ base: markdownLanguage, codeLanguages: languages, addKeymap: false, extensions: [yamlFrontmatter] }),
       search({ top: true }),
       luciFindHighlight(),
       phrasesComp.of(cmPhrases()),
@@ -837,21 +838,17 @@ watch(
   overflow: hidden;
 }
 
-/* 停靠工具条：编辑区顶部固定一行（非浮动），内容随光标上下文切换（表格/格式化） */
+/* 停靠工具条：编辑区顶部固定（非浮动），内容随光标上下文切换（表格/格式化）。
+   窄窗口放不下时换行摊开，绝不裁切按钮（此前横向滚动条隐藏、尾部按钮被截半） */
 .ctx-strip {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 1px;
   padding: 3px 8px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.ctx-strip::-webkit-scrollbar {
-  display: none;
 }
 
 .tb-size {

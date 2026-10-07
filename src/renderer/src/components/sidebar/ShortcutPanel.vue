@@ -11,52 +11,60 @@ const ui = useUiStore()
 
 const eff = computed(() => effectiveShortcuts(ui.shortcuts))
 
-/* 注册表组：常用 = 文件命令；视图与模式 = 视图/外观/设置；查找挂在编辑组首行动态渲染 */
-const REG_GROUPS = computed(() => [
-  {
-    title: t('sc.gCommon'),
-    items: SHORTCUT_COMMANDS.filter((c) => c.group === 'file').map((c) => ({
-      id: c.id,
-      label: t(c.labelKey as MsgKey),
-      keys: accelKeys(eff.value[c.id])
-    }))
-  },
-  {
-    title: t('sc.gView'),
-    items: SHORTCUT_COMMANDS.filter((c) => c.group === 'view').map((c) => ({
-      id: c.id,
-      label: t(c.labelKey as MsgKey),
-      keys: accelKeys(eff.value[c.id])
-    }))
+/* 注册表组：常用 = 文件命令；视图与模式 = 视图/外观/设置；查找挂在编辑组首行动态渲染。
+   键帽格式全面板统一：一个组合一枚 kbd（"Ctrl+Shift+F" 一枚），双组合条目两枚 */
+const REG_GROUPS = computed(() => {
+  const keysOf = (id: string): string[] => {
+    const keys = accelKeys(eff.value[id])
+    return keys.length ? [keys.join('+')] : []
   }
-])
+  return [
+    {
+      title: t('sc.gCommon'),
+      items: SHORTCUT_COMMANDS.filter((c) => c.group === 'file').map((c) => ({
+        id: c.id,
+        label: t(c.labelKey as MsgKey),
+        keys: keysOf(c.id)
+      }))
+    },
+    {
+      title: t('sc.gView'),
+      items: SHORTCUT_COMMANDS.filter((c) => c.group === 'view').map((c) => ({
+        id: c.id,
+        label: t(c.labelKey as MsgKey),
+        keys: keysOf(c.id)
+      }))
+    }
+  ]
+})
 
-const findKeys = computed(() => accelKeys(eff.value['edit:find']))
+const findLabel = computed(() => accelKeys(eff.value['edit:find']).join('+'))
 
 /** 运行插件命令（宿主侧 try/catch，失败 toast 不出面板） */
 function runCmd(id: string): void {
   runPluginCommand(id)
 }
 
-/* 固定键组：编辑器内格式键与即显模式操作（不支持自定义） */
-const STATIC_GROUPS = computed<{ title: string; items: { k: string; d: string }[] }[]>(() => [
+/* 固定键组：编辑器内格式键与即显模式操作（不支持自定义）。
+   与上方注册表组同一键帽格式：一个组合一枚 kbd，" / " 分隔多组合 */
+const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string }[] }[]>(() => [
   {
     title: t('sc.gEdit'),
     items: [
-      { k: 'Ctrl+B', d: t('sc.bold') },
-      { k: 'Ctrl+I', d: t('sc.italic') },
-      { k: 'Ctrl+K', d: t('sc.link') },
-      { k: 'Ctrl+Shift+X', d: t('sc.strike') },
-      { k: 'Ctrl+Shift+C', d: t('sc.inlineCode') },
-      { k: 'Ctrl+= / Ctrl+-', d: t('sc.heading') }
+      { k: ['Ctrl+B'], d: t('sc.bold') },
+      { k: ['Ctrl+I'], d: t('sc.italic') },
+      { k: ['Ctrl+K'], d: t('sc.link') },
+      { k: ['Ctrl+Shift+X'], d: t('sc.strike') },
+      { k: ['Ctrl+Shift+C'], d: t('sc.inlineCode') },
+      { k: ['Ctrl+=', 'Ctrl+-'], d: t('sc.heading') }
     ]
   },
   {
     title: t('sc.gWysiwyg'),
     items: [
-      { k: 'Tab / Shift+Tab', d: t('sc.indent') },
-      { k: 'Esc', d: t('sc.exitCode') },
-      { k: 'Ctrl+Enter', d: t('sc.afterCode') }
+      { k: ['Tab', 'Shift+Tab'], d: t('sc.indent') },
+      { k: ['Esc'], d: t('sc.exitCode') },
+      { k: ['Ctrl+Enter'], d: t('sc.afterCode') }
     ]
   }
 ])
@@ -103,18 +111,16 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string; d: string }[
       </section>
       <section v-for="g in STATIC_GROUPS" :key="g.title" class="sc-group">
         <p class="sc-title">{{ g.title }}</p>
-        <div v-for="it in g.items" :key="it.k" class="sc-item">
+        <div v-for="it in g.items" :key="it.d" class="sc-item">
           <span class="sc-keys">
-            <kbd v-for="(key, i) in it.k.split(' / ')" :key="i">{{ key }}</kbd>
+            <kbd v-for="(key, i) in it.k" :key="i">{{ key }}</kbd>
           </span>
           <span class="sc-desc">{{ it.d }}</span>
         </div>
-        <!-- 查找替换为可改键命令，动态渲染在本组末行 -->
+        <!-- 查找替换为可改键命令，动态渲染在本组末行（同一键帽格式：一组合一枚） -->
         <div v-if="g.title === $t('sc.gEdit')" class="sc-item">
           <span class="sc-keys">
-            <template v-if="findKeys.length">
-              <kbd v-for="(key, i) in findKeys" :key="i">{{ key }}</kbd>
-            </template>
+            <kbd v-if="findLabel">{{ findLabel }}</kbd>
             <kbd v-else class="unset">{{ $t('settings.scDisabled') }}</kbd>
           </span>
           <span class="sc-desc">{{ $t('sc.find') }}</span>
@@ -190,13 +196,14 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string; d: string }[
   font-size: 12px;
 }
 
-/* 插件命令行：整行动作条目（▶ 图标 + 命令名 + 来源插件），与其他键位组区分 */
+/* 插件命令行：整行动作条目（▶ 图标 + 命令名 + 来源插件），与其他键位组区分。
+   宽度不超出组容器（此前负 margin 溢出 6px 被面板滚动容器裁切） */
 .sc-cmd {
   display: flex;
   align-items: center;
   gap: 7px;
-  width: calc(100% + 12px);
-  margin: 1px -6px;
+  width: 100%;
+  margin: 1px 0;
   padding: 5px 6px;
   border-radius: var(--radius-s);
   text-align: left;

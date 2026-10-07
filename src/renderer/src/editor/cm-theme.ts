@@ -27,10 +27,11 @@ const luciBase = EditorView.theme({
     borderLeftWidth: '2px'
   },
   '.cm-gutters': {
-    backgroundColor: 'transparent',
-    color: 'var(--text-2)',
+    /* 不透明背景 + z-index 200（CM 默认）：横向滚动时行号列固定在左、
+       内容从它下面穿过。此前透明背景会让长行文字透出来叠印行号 */
+    backgroundColor: 'var(--surface)',
+    color: 'color-mix(in srgb, var(--text-2) 70%, transparent)',
     border: 'none',
-    opacity: '0.6',
     minWidth: '38px'
   },
   '.cm-activeLine': {
@@ -38,7 +39,6 @@ const luciBase = EditorView.theme({
   },
   '.cm-activeLineGutter': {
     color: 'var(--accent)',
-    opacity: '1',
     backgroundColor: 'transparent'
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
