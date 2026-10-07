@@ -1,4 +1,4 @@
-import { type Command, type KeyBinding } from '@codemirror/view'
+import { type Command, type KeyBinding, type EditorView } from '@codemirror/view'
 import { EditorSelection } from '@codemirror/state'
 import { syntaxTree } from '@codemirror/language'
 import type { SyntaxNode } from '@lezer/common'
@@ -99,6 +99,125 @@ export const cmdLink: Command = wrap('[', '](https://)')
 export const cmdHeadingUp: Command = (v) => shiftHeading(v, -1)
 export const cmdHeadingDown: Command = (v) => shiftHeading(v, 1)
 
+/* ---------- 结构类内置快捷键（Typora 习惯，不进设置页） ---------- */
+
+/** 位置是否在代码围栏/HTML 块内：结构类键不碰代码内容 */
+function inBlockNode(state: EditorView['state'], pos: number): boolean {
+  let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, -1)
+  while (node) {
+    if (node.name === 'FencedCode' || node.name === 'CodeBlock' || node.name === 'HTMLBlock') return true
+    node = node.parent
+  }
+  return false
+}
+
+/** 选区覆盖的行（跨行选区含首尾行），跳过空行与代码围栏内行 */
+function targetLines(view: EditorView): { from: number; to: number; text: string }[] {
+  const { state } = view
+  const out: { from: number; to: number; text: string }[] = []
+  const seen = new Set<number>()
+  for (const range of state.selection.ranges) {
+    const first = state.doc.lineAt(range.from).number
+    const last = state.doc.lineAt(range.to).number
+    for (let n = first; n <= last; n++) {
+      if (seen.has(n)) continue
+      seen.add(n)
+      const line = state.doc.line(n)
+      if (!line.text.trim() || inBlockNode(state, line.from)) continue
+      out.push(line)
+    }
+  }
+  return out
+}
+
+/** 行级前缀改写：每行执行 rewrite，一次事务提交 */
+function rewriteLines(
+  view: EditorView,
+  rewrite: (text: string) => string | null
+): boolean {
+  const changes: { from: number; to: number; insert: string }[] = []
+  for (const line of targetLines(view)) {
+    const next = rewrite(line.text)
+    if (next !== null && next !== line.text) {
+      changes.push({ from: line.from, to: line.to, insert: next })
+    }
+  }
+  if (changes.length === 0) return false
+  view.dispatch({ changes })
+  return true
+}
+
+const HEADING_RE = /^(#{1,6})([ \t]+|$)(.*)$/
+
+/** 设标题为 level 级；已是该级 → 退回正文（toggle）。已有其他级标题时取其文字重建，旧 # 不残留 */
+export const setHeading = (level: number): Command => (view) =>
+  rewriteLines(view, (text) => {
+    const m = HEADING_RE.exec(text)
+    if (m && m[1].length === level) return m[3]
+    return `${'#'.repeat(level)} ${m ? m[3] : text}`
+  })
+
+/** 转正文：去掉标题前缀（无前缀的行不动） */
+export const cmdBodyText: Command = (view) =>
+  rewriteLines(view, (text) => {
+    const m = HEADING_RE.exec(text)
+    return m ? m[3] : null
+  })
+
+const QUOTE_RE = /^(\s*)(>\s?)(.*)$/
+
+/** 切换引用：无 > 前缀加「> 」，有则去掉 */
+export const cmdToggleQuote: Command = (view) =>
+  rewriteLines(view, (text) => {
+    const m = QUOTE_RE.exec(text)
+    if (m) return `${m[1]}${m[3]}`
+    return text.replace(/^(\s*)/, '$1> ')
+  })
+
+const LIST_ITEM_RE = /^(\s*)(?:([-*+])\s+(\[[ xX]\]\s+)?|(\d+)([.)])\s+)(.*)$/
+
+/** 切换无序列表：无标记加「- 」，有序/其他标记替换为「- 」，已是无序去掉 */
+export const cmdToggleUnordered: Command = (view) =>
+  rewriteLines(view, (text) => {
+    const m = LIST_ITEM_RE.exec(text)
+    if (!m) return text.trim() ? text.replace(/^(\s*)/, '$1- ') : null
+    if (m[2] === '-') return `${m[1]}${m[6]}` // 已无序：退出列表
+    return `${m[1]}- ${m[6]}` // 有序 → 无序
+  })
+
+/** 切换有序列表：无标记加「1. 」，其他标记替换为「1. 」，已是有序去掉 */
+export const cmdToggleOrdered: Command = (view) =>
+  rewriteLines(view, (text) => {
+    const m = LIST_ITEM_RE.exec(text)
+    if (!m) return text.trim() ? text.replace(/^(\s*)/, '$11. ') : null
+    if (m[4]) return `${m[1]}${m[6]}` // 已有序：退出列表
+    return `${m[1]}1. ${m[6]}` // 无序 → 有序
+  })
+
+/** 插入代码块：在当前行之后插入空围栏，光标落首行（连续按可连续插入，Ctrl+Shift+K） */
+export const cmdCodeBlock: Command = (view) => {
+  const { state } = view
+  const head = state.selection.main.head
+  const line = state.doc.lineAt(head)
+  const insert = '\n```\n\n```'
+  view.dispatch(
+    state.update({ changes: { from: line.to, insert }, selection: { anchor: line.to + 5 } })
+  )
+  return true
+}
+
+/** 插入表格：在当前行之后插入两列表格骨架，光标落首个表头单元格（Ctrl+T） */
+export const cmdInsertTable: Command = (view) => {
+  const { state } = view
+  const head = state.selection.main.head
+  const line = state.doc.lineAt(head)
+  const insert = '\n| 列1 | 列2 |\n| --- | --- |\n|  |  |'
+  view.dispatch(
+    state.update({ changes: { from: line.to, insert }, selection: { anchor: line.to + 3 } })
+  )
+  return true
+}
+
 /* ---------- 列表/引用自动续行（1.10 智能补全） ---------- */
 
 /**
@@ -177,9 +296,24 @@ export const deleteListMarker: Command = (view) => {
 export const formattingKeymap: KeyBinding[] = [
   { key: 'Mod-b', run: cmdBold },
   { key: 'Mod-i', run: cmdItalic },
-  { key: 'Mod-Shift-x', run: cmdStrike },
-  { key: 'Mod-Shift-c', run: cmdInlineCode },
+  /* 字符键 + Shift 的绑定必须写 Shift 后的实际字符（CM 按 event.key 匹配，
+     'Mod-Shift-x' 形式匹配不上任何真实键击——删除线/行内代码此前一直失灵） */
+  { key: 'Mod-X', run: cmdStrike },
+  { key: 'Mod-C', run: cmdInlineCode },
   { key: 'Mod-k', run: cmdLink },
   { key: 'Mod-Equal', run: cmdHeadingUp },
-  { key: 'Mod-Minus', run: cmdHeadingDown }
+  { key: 'Mod-Minus', run: cmdHeadingDown },
+  /* 结构类内置键（Typora 习惯）：标题级别 / 列表 / 引用 / 插入——不进设置页改键 */
+  { key: 'Mod-1', run: setHeading(1) },
+  { key: 'Mod-2', run: setHeading(2) },
+  { key: 'Mod-3', run: setHeading(3) },
+  { key: 'Mod-4', run: setHeading(4) },
+  { key: 'Mod-5', run: setHeading(5) },
+  { key: 'Mod-6', run: setHeading(6) },
+  { key: 'Mod-0', run: cmdBodyText },
+  { key: 'Mod-{', run: cmdToggleOrdered },
+  { key: 'Mod-}', run: cmdToggleUnordered },
+  { key: 'Mod-Q', run: cmdToggleQuote },
+  { key: 'Mod-K', run: cmdCodeBlock },
+  { key: 'Mod-t', run: cmdInsertTable }
 ]

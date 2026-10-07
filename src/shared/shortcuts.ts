@@ -127,6 +127,18 @@ export const RESERVED_ACCELS: string[] = [
   'CmdOrCtrl+K',
   'CmdOrCtrl+Shift+X',
   'CmdOrCtrl+Shift+C',
+  /* 结构类内置键（cm-commands formattingKeymap，不进设置页但不可被改键占用） */
+  'CmdOrCtrl+1',
+  'CmdOrCtrl+2',
+  'CmdOrCtrl+3',
+  'CmdOrCtrl+4',
+  'CmdOrCtrl+5',
+  'CmdOrCtrl+6',
+  'CmdOrCtrl+Shift+BracketLeft',
+  'CmdOrCtrl+Shift+BracketRight',
+  'CmdOrCtrl+Shift+Q',
+  'CmdOrCtrl+Shift+K',
+  'CmdOrCtrl+T',
   'F11',
   'F12',
   'CmdOrCtrl+Shift+I'

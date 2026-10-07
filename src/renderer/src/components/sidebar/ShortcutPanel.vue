@@ -60,6 +60,18 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string 
     ]
   },
   {
+    title: t('sc.gStructure'),
+    items: [
+      { k: ['Ctrl+1 ~ 6'], d: t('sc.headingLevel') },
+      { k: ['Ctrl+0'], d: t('sc.bodyText') },
+      { k: ['Ctrl+Shift+['], d: t('sc.olList') },
+      { k: ['Ctrl+Shift+]'], d: t('sc.ulList') },
+      { k: ['Ctrl+Shift+Q'], d: t('sc.quote') },
+      { k: ['Ctrl+Shift+K'], d: t('sc.codeBlock') },
+      { k: ['Ctrl+T'], d: t('sc.table') }
+    ]
+  },
+  {
     title: t('sc.gWysiwyg'),
     items: [
       { k: ['Tab', 'Shift+Tab'], d: t('sc.indent') },
