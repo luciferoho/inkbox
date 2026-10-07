@@ -1,0 +1,8 @@
+{
+  "id": "front-matter",
+  "name": "Front Matter",
+  "version": "1.0.0",
+  "description": "为文档生成或更新 YAML 头部（title 取文档名、date 取今天），已有头部的其他字段原样保留",
+  "main": "main.js",
+  "api": 1
+}

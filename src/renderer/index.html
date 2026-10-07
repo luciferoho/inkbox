@@ -3,9 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- unsafe-eval 仅为插件宿主开放（pluginHost 用 new Function 执行用户本机插件源码）：
+         内联脚本/事件处理器仍被 'self' 禁止，markdown 预览的注入面不变 -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: luci-img:; font-src 'self' data:; connect-src 'self' ws:"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: luci-img:; font-src 'self' data:; connect-src 'self' ws:"
     />
     <title>墨匣 Inkbox</title>
     <style>

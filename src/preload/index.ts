@@ -149,6 +149,14 @@ const api = {
     upload: (fileName: string, dataUrl: string): Promise<{ ok: boolean; url?: string; error?: string }> =>
       ipcRenderer.invoke('image:upload', fileName, dataUrl)
   },
+  plugin: {
+    /** 扫描插件目录（清单校验在主进程），返回全部发现的插件（含 error 项） */
+    list: (): Promise<import('@shared/types').PluginInfo[]> => ipcRenderer.invoke('plugin:list'),
+    /** 读取插件入口源码（字符串）。渲染层 pluginHost 在受控 inkbox API 下执行 */
+    readCode: (id: string): Promise<string | null> => ipcRenderer.invoke('plugin:readCode', id),
+    /** 打开（不存在则创建）插件目录 */
+    openDir: (): Promise<void> => ipcRenderer.invoke('plugin:openDir')
+  },
   win: {
     minimize: (): void => ipcRenderer.send('win:minimize'),
     toggleMaximize: (): void => ipcRenderer.send('win:toggleMaximize'),

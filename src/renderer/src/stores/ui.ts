@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { defaultConfig, type AppConfig, type WindowPrefs } from '@shared/types'
+import { defaultConfig, type AppConfig, type PluginCommand, type PluginInfo, type WindowPrefs } from '@shared/types'
 import type { ShortcutOverrides } from '@shared/shortcuts'
 import { i18n, resolveLocale, t, type LocalePref } from '@/i18n'
 import { useDocumentsStore } from './documents'
@@ -43,6 +43,11 @@ export const useUiStore = defineStore('ui', {
     vimMode: false,
     /* Vim 插入态（状态栏徽标；SourceEditor 的 updateListener 回报） */
     vimInsert: false,
+    /* 插件（6.9）：扫描发现 / 被禁用 id / 运行期错误 / 注入的命令 */
+    plugins: [] as PluginInfo[],
+    pluginsDisabled: [] as string[],
+    pluginErrors: {} as Record<string, string>,
+    pluginCommands: [] as PluginCommand[],
     statusMessage: t('ui.ready'),
     /* 编辑器跨组件请求（计数器/序列号触发 watch） */
     findRequest: 0,
@@ -112,9 +117,12 @@ export const useUiStore = defineStore('ui', {
       this.shortcuts = cfg.shortcuts ?? {}
       this.upload = { ...defaultConfig.upload, ...cfg.upload }
       this.vimMode = cfg.vimMode ?? false
+      this.pluginsDisabled = cfg.plugins?.disabled ?? []
       this.editorPrefs = { ...cfg.editor }
       this.applyTheme()
       this.applyEditorPrefs()
+      // 插件发现/禁用表可能变了：动态 import 避免与 pluginHost 形成模块环
+      void import('@/services/pluginHost').then((m) => m.syncPlugins())
     },
     /** 窗口私有偏好：启动时（拿到窗口键后）与本地调整时应用，不参与跨窗口同步 */
     applyWindowPrefs(p: WindowPrefs): void {
@@ -211,6 +219,34 @@ export const useUiStore = defineStore('ui', {
   async setVimMode(v: boolean): Promise<void> {
     this.vimMode = v
     await window.api.app.setConfig({ vimMode: v })
+  },
+  /* ---------- 插件（6.9） ---------- */
+  upsertPluginCommand(cmd: PluginCommand): void {
+    const i = this.pluginCommands.findIndex((c) => c.id === cmd.id)
+    if (i >= 0) this.pluginCommands.splice(i, 1, cmd)
+    else this.pluginCommands.push(cmd)
+  },
+  removePluginCommand(id: string): void {
+    const i = this.pluginCommands.findIndex((c) => c.id === id)
+    if (i >= 0) this.pluginCommands.splice(i, 1)
+  },
+  /** 启用/禁用插件：持久化后广播（各窗口 applyConfig → syncPlugins 重装载）。
+   *  disabled 数组必须展开成普通数组过 IPC（reactive Proxy 静默克隆失败） */
+  async setPluginEnabled(id: string, on: boolean): Promise<void> {
+    const set = new Set(this.pluginsDisabled)
+    if (on) set.delete(id)
+    else set.add(id)
+    this.pluginsDisabled = [...set]
+    await window.api.app.setConfig({ plugins: { disabled: [...this.pluginsDisabled] } })
+  },
+  /** 设置页「重新加载」：重扫目录 + 重装载全部插件（新增/改码后无需重启应用） */
+  async reloadPlugins(): Promise<void> {
+    const { syncPlugins } = await import('@/services/pluginHost')
+    await syncPlugins()
+  },
+  /** 设置页「打开插件目录」 */
+  async openPluginsDir(): Promise<void> {
+    await window.api.plugin.openDir()
   },
     async setThemePref(pref: ThemePref): Promise<void> {
       this.themePref = pref

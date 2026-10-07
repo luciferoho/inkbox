@@ -181,6 +181,12 @@ function installBrowserMock(): void {
       // 浏览器 mock：没有图床可传，统一回退本地（mock FS）
       upload: async () => ({ ok: false, error: 'mock' })
     },
+    plugin: {
+      // 浏览器 mock：无插件目录可扫，空列表（宿主不装载任何插件）
+      list: async () => [],
+      readCode: async () => null,
+      openDir: async () => undefined
+    },
     win: {
       minimize: () => undefined,
       toggleMaximize: () => undefined,

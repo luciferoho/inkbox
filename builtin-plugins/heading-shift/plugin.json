@@ -1,0 +1,8 @@
+{
+  "id": "heading-shift",
+  "name": "标题层级",
+  "version": "1.0.0",
+  "description": "整篇 ATX 标题（#）统一升/降一级，1-6 级内截断，跳过代码块",
+  "main": "main.js",
+  "api": 1
+}

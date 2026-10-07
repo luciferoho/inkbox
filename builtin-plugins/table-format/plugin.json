@@ -1,0 +1,8 @@
+{
+  "id": "table-format",
+  "name": "表格格式化",
+  "version": "1.0.0",
+  "description": "对齐 Markdown 表格的竖线与列宽（中文按两格宽计），保留对齐冒号与转义竖线",
+  "main": "main.js",
+  "api": 1
+}

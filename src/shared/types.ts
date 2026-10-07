@@ -33,8 +33,45 @@ export interface AppConfig {
     /** PicGo 兼容服务端上传接口（PicGo 应用设置里开启 Server 后的地址） */
     server: string
   }
+  /** 插件（userData/plugins 扫描发现）：disabled = 被用户手动关闭的插件 id，缺省启用 */
+  plugins?: {
+    disabled: string[]
+  }
   /** 最近文件，新的在前 */
   recent: RecentFile[]
+}
+
+/** 插件清单（userData/plugins/<目录>/plugin.json） */
+export interface PluginManifest {
+  /** 全局唯一 id（小写字母/数字/连字符），命令注入时用作命名空间 */
+  id: string
+  /** 显示名 */
+  name: string
+  version?: string
+  description?: string
+  /** 入口文件名（目录内相对路径），默认 main.js */
+  main?: string
+  /** 宿主 API 版本，当前只支持 1 */
+  api?: number
+}
+
+/** 扫描发现的插件（含清单校验错误；error 存在时不可启用） */
+export interface PluginInfo {
+  /** 插件目录绝对路径 */
+  dir: string
+  manifest: PluginManifest
+  /** 应用自带（builtin-plugins 随包分发，用户目录同名 id 可覆盖） */
+  builtin?: boolean
+  error?: string
+}
+
+/** 插件注入的命令（渲染层运行态，快捷键面板「插件」组展示） */
+export interface PluginCommand {
+  /** 全局 id：plugin:<插件id>/<命令id> */
+  id: string
+  title: string
+  /** 来源插件显示名 */
+  plugin: string
 }
 
 /**
@@ -68,6 +105,7 @@ export const defaultConfig: AppConfig = {
   shortcuts: {},
   upload: { enabled: false, server: 'http://127.0.0.1:36677/upload' },
   vimMode: false,
+  plugins: { disabled: [] },
   recent: []
 }
 

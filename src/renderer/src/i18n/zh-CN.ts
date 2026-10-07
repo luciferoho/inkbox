@@ -224,6 +224,8 @@ export const zh = {
   'sc.toggleSidebar': '折叠/展开侧栏',
   'sc.settings': '偏好设置',
   'sc.find': '查找替换',
+  'sc.gPlugins': '插件',
+  'sc.pluginRun': '点击运行',
   'sc.bold': '粗体',
   'sc.italic': '斜体',
   'sc.link': '链接',
@@ -320,6 +322,13 @@ export const zh = {
   'settings.scReserved': '该组合已被固定命令占用',
   'settings.scNeedMod': '需包含 Ctrl 或 Alt（F1~F12 功能键可单独使用）',
   'settings.scHint': '编辑器内的格式快捷键（Ctrl+B / I / K 等）暂不支持自定义',
+
+  'settings.gPlugins': '插件',
+  'settings.pluginBuiltin': '内置',
+  'settings.pluginsEmpty': '未发现插件。把插件文件夹放进插件目录（含 plugin.json 与 main.js），点「重新加载」即可生效',
+  'settings.pluginsOpenDir': '打开插件目录',
+  'settings.pluginsReload': '重新加载',
+  'settings.pluginsHint': '插件能注册命令（显示在右侧快捷键面板）、读取/替换当前文档内容；禁用后随时可再开启',
 
   'settings.theme': '主题',
   'settings.thSystem': '跟随系统',

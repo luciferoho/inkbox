@@ -2,7 +2,7 @@
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useUiStore, type ThemePref } from '@/stores/ui'
 import type { LocalePref } from '@/i18n'
-import type { MenuCommand } from '@shared/types'
+import type { MenuCommand, PluginInfo } from '@shared/types'
 import {
   SHORTCUT_COMMANDS,
   effectiveShortcuts,
@@ -121,6 +121,21 @@ function resetOne(id: MenuCommand): void {
   const next = { ...ui.shortcuts }
   delete next[id]
   void ui.setShortcuts(next)
+}
+
+/* ---------- 插件：发现清单渲染 + 开关禁用（6.9） ---------- */
+
+function pluginEnabled(p: PluginInfo): boolean {
+  return !p.error && !ui.pluginsDisabled.includes(p.manifest.id)
+}
+
+/** 插件当前显示的错误：清单错误（发现期）或运行期错误（pluginHost 标记） */
+function pluginError(p: PluginInfo): string {
+  return p.error ?? ui.pluginErrors[p.manifest.id] ?? ''
+}
+
+function togglePlugin(p: PluginInfo): void {
+  void ui.setPluginEnabled(p.manifest.id, !pluginEnabled(p))
 }
 </script>
 
@@ -368,6 +383,41 @@ function resetOne(id: MenuCommand): void {
               </template>
             </div>
             <p class="row-hint">{{ $t('settings.scHint') }}</p>
+
+            <!-- 插件：userData/plugins 扫描发现，开关即禁用/启用（6.9） -->
+            <h3 class="group-title">{{ $t('settings.gPlugins') }}</h3>
+            <template v-if="ui.plugins.length">
+              <div v-for="p in ui.plugins" :key="p.dir" class="row plugin-row">
+                <span class="label plugin-label">
+                  <span class="plugin-name">
+                    {{ p.manifest.name || p.dir.split(/[\\/]/).pop() }}
+                    <span v-if="p.builtin" class="plugin-badge">{{ $t('settings.pluginBuiltin') }}</span>
+                    <span v-if="p.manifest.version" class="plugin-ver">v{{ p.manifest.version }}</span>
+                  </span>
+                  <span v-if="pluginError(p)" class="plugin-err">{{ pluginError(p) }}</span>
+                  <span v-else-if="p.manifest.description" class="plugin-desc">{{ p.manifest.description }}</span>
+                </span>
+                <button
+                  v-if="!p.error"
+                  class="switch"
+                  role="switch"
+                  :aria-checked="pluginEnabled(p)"
+                  :class="{ on: pluginEnabled(p) }"
+                  @click="togglePlugin(p)"
+                >
+                  <i class="knob" />
+                </button>
+              </div>
+            </template>
+            <p v-else class="row-hint">{{ $t('settings.pluginsEmpty') }}</p>
+            <div class="row">
+              <span class="label"></span>
+              <span class="plugin-actions">
+                <button class="sc-btn" @click="ui.openPluginsDir()">{{ $t('settings.pluginsOpenDir') }}</button>
+                <button class="sc-btn" @click="ui.reloadPlugins()">{{ $t('settings.pluginsReload') }}</button>
+              </span>
+            </div>
+            <p class="row-hint">{{ $t('settings.pluginsHint') }}</p>
           </div>
         </section>
       </div>
@@ -616,6 +666,82 @@ input[type='range']::-webkit-slider-thumb {
   color: var(--accent-strong);
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* 插件段：整行卡条（hover 起底），名字 + 徽章/版本，描述与错误两行完整展示。
+   .label 基类钉死 72px 宽，插件行要撑满剩余空间（名称/描述都长） */
+.plugin-row {
+  align-items: flex-start;
+  padding: 8px 10px;
+  margin: 0 -10px;
+  border-radius: var(--radius-m);
+  transition: background 0.15s ease;
+}
+
+.plugin-row:hover {
+  background: var(--surface-2);
+}
+
+.plugin-label {
+  width: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.plugin-name {
+  font-weight: 600;
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.plugin-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+.plugin-ver {
+  flex-shrink: 0;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.plugin-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.plugin-err {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--danger, #c0392b);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.plugin-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .switch .knob {

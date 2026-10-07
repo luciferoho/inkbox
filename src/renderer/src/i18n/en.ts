@@ -222,6 +222,8 @@ export const en: MsgSchema = {
   'sc.toggleSidebar': 'Toggle sidebar',
   'sc.settings': 'Preferences',
   'sc.find': 'Find & replace',
+  'sc.gPlugins': 'Plugins',
+  'sc.pluginRun': 'Click to run',
   'sc.bold': 'Bold',
   'sc.italic': 'Italic',
   'sc.link': 'Link',
@@ -321,6 +323,13 @@ export const en: MsgSchema = {
   'settings.scReserved': 'Already used by a fixed command',
   'settings.scNeedMod': 'Must include Ctrl or Alt (F1-F12 can stand alone)',
   'settings.scHint': 'In-editor formatting keys (Ctrl+B / I / K…) are not customizable yet',
+
+  'settings.gPlugins': 'Plugins',
+  'settings.pluginBuiltin': 'Built-in',
+  'settings.pluginsEmpty': 'No plugins found. Drop a plugin folder (plugin.json + main.js) into the plugin folder and click "Reload"',
+  'settings.pluginsOpenDir': 'Open Plugin Folder',
+  'settings.pluginsReload': 'Reload',
+  'settings.pluginsHint': 'Plugins can register commands (shown in the shortcut panel) and read/replace the active document; disabled ones can be re-enabled anytime',
 
   'settings.theme': 'Theme',
   'settings.thSystem': 'System',

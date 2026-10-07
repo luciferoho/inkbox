@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useUiStore } from '@/stores/ui'
 import { t, type MsgKey } from '@/i18n'
 import { SHORTCUT_COMMANDS, effectiveShortcuts, accelKeys } from '@shared/shortcuts'
+import { runPluginCommand } from '@/services/pluginHost'
 
 /** 右侧快捷键面板：墨脊键盘图标开关，宽度过渡折叠/展开。
  *  应用级命令来自注册表（改键后实时跟随），编辑器内格式键仍为固定清单。 */
@@ -31,6 +32,11 @@ const REG_GROUPS = computed(() => [
 ])
 
 const findKeys = computed(() => accelKeys(eff.value['edit:find']))
+
+/** 运行插件命令（宿主侧 try/catch，失败 toast 不出面板） */
+function runCmd(id: string): void {
+  runPluginCommand(id)
+}
 
 /* 固定键组：编辑器内格式键与即显模式操作（不支持自定义） */
 const STATIC_GROUPS = computed<{ title: string; items: { k: string; d: string }[] }[]>(() => [
@@ -78,6 +84,22 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string; d: string }[
           </span>
           <span class="sc-desc">{{ it.label }}</span>
         </div>
+      </section>
+      <section v-if="ui.pluginCommands.length" class="sc-group">
+        <p class="sc-title">{{ $t('sc.gPlugins') }}</p>
+        <button
+          v-for="c in ui.pluginCommands"
+          :key="c.id"
+          class="sc-cmd"
+          :title="c.plugin + ' · ' + $t('sc.pluginRun')"
+          @click="runCmd(c.id)"
+        >
+          <svg class="sc-cmd-ico" viewBox="0 0 10 10" width="9" height="9" aria-hidden="true">
+            <path d="M2.5 1.2v7.6L8.4 5z" fill="currentColor" />
+          </svg>
+          <span class="sc-cmd-name">{{ c.title }}</span>
+          <span class="sc-cmd-src">{{ c.plugin }}</span>
+        </button>
       </section>
       <section v-for="g in STATIC_GROUPS" :key="g.title" class="sc-group">
         <p class="sc-title">{{ g.title }}</p>
@@ -166,6 +188,53 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string; d: string }[
   align-items: center;
   padding: 3px 0;
   font-size: 12px;
+}
+
+/* 插件命令行：整行动作条目（▶ 图标 + 命令名 + 来源插件），与其他键位组区分 */
+.sc-cmd {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: calc(100% + 12px);
+  margin: 1px -6px;
+  padding: 5px 6px;
+  border-radius: var(--radius-s);
+  text-align: left;
+  font-size: 12px;
+  color: var(--text-1);
+}
+
+.sc-cmd-ico {
+  flex-shrink: 0;
+  color: var(--accent);
+  opacity: 0.75;
+  transition: opacity 0.15s ease;
+}
+
+.sc-cmd-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sc-cmd-src {
+  flex-shrink: 0;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.sc-cmd:hover {
+  background: var(--surface-2);
+}
+
+.sc-cmd:hover .sc-cmd-ico {
+  opacity: 1;
 }
 
 .sc-keys {

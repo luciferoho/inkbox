@@ -56,6 +56,15 @@ function normalizeUpload(raw: unknown): AppConfig['upload'] {
   return { enabled: r.enabled === true, server }
 }
 
+/** 插件配置：只收字符串 id 列表（被禁用的插件），去重 */
+function normalizePlugins(raw: unknown): AppConfig['plugins'] {
+  const list = (raw as { disabled?: unknown } | null | undefined)?.disabled
+  const disabled = Array.isArray(list)
+    ? [...new Set(list.filter((x): x is string => typeof x === 'string'))]
+    : []
+  return { disabled }
+}
+
 function load(): AppConfig {
   if (cache) return cache
   try {
@@ -73,6 +82,7 @@ function load(): AppConfig {
       autosave: { ...defaultConfig.autosave, ...raw.autosave },
       shortcuts: normalizeShortcuts(raw.shortcuts),
       upload: normalizeUpload(raw.upload),
+      plugins: normalizePlugins(raw.plugins),
       recent: normalizeRecent(raw.recent)
     }
     // 旧版把纸宽/侧栏宽存在全局 config：迁入 w1 的窗口偏好（一次性，读不到就跳过）
@@ -171,7 +181,8 @@ export function registerConfigIpc(): void {
       ...patch,
       editor: { ...prev.editor, ...patch.editor },
       autosave: { ...prev.autosave, ...patch.autosave },
-      upload: { ...prev.upload, ...patch.upload }
+      upload: { ...prev.upload, ...patch.upload },
+      plugins: patch.plugins ?? prev.plugins
     }
     persist()
     if (patch.openAtLogin !== undefined && patch.openAtLogin !== prev.openAtLogin) applyLoginItem()

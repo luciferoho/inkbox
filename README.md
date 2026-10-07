@@ -134,9 +134,72 @@ npm run dist:dir   # 仅打未打包目录版（release/pkg/win-unpacked，快�
 - **导出 LaTeX**（5.5 落地，导出矩阵收官）：导出弹窗新增 LaTeX 格式——token 树转换生成 ctexart 文档（XeLaTeX 编译，中文走 ctex）：标题/强调/删除线/高亮/上下标/行内代码、代码块 listings（常见语言着色）、三种列表与任务勾选、引用、表格（对齐列）、公式 passthrough、脚注内联、[TOC]→\tableofcontents、emoji 短代码转 unicode；正文全量转义。图片按 alt 修饰符定宽/居中，本地相对路径引用、远程图片转链接。右侧预览区实时展示生成的 .tex 源码；单栏/即显模式也可导出（直接转源码，不依赖预览 DOM）
 - **Vim 模式**（源码/双栏）：设置页「编辑」组开关（默认关）。开启后源码与双栏编辑器启用 vim 键位（`@replit/codemirror-vim` 动态加载，不增加启动体积），状态栏显示 NORMAL/INSERT 徽标；插入态保留列表续行/删标记等 Typora 语义，普通态完整 vim 行为（hjkl/x/dd/gg 等）；即显模式不受影响
 
+## 1.x 第九批已落地（插件系统）
+
+- **插件系统 v1**（6.9 落地，功能清单收官）：设置页新增「插件」分组——列出插件（名称/版本/描述/「内置」徽章），开关即禁用/启用（持久化、跨窗口同步），「重新加载」改码免重启，「打开插件目录」直达。插件可注入命令（显示在右侧快捷键面板「插件」组，点击运行）、读取/替换当前文档、弹轻提示；坏清单与运行期错误就地标红展示，坏插件不影响应用与其他插件
+- **四个内置插件**（随应用分发，开箱即用，设置 → 插件 → 打开插件目录里可参考它们的写法）：
+  - **中英文排版**：中文与英文/数字之间补空格（盘古之白），跳过代码块、行内代码与链接目标，可重复执行
+  - **Front Matter**：为文档生成/更新 YAML 头部（title 取文档名、date 取今天），已有头部的其他字段原样保留——博客发文前一键就绪
+  - **标题层级**：整篇 ATX 标题统一升/降一级（1-6 级内截断，跳过代码块），适配不同平台的正文起始层级要求
+  - **表格格式化**：对齐表格竖线与列宽（中文按两格宽计），保留对齐冒号与转义竖线
+
+## 插件开发指南
+
+应用自带四个内置插件（中英文排版 / Front Matter / 标题层级 / 表格格式化），它们就是这套 API 的最佳示例——在 设置 → 插件 → 打开插件目录 旁边可以找到随包分发的源码（开发版在项目根 `builtin-plugins/`）。自己写插件时，在插件目录（`%APPDATA%/Inkbox/plugins`）下建一个文件夹，放两个文件：
+
+`plugin.json`（清单）：
+
+```json
+{
+  "id": "word-count",
+  "name": "字数统计",
+  "version": "1.0.0",
+  "description": "统计当前文档字数；可在文档末尾插入分隔线",
+  "main": "main.js",
+  "api": 1
+}
+```
+
+`main.js`（入口，直接调用 `inkbox` API）：
+
+```js
+inkbox.registerCommand({
+  id: 'count',
+  title: '统计当前文档字数',
+  run: function () {
+    var doc = inkbox.getActiveDoc()
+    if (!doc) { inkbox.showToast('没有活动文档'); return }
+    var n = doc.content.replace(/\s/g, '').length
+    inkbox.showToast('「' + doc.name + '」共 ' + n + ' 个字符')
+  }
+})
+inkbox.registerCommand({
+  id: 'divider',
+  title: '在文末插入分隔线',
+  run: function () {
+    var doc = inkbox.getActiveDoc()
+    if (!doc) return
+    inkbox.setContent(doc.content.replace(/\s*$/, '') + '\n\n---\n\n')
+  }
+})
+```
+
+保存后点 设置 → 插件 → 重新加载 即生效；命令出现在右侧快捷键面板「插件」组，点击运行。
+
+**inkbox API**（v1）：
+
+| 方法 | 说明 |
+| --- | --- |
+| `registerCommand({ id, title, run })` | 注册命令：显示在快捷键面板「插件」组，点击执行；id 为插件内唯一标识 |
+| `getActiveDoc()` | 当前文档 `{ name, path, content }`，无活动文档返回 `null`；path 为 `null` 表示未保存的新文档 |
+| `setContent(text)` | 替换当前文档内容（即刻在编辑器可见；主页标签不可写） |
+| `showToast(msg)` | 右下角轻提示（3 秒自动消失） |
+
+**边界说明**：插件代码在本机以应用同等权限运行（与 Typora/VS Code 插件同一信任模型），请只安装自己信任的插件；清单缺 id/name、入口缺失或代码抛错时，该插件在设置页标红且不影响其他插件；被禁用的插件随时可再开启。
+
 ## 下一步（发布前跟进）
 
-安装包代码签名（未签名有 SmartScreen 提示）、macOS/Linux 构建、正式发布流程（打 `v1.0.0` 标签 + GitHub Release）。1.x 功能迭代全部收官，仅剩插件系统（远期）。
+安装包代码签名（未签名有 SmartScreen 提示）、macOS/Linux 构建、正式发布流程（打 `v1.0.0` 标签 + GitHub Release）。1.x 功能迭代全部收官（插件系统已落地，见第九批）。
 
 ## 技术栈
 

@@ -79,6 +79,11 @@ interface Window {
     image: {
       upload(fileName: string, dataUrl: string): Promise<{ ok: boolean; url?: string; error?: string }>
     }
+    plugin: {
+      list(): Promise<import('@shared/types').PluginInfo[]>
+      readCode(id: string): Promise<string | null>
+      openDir(): Promise<void>
+    }
     win: {
       minimize(): void
       toggleMaximize(): void
