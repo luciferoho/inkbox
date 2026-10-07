@@ -124,7 +124,6 @@ function resetOne(id: MenuCommand): void {
 }
 
 /* ---------- 插件：发现清单渲染 + 开关禁用（6.9） ---------- */
-
 function pluginEnabled(p: PluginInfo): boolean {
   return !p.error && !ui.pluginsDisabled.includes(p.manifest.id)
 }
@@ -137,21 +136,47 @@ function pluginError(p: PluginInfo): string {
 function togglePlugin(p: PluginInfo): void {
   void ui.setPluginEnabled(p.manifest.id, !pluginEnabled(p))
 }
+
+/* ---------- 双栏布局：左侧导航 + 右侧当前分区内容 ---------- */
+type SettingsNav = 'appearance' | 'startup' | 'editor' | 'upload' | 'shortcuts' | 'plugins'
+const nav = ref<SettingsNav>('appearance')
+const NAVS: { key: SettingsNav; labelKey: string }[] = [
+  { key: 'appearance', labelKey: 'settings.navAppearance' },
+  { key: 'startup', labelKey: 'settings.navStartup' },
+  { key: 'editor', labelKey: 'settings.gEditor' },
+  { key: 'upload', labelKey: 'settings.gUpload' },
+  { key: 'shortcuts', labelKey: 'settings.gShortcuts' },
+  { key: 'plugins', labelKey: 'settings.gPlugins' }
+]
 </script>
 
 <template>
   <Teleport to="body">
     <Transition name="settings">
       <div v-if="ui.settingsOpen" class="mask" @click.self="ui.settingsOpen = false">
-        <section class="dialog" role="dialog" :aria-label="$t('settings.title')">
+        <section class="dialog settings-dialog" role="dialog" :aria-label="$t('settings.title')">
           <header class="dialog-head">
             <h2>{{ $t('settings.title') }}</h2>
             <button class="close" :title="$t('settings.closeEsc')" @click="ui.settingsOpen = false">✕</button>
           </header>
 
-          <div class="dialog-body">
-            <!-- 外观 -->
-            <h3 class="group-title">{{ $t('settings.gAppearance') }}</h3>
+          <div class="settings-layout">
+            <nav class="settings-nav">
+              <button
+                v-for="n in NAVS"
+                :key="n.key"
+                class="settings-nav-item"
+                :class="{ on: nav === n.key }"
+                @click="nav = n.key"
+              >
+                {{ $t(n.labelKey as MsgKey) }}
+              </button>
+            </nav>
+
+            <div class="settings-body">
+              <!-- 外观与排版 -->
+              <template v-if="nav === 'appearance'">
+                <h3 class="group-title">{{ $t('settings.gAppearance') }}</h3>
             <div class="row">
               <span class="label">{{ $t('settings.theme') }}</span>
               <div class="segmented">
@@ -218,9 +243,11 @@ function togglePlugin(p: PluginInfo): void {
               <span class="value">{{ ui.winPrefs.pageWidthPct }}%</span>
             </div>
             <p class="row-hint">{{ $t('settings.pwHint', { min: ui.pageWidthMinPct }) }}</p>
+              </template>
 
-            <!-- 启动 -->
-            <h3 class="group-title">{{ $t('settings.gStartup') }}</h3>
+              <!-- 启动与窗口 -->
+              <template v-else-if="nav === 'startup'">
+                <h3 class="group-title">{{ $t('settings.gStartup') }}</h3>
             <div class="row">
               <span class="label">{{ $t('settings.restoreTabs') }}</span>
               <button
@@ -245,6 +272,7 @@ function togglePlugin(p: PluginInfo): void {
                 <i class="knob" />
               </button>
             </div>
+            <p class="row-hint">{{ $t('settings.startupHint') }}</p>
             <div class="row">
               <span class="label">{{ $t('settings.openAtLogin') }}</span>
               <button
@@ -258,7 +286,6 @@ function togglePlugin(p: PluginInfo): void {
               </button>
             </div>
             <p class="row-hint">{{ $t('settings.openAtLoginHint') }}</p>
-            <p class="row-hint">{{ $t('settings.startupHint') }}</p>
 
             <!-- 窗口 -->
             <h3 class="group-title">{{ $t('settings.gWindow') }}</h3>
@@ -280,9 +307,11 @@ function togglePlugin(p: PluginInfo): void {
               </div>
             </div>
             <p class="row-hint">{{ $t('settings.closeHint') }}</p>
+              </template>
 
-            <!-- 编辑 -->
-            <h3 class="group-title">{{ $t('settings.gEditor') }}</h3>
+              <!-- 编辑 -->
+              <template v-else-if="nav === 'editor'">
+                <h3 class="group-title">{{ $t('settings.gEditor') }}</h3>
             <div class="row">
               <span class="label">{{ $t('settings.vimMode') }}</span>
               <button
@@ -322,9 +351,11 @@ function togglePlugin(p: PluginInfo): void {
                 </button>
               </div>
             </div>
+              </template>
 
-            <!-- 图床：PicGo server 协议上传 -->
-            <h3 class="group-title">{{ $t('settings.gUpload') }}</h3>
+              <!-- 图床：PicGo server 协议上传 -->
+              <template v-else-if="nav === 'upload'">
+                <h3 class="group-title">{{ $t('settings.gUpload') }}</h3>
             <div class="row">
               <span class="label">{{ $t('settings.uploadEnabled') }}</span>
               <button
@@ -350,9 +381,11 @@ function togglePlugin(p: PluginInfo): void {
               />
             </div>
             <p class="row-hint">{{ $t('settings.uploadHint') }}</p>
+              </template>
 
-            <!-- 快捷键：应用级命令可改键，行内录制 -->
-            <h3 class="group-title">{{ $t('settings.gShortcuts') }}</h3>
+              <!-- 快捷键：应用级命令可改键，行内录制 -->
+              <template v-else-if="nav === 'shortcuts'">
+                <h3 class="group-title">{{ $t('settings.gShortcuts') }}</h3>
             <div
               v-for="c in SHORTCUT_COMMANDS"
               :key="c.id"
@@ -381,9 +414,11 @@ function togglePlugin(p: PluginInfo): void {
               </template>
             </div>
             <p class="row-hint">{{ $t('settings.scHint') }}</p>
+              </template>
 
-            <!-- 插件：userData/plugins 扫描发现，开关即禁用/启用（6.9） -->
-            <h3 class="group-title">{{ $t('settings.gPlugins') }}</h3>
+              <!-- 插件：userData/plugins 扫描发现，开关即禁用/启用（6.9） -->
+              <template v-else>
+                <h3 class="group-title">{{ $t('settings.gPlugins') }}</h3>
             <template v-if="ui.plugins.length">
               <div v-for="p in ui.plugins" :key="p.dir" class="row plugin-row">
                 <span class="label plugin-label">
@@ -416,6 +451,8 @@ function togglePlugin(p: PluginInfo): void {
               </span>
             </div>
             <p class="row-hint">{{ $t('settings.pluginsHint') }}</p>
+              </template>
+            </div>
           </div>
         </section>
       </div>
@@ -434,14 +471,63 @@ function togglePlugin(p: PluginInfo): void {
 }
 
 .dialog {
-  width: 460px;
-  max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 80px);
-  overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-pop);
+}
+
+/* 双栏设置弹窗：内容多到 10 个分组后，单列滚动过长——左侧导航切换分区 */
+.settings-dialog {
+  width: min(760px, calc(100vw - 56px));
+  height: min(620px, calc(100vh - 72px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.settings-nav {
+  width: 168px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.settings-nav-item {
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: var(--radius-s);
+  font-size: 13px;
+  color: var(--text-2);
+  transition: background 0.12s, color 0.12s;
+}
+
+.settings-nav-item:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.settings-nav-item.on {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.settings-body {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 14px 22px 20px;
 }
 
 .dialog-head {
@@ -450,6 +536,7 @@ function togglePlugin(p: PluginInfo): void {
   justify-content: space-between;
   padding: 14px 18px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .dialog-head h2 {
@@ -491,7 +578,7 @@ function togglePlugin(p: PluginInfo): void {
 }
 
 .label {
-  width: 72px;
+  width: 96px;
   flex-shrink: 0;
   font-size: 12.5px;
   color: var(--text-2);
@@ -507,7 +594,7 @@ function togglePlugin(p: PluginInfo): void {
 }
 
 .row-hint {
-  margin: -4px 0 0 84px;
+  margin: -4px 0 0 108px;
   font-size: 11px;
   color: var(--text-2);
   opacity: 0.8;
@@ -535,6 +622,11 @@ function togglePlugin(p: PluginInfo): void {
   color: var(--accent-strong);
   font-weight: 600;
   box-shadow: 0 1px 2px rgba(38, 32, 25, 0.1);
+}
+
+/* 联动禁用下的选中项：保留选中记录但明确不可操作 */
+.segmented button.on:disabled {
+  opacity: 0.45;
 }
 
 .segmented button:disabled {

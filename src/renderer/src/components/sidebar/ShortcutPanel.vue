@@ -84,13 +84,13 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string 
       <section v-for="g in REG_GROUPS" :key="g.title" class="sc-group">
         <p class="sc-title">{{ g.title }}</p>
         <div v-for="it in g.items" :key="it.id" class="sc-item">
+          <span class="sc-desc">{{ it.label }}</span>
           <span class="sc-keys">
             <template v-if="it.keys.length">
               <kbd v-for="(key, i) in it.keys" :key="i">{{ key }}</kbd>
             </template>
             <kbd v-else class="unset">{{ $t('settings.scDisabled') }}</kbd>
           </span>
-          <span class="sc-desc">{{ it.label }}</span>
         </div>
       </section>
       <section v-if="ui.pluginCommands.length" class="sc-group">
@@ -112,18 +112,18 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string 
       <section v-for="g in STATIC_GROUPS" :key="g.title" class="sc-group">
         <p class="sc-title">{{ g.title }}</p>
         <div v-for="it in g.items" :key="it.d" class="sc-item">
+          <span class="sc-desc">{{ it.d }}</span>
           <span class="sc-keys">
             <kbd v-for="(key, i) in it.k" :key="i">{{ key }}</kbd>
           </span>
-          <span class="sc-desc">{{ it.d }}</span>
         </div>
         <!-- 查找替换为可改键命令，动态渲染在本组末行（同一键帽格式：一组合一枚） -->
         <div v-if="g.title === $t('sc.gEdit')" class="sc-item">
+          <span class="sc-desc">{{ $t('sc.find') }}</span>
           <span class="sc-keys">
             <kbd v-if="findLabel">{{ findLabel }}</kbd>
             <kbd v-else class="unset">{{ $t('settings.scDisabled') }}</kbd>
           </span>
-          <span class="sc-desc">{{ $t('sc.find') }}</span>
         </div>
       </section>
     </div>
@@ -186,12 +186,13 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string 
   margin: 10px 0 6px;
 }
 
-/* 两列网格：键位列定宽 → 右侧描述全部对齐；均不换行 */
+/* 行布局：功能名在左占满、键帽右对齐成整齐右列（键帽列不再定宽，
+   一组合一枚后中间不再留 156px 空洞，长描述也有空间不折行） */
 .sc-item {
-  display: grid;
-  grid-template-columns: 156px 1fr;
-  column-gap: 8px;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 3px 0;
   font-size: 12px;
 }
@@ -248,8 +249,8 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string 
   display: inline-flex;
   gap: 3px;
   flex-wrap: nowrap;
-  min-width: 0;
-  overflow: hidden;
+  flex-shrink: 0;
+  justify-content: flex-end;
 }
 
 .sc-keys kbd {
@@ -273,5 +274,8 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string 
   color: var(--text-2);
   line-height: 1.5;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
