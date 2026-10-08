@@ -4,7 +4,7 @@
   "version": "1.0.2",
   "description": "墨匣 Inkbox — 墨匣纸面 Markdown 编辑器 (Electron + Vue)",
   "main": "out/main/index.js",
-  "author": "lucifer",
+  "author": "Lucifer",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -123,4 +123,4 @@ Electron · Vue 3 · Pinia · TypeScript · CodeMirror 6 · Milkdown (ProseMirro
 
 ## 许可证
 
-[MIT](./LICENSE) © [lucifer](https://github.com/luciferoho)
+[MIT](./LICENSE) © [Lucifer](https://github.com/luciferoho)

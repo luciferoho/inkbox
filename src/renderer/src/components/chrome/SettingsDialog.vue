@@ -502,7 +502,7 @@ async function checkUpdate(): Promise<void> {
             </div>
             <div class="row">
               <span class="label">{{ $t('about.author') }}</span>
-              <a class="about-link" href="https://github.com/luciferoho" target="_blank" rel="noopener noreferrer">lucifer ↗</a>
+              <a class="about-link" href="https://github.com/luciferoho" target="_blank" rel="noopener noreferrer">Lucifer ↗</a>
             </div>
             <div class="row">
               <span class="label">{{ $t('about.repo') }}</span>
