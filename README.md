@@ -1,5 +1,3 @@
-<div align="center">
-
 # 墨匣 Inkbox
 
 **墨匣纸面 · 一款界面原创的桌面 Markdown 编辑器**
@@ -12,8 +10,6 @@
 ![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-C9701F)
-
-</div>
 
 ---
 
