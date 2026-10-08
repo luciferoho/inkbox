@@ -12,3 +12,6 @@ release/
 # 本地环境
 .DS_Store
 .env
+
+# 开发期临时脚本
+scripts/make-bigfile.mjs
