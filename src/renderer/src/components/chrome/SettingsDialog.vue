@@ -171,6 +171,7 @@ async function checkUpdate(): Promise<void> {
     const r = await window.api.app.checkUpdate()
     if (r.status === 'latest') ui.showToast(t('about.upToDate', { v: r.version }))
     else if (r.status === 'downloading') ui.showToast(t('about.updateFound', { v: r.version }))
+    else if (r.status === 'downloaded') ui.showToast(t('about.updateDownloaded', { v: r.version }))
     else if (r.reason === 'dev') ui.showToast(t('about.updateDev'))
     else ui.showToast(t('about.updateFail', { reason: r.reason }))
   } finally {

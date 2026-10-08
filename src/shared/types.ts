@@ -222,4 +222,5 @@ export interface AppInfo {
 export type UpdateCheckResult =
   | { status: 'latest'; version: string }
   | { status: 'downloading'; version: string }
+  | { status: 'downloaded'; version: string }
   | { status: 'unavailable'; reason: string }

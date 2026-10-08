@@ -352,6 +352,7 @@ export const zh = {
   'about.checking': '检查中…',
   'about.upToDate': '已是最新版本（v{v}）',
   'about.updateFound': '发现新版本 v{v}，已开始下载，重启应用后安装',
+  'about.updateDownloaded': '新版本 v{v} 已就绪，退出并重新打开应用即完成安装',
   'about.updateUnavailable': '暂时无法检查更新（网络受限或更新源未配置）',
   'about.updateFail': '检查更新失败：{reason}',
   'about.updateDev': '开发模式下不支持检查更新，请使用打包安装版',

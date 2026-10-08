@@ -1,7 +1,33 @@
 import { app } from 'electron'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { m } from './i18n'
 import type { AppUpdater } from 'electron-updater'
 import type { UpdateCheckResult } from '@shared/types'
+
+/** 已下载待装的新版本（update-downloaded 事件驱动；重启应用即安装） */
+let downloadedVersion: string | null = null
+let downloadedListenerAttached = false
+
+/**
+ * 更新器缓存的 pending 目录里探测已就绪的更新：
+ * 覆盖「上次运行时已下载、本次重启后事件状态丢失」的场景
+ * （electron-updater 不暴露该状态，只能读缓存目录,失败则放弃探测）。
+ */
+function probePendingUpdate(): string | null {
+  try {
+    const dir = join(process.env.LOCALAPPDATA ?? '', 'inkbox-updater', 'pending')
+    if (!existsSync(dir)) return null
+    const info = JSON.parse(readFileSync(join(dir, 'update-info.json'), 'utf-8')) as {
+      version?: string
+    }
+    return info.version && existsSync(join(dir, `Inkbox-${info.version}-setup.exe`))
+      ? info.version
+      : null
+  } catch {
+    return null
+  }
+}
 
 /**
  * 动态加载 electron-updater。CJS 模块经 ESM import() 的互操作下，具名导出
@@ -59,12 +85,22 @@ export async function checkUpdateManual(): Promise<UpdateCheckResult> {
   if (!app.isPackaged && process.env.INKBOX_TEST_UPDATE !== '1') {
     return { status: 'unavailable', reason: 'dev' }
   }
+  // 已下载待装 > 一切：此时再查永远 null,必须显式告知「重启即装」
+  const pending = downloadedVersion ?? probePendingUpdate()
+  if (pending) return { status: 'downloaded', version: pending }
   try {
     const autoUpdater = await loadAutoUpdater()
     autoUpdater.autoDownload = true
     autoUpdater.autoInstallOnAppQuit = true
     autoUpdater.logger = console
-    // v6 返回 null = 官方判定无更新（含同版本/降级）；否则为最新版本 UpdateInfo
+    if (!downloadedListenerAttached) {
+      downloadedListenerAttached = true
+      autoUpdater.on('update-downloaded', (i) => {
+        downloadedVersion = (i as { version?: string }).version ?? null
+        console.log('[updater] downloaded:', downloadedVersion)
+      })
+    }
+    // v6 返回 null = 官方判定无更新（含同版本/降级/已下载待装）；否则为最新版本 UpdateInfo
     const r: unknown = await autoUpdater.checkForUpdates()
     const remote = (r as { version?: string } | null)?.version ?? ''
     if (!isNewerVersion(remote, app.getVersion())) {
