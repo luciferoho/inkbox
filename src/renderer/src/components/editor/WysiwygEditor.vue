@@ -29,6 +29,7 @@ import {
   findReplaceCurrent,
   findReplaceAll
 } from '@/editor/pm-find'
+import { createCenterPlugin } from '@/editor/pm-center'
 import type { FindQuery, FindStatus } from '@/find-shared'
 import FindBar from './FindBar.vue'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
@@ -319,6 +320,8 @@ function onWinKeydown(e: KeyboardEvent): void {
 
 /* 查找插件：每次挂载都要一个全新 PM 插件实例（工厂在 Editor 创建时调用） */
 const findProse = $prose(() => createFindPlugin())
+// GitHub 居中块显示层（<div align="center">,详见 pm-center.ts）
+const centerProsePlugin = $prose(() => createCenterPlugin())
 
 onMounted(() => {
   if (!host.value) return
@@ -351,6 +354,7 @@ onMounted(() => {
     // 撤销/重做（1.7 P0）：commonmark 预设不含 history，不挂载即显模式 Ctrl+Z 完全失效
     .use(history)
     .use(findProse)
+    .use(centerProsePlugin)
   void instance.create().then((e) => {
     editor = e
     // 开发期调试钩子：CDP 查 PM 文档 JSON / 序列化输出 / 内部 remark mdast

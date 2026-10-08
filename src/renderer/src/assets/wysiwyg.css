@@ -183,3 +183,12 @@
   background: color-mix(in srgb, var(--accent) 62%, transparent);
   box-shadow: 0 0 0 1px var(--accent-strong);
 }
+
+/* GitHub 居中块（显示层增强，见 pm-center.ts）：标签隐藏、内容居中 */
+.wysiwyg-host .luci-prose .md-center {
+  text-align: center;
+}
+
+.wysiwyg-host .luci-prose .md-center-tag {
+  display: none;
+}
