@@ -1,7 +1,14 @@
+# 依赖与构建产物
 node_modules/
 out/
 dist/
 release/
+
+# 开发验证产物（CDP 调试脚本/截图/临时输出）
+.cdp/
+/*.png
 *.log
+
+# 本地环境
 .DS_Store
 .env
