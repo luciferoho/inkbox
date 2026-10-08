@@ -1,0 +1,4 @@
+provider: github
+owner: luciferoho
+repo: inkbox
+updaterCacheDirName: inkbox-updater-dev

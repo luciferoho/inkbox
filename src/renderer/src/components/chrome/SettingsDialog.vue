@@ -172,7 +172,7 @@ async function checkUpdate(): Promise<void> {
     if (r.status === 'latest') ui.showToast(t('about.upToDate', { v: r.version }))
     else if (r.status === 'downloading') ui.showToast(t('about.updateFound', { v: r.version }))
     else if (r.reason === 'dev') ui.showToast(t('about.updateDev'))
-    else ui.showToast(t('about.updateUnavailable'))
+    else ui.showToast(t('about.updateFail', { reason: r.reason }))
   } finally {
     checkingUpdate.value = false
   }

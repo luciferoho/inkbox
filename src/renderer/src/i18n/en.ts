@@ -354,6 +354,7 @@ export const en: MsgSchema = {
   'about.upToDate': "You're on the latest version (v{v})",
   'about.updateFound': 'Version v{v} found — downloading; restart to install',
   'about.updateUnavailable': 'Cannot check for updates right now (network unavailable or no update feed)',
+  'about.updateFail': 'Update check failed: {reason}',
   'about.updateDev': 'Update checks are unavailable in dev mode — use a packaged build',
 
   'settings.theme': 'Theme',
