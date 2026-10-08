@@ -161,6 +161,8 @@ const api = {
     minimize: (): void => ipcRenderer.send('win:minimize'),
     toggleMaximize: (): void => ipcRenderer.send('win:toggleMaximize'),
     close: (): void => ipcRenderer.send('win:close'),
+    /** 固定窗口（始终置顶） */
+    toggleAlwaysOnTop: (): void => ipcRenderer.send('win:toggleAlwaysOnTop'),
     /** 拖出标签到新窗口 */
     openDoc: (doc: DetachDoc): void => ipcRenderer.send('win:openDoc', doc),
     /** 启动时一次性取走初始文档与窗口键 */
@@ -180,10 +182,12 @@ const api = {
     ipcRenderer.on('menu:command', listener)
     return () => ipcRenderer.removeListener('menu:command', listener)
   },
-  /** 订阅窗口最大化状态（自绘标题栏需要） */
-  onWinState: (cb: (state: { maximized: boolean }) => void): (() => void) => {
-    const listener = (_e: Electron.IpcRendererEvent, state: { maximized: boolean }): void =>
-      cb(state)
+  /** 订阅窗口状态（最大化/置顶，自绘标题栏需要） */
+  onWinState: (cb: (state: { maximized: boolean; alwaysOnTop: boolean }) => void): (() => void) => {
+    const listener = (
+      _e: Electron.IpcRendererEvent,
+      state: { maximized: boolean; alwaysOnTop: boolean }
+    ): void => cb(state)
     ipcRenderer.on('win:state', listener)
     return () => ipcRenderer.removeListener('win:state', listener)
   }

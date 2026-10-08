@@ -87,6 +87,7 @@ interface Window {
     win: {
       minimize(): void
       toggleMaximize(): void
+      toggleAlwaysOnTop(): void
       close(): void
       openDoc(doc: import('@shared/types').DetachDoc): void
       takeInitialDoc(): Promise<import('@shared/types').InitialDoc>
@@ -94,6 +95,6 @@ interface Window {
       onRequestClose(cb: () => void): () => void
     }
     onMenuCommand(cb: (cmd: import('@shared/types').MenuCommand) => void): () => void
-    onWinState(cb: (state: { maximized: boolean }) => void): () => void
+    onWinState(cb: (state: { maximized: boolean; alwaysOnTop: boolean }) => void): () => void
   }
 }

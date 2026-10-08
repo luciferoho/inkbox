@@ -28,6 +28,19 @@ const api = window.api
     </div>
 
     <div class="win-controls">
+      <button
+        class="win-btn"
+        :class="{ pinned: ui.alwaysOnTop }"
+        :title="ui.alwaysOnTop ? $t('titlebar.unpin') : $t('titlebar.pin')"
+        @click="api.win.toggleAlwaysOnTop()"
+      >
+        <svg class="pin" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+          <path d="M12 17v5" />
+          <path
+            d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"
+          />
+        </svg>
+      </button>
       <button class="win-btn" :title="$t('titlebar.minimize')" @click="api.win.minimize()">
         <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 5h10" stroke="currentColor" stroke-width="1" /></svg>
       </button>
@@ -127,5 +140,22 @@ const api = window.api
 .win-btn.close:hover {
   background: var(--danger);
   color: #fff;
+}
+
+/* 固定窗口：未固定时图钉斜置，固定后立起并着强调色 */
+.win-btn .pin {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.win-btn.pinned {
+  color: var(--accent);
+}
+
+.win-btn.pinned:hover {
+  color: var(--accent);
 }
 </style>

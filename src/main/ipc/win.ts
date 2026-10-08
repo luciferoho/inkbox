@@ -71,6 +71,14 @@ export function registerWinIpc(): void {
 
   ipcMain.on('win:close', (e) => fromEvent(e)?.close())
 
+  /** 固定窗口（始终置顶）：状态变化经 window.ts 的 always-on-top-changed 广播回渲染层。
+   *  Windows 上默认 level（floating）在部分环境下 SetWindowPos 静默失败，
+   *  screen-saver 档走立即生效路径，实测可靠 */
+  ipcMain.on('win:toggleAlwaysOnTop', (e) => {
+    const w = fromEvent(e)
+    if (w) w.setAlwaysOnTop(!w.isAlwaysOnTop(), 'screen-saver')
+  })
+
   /** 拖出标签 / 右键「移到新窗口」：带着文档载荷开新窗口 */
   ipcMain.on('win:openDoc', (_e, doc: DetachDoc) => {
     createAppWindow(doc)

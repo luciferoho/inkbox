@@ -122,7 +122,10 @@ onMounted(() => {
     await nextTick()
     dismissSplash()
   })()
-  window.api.onWinState((s) => (ui.maximized = s.maximized))
+  window.api.onWinState((s) => {
+    ui.maximized = s.maximized
+    ui.alwaysOnTop = s.alwaysOnTop
+  })
   window.api.onMenuCommand(dispatch)
   // 任一窗口改了全局配置（主题/语言/字号等）：本窗口即时跟随
   // （纸宽/侧栏宽是窗口私有偏好，不在广播里，各窗口互不干扰）

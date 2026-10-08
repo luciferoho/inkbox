@@ -19,6 +19,8 @@ export const useUiStore = defineStore('ui', {
     sidebarMode: 'outline' as SidebarMode,
     editorMode: 'split' as EditorMode,
     maximized: false,
+    /** 窗口固定（始终置顶），由主进程 win:state 广播同步 */
+    alwaysOnTop: false,
     focusMode: false,
     typewriterMode: false,
     /** 禅模式：隐藏标签栏/状态栏/侧栏，Esc 或菜单退出 */

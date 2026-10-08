@@ -66,6 +66,8 @@ export const en: MsgSchema = {
   'titlebar.maximize': 'Maximize',
   'titlebar.restore': 'Restore',
   'titlebar.close': 'Close',
+  'titlebar.pin': 'Always on Top',
+  'titlebar.unpin': 'Turn off Always on Top',
 
   // Tabs bar
   'tabs.home': 'Home',

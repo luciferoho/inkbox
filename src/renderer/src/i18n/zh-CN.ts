@@ -68,6 +68,8 @@ export const zh = {
   'titlebar.maximize': '最大化',
   'titlebar.restore': '还原',
   'titlebar.close': '关闭',
+  'titlebar.pin': '置顶',
+  'titlebar.unpin': '取消置顶',
 
   // 标签栏
   'tabs.home': '主页',

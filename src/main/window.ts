@@ -46,6 +46,11 @@ export function createAppWindow(doc?: DetachDoc): BrowserWindow {
     }
   })
 
+  // Windows:右键标题栏(拖拽区)弹的系统菜单(还原/移动/大小…)走非客户区路径,
+  // 渲染层拦不到。Electron 官方出口:只要有监听者并 preventDefault,即不弹
+  // (Electron 源码 OnSystemContextMenu → *prevent_default = true)
+  win.on('system-context-menu', (e) => e.preventDefault())
+
   // 渲染层启动时经 win:takeInitialDoc 取走（拖出标签的文档与窗口键）。
   // crashed 只认首个窗口：它是"整个运行期"的标志（上次强杀/崩溃），
   // 运行中新开的窗口若也带着它，会把别的窗口正在写的草稿误当崩溃遗留恢复
@@ -87,11 +92,15 @@ export function createAppWindow(doc?: DetachDoc): BrowserWindow {
     win.show()
   })
 
-  // 自绘标题栏需要同步最大化状态（加载完成后重发一次，避免早于渲染层订阅而丢失）
+  // 自绘标题栏需要同步最大化/置顶状态（加载完成后重发一次，避免早于渲染层订阅而丢失）
   const sendState = (): void =>
-    win.webContents.send('win:state', { maximized: win.isMaximized() })
+    win.webContents.send('win:state', {
+      maximized: win.isMaximized(),
+      alwaysOnTop: win.isAlwaysOnTop()
+    })
   win.on('maximize', sendState)
   win.on('unmaximize', sendState)
+  win.on('always-on-top-changed', sendState)
   win.webContents.on('did-finish-load', sendState)
 
   // 外部链接一律走系统浏览器
