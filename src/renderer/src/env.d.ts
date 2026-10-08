@@ -70,6 +70,8 @@ interface Window {
       setConfig(patch: Partial<import('@shared/types').AppConfig>): Promise<import('@shared/types').AppConfig>
       setLocale(locale: import('@shared/types').AppConfig['locale']): Promise<void>
       setShortcutsCapture(on: boolean): void
+      getInfo(): Promise<import('@shared/types').AppInfo>
+      checkUpdate(): Promise<import('@shared/types').UpdateCheckResult>
       debugMenuAccels(): Promise<Record<string, string | null>>
       debugMenuInvoke(id: string): Promise<boolean>
       getWindowPrefs(key: string): Promise<import('@shared/types').WindowPrefs>

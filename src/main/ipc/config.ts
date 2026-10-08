@@ -5,6 +5,7 @@ import {
   defaultConfig,
   defaultWindowPrefs,
   type AppConfig,
+  type AppInfo,
   type RecentFile,
   type ShortcutOverrides,
   type WindowPrefs
@@ -18,6 +19,7 @@ import {
   setShortcutOverrides
 } from '../menu'
 import { retranslateTray } from '../tray'
+import { checkUpdateManual } from '../updater'
 
 /** 简单 JSON 配置存储（userData/config.json），深度合并默认值 */
 let cache: AppConfig | null = null
@@ -216,6 +218,19 @@ export function registerConfigIpc(): void {
 
   /** 改键录制期间挂起应用菜单：加速器会抢在渲染层之前消费按键，录制须先摘掉 */
   ipcMain.on('app:shortcutsCapture', (_e, on: boolean) => setMenuSuspended(!!on))
+
+  /** 关于页：应用版本与运行环境（反馈 Issue 时一并附带的诊断信息） */
+  ipcMain.handle('app:getInfo', (): AppInfo => ({
+    version: app.getVersion(),
+    electron: process.versions.electron ?? '',
+    chrome: process.versions.chrome ?? '',
+    node: process.versions.node ?? '',
+    platform: process.platform,
+    packaged: app.isPackaged
+  }))
+
+  /** 关于页：手动检查更新（打包版有效；发现新版自动下载、退出后安装） */
+  ipcMain.handle('app:checkUpdate', () => checkUpdateManual())
 
   // dev-only 验证钩子：真窗口注入不了 OS 键击，用活体菜单读加速器/触发命令
   if (!app.isPackaged) {

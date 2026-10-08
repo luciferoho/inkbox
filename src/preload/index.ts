@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AppConfig,
+  AppInfo,
   DetachDoc,
   DirEntry,
   DraftPayload,
@@ -10,6 +11,7 @@ import type {
   SearchOptions,
   SearchOutcome,
   SessionPayload,
+  UpdateCheckResult,
   WindowPrefs
 } from '@shared/types'
 
@@ -128,6 +130,10 @@ const api = {
       ipcRenderer.invoke('app:setLocale', locale),
     /** 改键录制期间挂起应用菜单（加速器会抢在渲染层之前消费按键） */
     setShortcutsCapture: (on: boolean): void => ipcRenderer.send('app:shortcutsCapture', on),
+    /** 关于页：应用版本与运行环境 */
+    getInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:getInfo'),
+    /** 关于页：手动检查更新 */
+    checkUpdate: (): Promise<UpdateCheckResult> => ipcRenderer.invoke('app:checkUpdate'),
     /** dev-only：活体菜单加速器快照 / 按命令 id 触发菜单项（真窗口注入不了 OS 键击时验证用） */
     debugMenuAccels: (): Promise<Record<string, string | null>> =>
       ipcRenderer.invoke('app:debugMenuAccels'),

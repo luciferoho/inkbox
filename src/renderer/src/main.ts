@@ -158,6 +158,16 @@ function installBrowserMock(): void {
         return cfg as AppConfig
       },
       setLocale: async () => undefined,
+      // 浏览器 mock：静态应用信息（版本对齐 package.json），检查更新恒为最新
+      getInfo: async () => ({
+        version: '1.0.0',
+        electron: '-',
+        chrome: '-',
+        node: '-',
+        platform: 'browser',
+        packaged: false
+      }),
+      checkUpdate: async () => ({ status: 'latest', version: '1.0.0' }),
       // 浏览器 mock：没有应用菜单可挂起，改键录制的加速键防护为空操作
       setShortcutsCapture: () => undefined,
       debugMenuAccels: async () => ({}),

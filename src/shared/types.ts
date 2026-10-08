@@ -207,3 +207,19 @@ export interface DirEntry {
   path: string
   isDir: boolean
 }
+
+/** 应用运行信息（关于页展示 + 反馈 Issue 时附带的诊断信息） */
+export interface AppInfo {
+  version: string
+  electron: string
+  chrome: string
+  node: string
+  platform: string
+  packaged: boolean
+}
+
+/** 手动检查更新结果（关于页「检查更新」按钮） */
+export type UpdateCheckResult =
+  | { status: 'latest'; version: string }
+  | { status: 'downloading'; version: string }
+  | { status: 'unavailable'; reason: string }

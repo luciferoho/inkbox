@@ -63,17 +63,33 @@ export function clearSession(key: string): Promise<void> {
   return rm(join(sessionsDir(), safeName(key)), { force: true })
 }
 
+/** 每个窗口键一条保存串行链：并发保存共用同一个 tmp 文件名，
+ *  不排队时第一次 rename 取走文件、第二次 rename 必 ENOENT（会话偶发丢失的另一根源） */
+const saveQueues = new Map<string, Promise<void>>()
+
+function enqueueSave(key: string, task: () => Promise<void>): Promise<void> {
+  const prev = saveQueues.get(key) ?? Promise.resolve()
+  const next = prev.then(task, task) // 前序失败不阻塞本次保存
+  saveQueues.set(
+    key,
+    next.catch(() => undefined)
+  )
+  return next
+}
+
 export function registerSessionIpc(): void {
   // 原子写（tmp + rename）：退出瞬间的写入不会截断成损坏 JSON。
   // 注意不要在 rename 前先删正式文件——rename 在 Windows 上可直接覆盖目标，
   // 先删会留下"正式已删、改名未执行"的强杀空窗，导致会话 JSON 彻底丢失
-  ipcMain.handle('session:save', async (_e, key: string, payload: SessionPayload): Promise<void> => {
-    await mkdir(sessionsDir(), { recursive: true })
-    const final = join(sessionsDir(), safeName(key))
-    const tmp = final + '.tmp'
-    await writeFile(tmp, JSON.stringify(payload), 'utf-8')
-    await rename(tmp, final)
-  })
+  ipcMain.handle('session:save', (_e, key: string, payload: SessionPayload): Promise<void> =>
+    enqueueSave(key, async () => {
+      await mkdir(sessionsDir(), { recursive: true })
+      const final = join(sessionsDir(), safeName(key))
+      const tmp = final + '.tmp'
+      await writeFile(tmp, JSON.stringify(payload), 'utf-8')
+      await rename(tmp, final)
+    })
+  )
 
   ipcMain.handle('session:load', async (): Promise<SessionEntry[]> => {
     let files: string[]
@@ -87,7 +103,7 @@ export function registerSessionIpc(): void {
       // .tmp 残留回收：强杀落在"写完 tmp、未改名"时，正式文件可能缺失——用 tmp 兜底
       const isTmp = f.endsWith('.json.tmp')
       const finalName = isTmp ? f.replace(/\.json\.tmp$/, '') : f
-      if (isTmp && files.includes(finalName + '.json')) continue // 正式文件在：忽略残留
+      if (isTmp && files.includes(finalName)) continue // 正式文件在：忽略残留
       if (!f.endsWith('.json') && !isTmp) continue
       try {
         entries.push({

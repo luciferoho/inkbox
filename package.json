@@ -5,6 +5,7 @@
   "description": "墨匣 Inkbox — 墨匣纸面 Markdown 编辑器 (Electron + Vue)",
   "main": "out/main/index.js",
   "author": "lucifer",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/luciferoho/inkbox.git"

@@ -2,7 +2,7 @@
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useUiStore, type ThemePref } from '@/stores/ui'
 import type { LocalePref } from '@/i18n'
-import type { MenuCommand, PluginInfo } from '@shared/types'
+import type { AppInfo, MenuCommand, PluginInfo } from '@shared/types'
 import {
   SHORTCUT_COMMANDS,
   effectiveShortcuts,
@@ -138,7 +138,7 @@ function togglePlugin(p: PluginInfo): void {
 }
 
 /* ---------- 双栏布局：左侧导航 + 右侧当前分区内容 ---------- */
-type SettingsNav = 'appearance' | 'startup' | 'editor' | 'upload' | 'shortcuts' | 'plugins'
+type SettingsNav = 'appearance' | 'startup' | 'editor' | 'upload' | 'shortcuts' | 'plugins' | 'about'
 const nav = ref<SettingsNav>('appearance')
 const NAVS: { key: SettingsNav; labelKey: string }[] = [
   { key: 'appearance', labelKey: 'settings.navAppearance' },
@@ -146,8 +146,37 @@ const NAVS: { key: SettingsNav; labelKey: string }[] = [
   { key: 'editor', labelKey: 'settings.gEditor' },
   { key: 'upload', labelKey: 'settings.gUpload' },
   { key: 'shortcuts', labelKey: 'settings.gShortcuts' },
-  { key: 'plugins', labelKey: 'settings.gPlugins' }
+  { key: 'plugins', labelKey: 'settings.gPlugins' },
+  { key: 'about', labelKey: 'settings.navAbout' }
 ]
+
+/* ---------- 关于：应用信息 + 手动检查更新 ---------- */
+const appInfo = ref<AppInfo>({
+  version: '',
+  electron: '',
+  chrome: '',
+  node: '',
+  platform: '',
+  packaged: false
+})
+onMounted(() => {
+  void window.api.app.getInfo().then((i) => (appInfo.value = i))
+})
+
+const checkingUpdate = ref(false)
+async function checkUpdate(): Promise<void> {
+  if (checkingUpdate.value) return
+  checkingUpdate.value = true
+  try {
+    const r = await window.api.app.checkUpdate()
+    if (r.status === 'latest') ui.showToast(t('about.upToDate', { v: r.version }))
+    else if (r.status === 'downloading') ui.showToast(t('about.updateFound', { v: r.version }))
+    else if (r.reason === 'dev') ui.showToast(t('about.updateDev'))
+    else ui.showToast(t('about.updateUnavailable'))
+  } finally {
+    checkingUpdate.value = false
+  }
+}
 </script>
 
 <template>
@@ -417,7 +446,7 @@ const NAVS: { key: SettingsNav; labelKey: string }[] = [
               </template>
 
               <!-- 插件：userData/plugins 扫描发现，开关即禁用/启用（6.9） -->
-              <template v-else>
+              <template v-else-if="nav === 'plugins'">
                 <h3 class="group-title">{{ $t('settings.gPlugins') }}</h3>
             <template v-if="ui.plugins.length">
               <div v-for="p in ui.plugins" :key="p.dir" class="row plugin-row">
@@ -451,6 +480,51 @@ const NAVS: { key: SettingsNav; labelKey: string }[] = [
               </span>
             </div>
             <p class="row-hint">{{ $t('settings.pluginsHint') }}</p>
+              </template>
+
+              <!-- 关于 -->
+              <template v-else-if="nav === 'about'">
+                <h3 class="group-title">{{ $t('settings.navAbout') }}</h3>
+            <div class="about-hero">
+              <svg class="about-spark" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true">
+                <path
+                  d="M12 2c.6 4.8 2.4 7 7.2 7.6-4.8.9-6.6 3.1-7.2 8-0.6-4.9-2.4-7.1-7.2-8C9.6 9 11.4 6.8 12 2z"
+                  fill="currentColor"
+                />
+              </svg>
+              <div>
+                <div class="about-name">
+                  墨匣 Inkbox
+                  <span class="about-ver">v{{ appInfo.version }}</span>
+                </div>
+                <div class="about-tagline">{{ $t('titlebar.tagline') }}</div>
+              </div>
+            </div>
+            <div class="row">
+              <span class="label">{{ $t('about.author') }}</span>
+              <a class="about-link" href="https://github.com/luciferoho" target="_blank" rel="noopener noreferrer">lucifer ↗</a>
+            </div>
+            <div class="row">
+              <span class="label">{{ $t('about.repo') }}</span>
+              <a class="about-link" href="https://github.com/luciferoho/inkbox" target="_blank" rel="noopener noreferrer">luciferoho/inkbox ↗</a>
+            </div>
+            <div class="row">
+              <span class="label">{{ $t('about.issues') }}</span>
+              <a class="about-link" href="https://github.com/luciferoho/inkbox/issues" target="_blank" rel="noopener noreferrer">{{ $t('about.issuesEntry') }} ↗</a>
+            </div>
+            <div class="row">
+              <span class="label">{{ $t('about.license') }}</span>
+              <span class="about-text">MIT</span>
+            </div>
+            <div class="row">
+              <span class="label">{{ $t('about.checkUpdate') }}</span>
+              <button class="about-check" :disabled="checkingUpdate" @click="checkUpdate">
+                {{ checkingUpdate ? $t('about.checking') : $t('about.checkUpdateBtn') }}
+              </button>
+            </div>
+            <p v-if="appInfo.electron" class="row-hint">
+              Electron {{ appInfo.electron }} · Chromium {{ appInfo.chrome }} · Node {{ appInfo.node }}
+            </p>
               </template>
             </div>
           </div>
@@ -874,5 +948,74 @@ input[type='range']::-webkit-slider-thumb {
 .settings-enter-from .dialog,
 .settings-leave-to .dialog {
   transform: translateY(8px) scale(0.98);
+}
+
+/* ---------- 关于 ---------- */
+.about-hero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0 18px;
+}
+
+.about-spark {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.about-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.about-ver {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+
+.about-tagline {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.about-link,
+.about-text {
+  font-size: 12.5px;
+  color: var(--text-2);
+  text-decoration: none;
+}
+
+.about-link:hover {
+  color: var(--accent);
+}
+
+.about-check {
+  min-width: 96px;
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s, opacity 0.12s;
+}
+
+.about-check:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+
+.about-check:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 </style>
