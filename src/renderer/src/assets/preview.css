@@ -328,3 +328,12 @@
 .md-preview .footnote-backref:hover {
   text-decoration: underline;
 }
+
+/* GitHub 风格居中块（<div align="center">，见 markdown.ts 白名单） */
+.md-preview .md-center {
+  text-align: center;
+}
+
+.md-preview .md-center img {
+  display: inline-block;
+}

@@ -1,15 +1,10 @@
-# 墨匣 Inkbox
+<div align="center">
 
-**墨匣纸面 · 一款界面原创的桌面 Markdown 编辑器**
-
-工作台形态，四种编辑模式，本地优先，开箱即写。
+![](docs/banner.svg)
 
 [下载最新版](https://github.com/luciferoho/inkbox/releases/latest) · [问题反馈](https://github.com/luciferoho/inkbox/issues) · [设计规范](./DESIGN.md)
 
-![Electron](https://img.shields.io/badge/Electron-44-47848F?logo=electron&logoColor=white)
-![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-C9701F)
+</div>
 
 ---
 

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="176" viewBox="0 0 640 176" role="img" aria-label="墨匣 Inkbox">
+  <style>
+    .ink { fill: #2b2420; }
+    .sub { fill: #7c7267; }
+    .spark { fill: #c9701f; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #eae2d6; }
+      .sub { fill: #a89d8e; }
+      .spark { fill: #e6a054; }
+    }
+  </style>
+  <path class="spark" transform="translate(307,12) scale(2.2)" d="M12 2c.6 4.8 2.4 7 7.2 7.6-4.8.9-6.6 3.1-7.2 8-.6-4.9-2.4-7.1-7.2-8C9.6 9 11.4 6.8 12 2z"/>
+  <text x="320" y="104" text-anchor="middle" font-family="'Segoe UI','PingFang SC','Microsoft YaHei','Source Han Sans SC',sans-serif" font-size="36" font-weight="700" class="ink">墨匣 Inkbox</text>
+  <text x="320" y="136" text-anchor="middle" font-family="'Segoe UI','PingFang SC','Microsoft YaHei','Source Han Sans SC',sans-serif" font-size="15" class="sub">墨匣纸面 · 一款界面原创的桌面 Markdown 编辑器</text>
+  <text x="320" y="162" text-anchor="middle" font-family="Consolas,'Courier New',monospace" font-size="12" class="sub">Electron · Vue 3 · TypeScript · CodeMirror 6 · Milkdown</text>
+</svg>

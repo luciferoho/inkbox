@@ -276,9 +276,32 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
   return self.renderToken(tokens, idx, options)
 }
 
+/**
+ * GitHub 风格居中块（<div align="center"> / <p align="center">，README 最常见的
+ * HTML 写法）：白名单式支持——标签必须独占一行，内部内容仍按 markdown 正常渲染，
+ * 其余任意 HTML 照旧转义，安全面不变。开/闭标签行原地替换为哨兵，行数一一对应
+ * （双栏同步滚动依赖源码行号）。
+ */
+const CENTER_BLOCK_RE =
+  /^[ \t]*<(div|p)\s+align=["']center["']\s*>[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*<\/\1>[ \t]*$/gim
+
+export function preprocessCenter(src: string): string {
+  return src.replace(CENTER_BLOCK_RE, (_m, _tag: string, inner: string) => {
+    return `@@CENTER_START@@\n${inner}\n@@CENTER_END@@`
+  })
+}
+
+/** 渲染结果后处理：哨兵段落替换为真实包裹层（段落带 data-source-line 属性） */
+function applyCenter(html: string): string {
+  return html
+    .replace(/<p[^>]*>@@CENTER_START@@<\/p>/g, '<div class="md-center">')
+    .replace(/<p[^>]*>@@CENTER_END@@<\/p>/g, '</div>')
+}
+
 /** 带文档目录渲染（相对图片解析用） */
 export function renderWithDir(src: string, docDir: string | null): string {
-  return md.render(src, docDir ? { docDir } : undefined)
+  const html = md.render(preprocessCenter(src), docDir ? { docDir } : undefined)
+  return applyCenter(html)
 }
 
 /* ---------- 数学公式：katex 懒加载 ---------- */
