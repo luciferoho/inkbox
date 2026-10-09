@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch, nextTick } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch, nextTick, computed } from 'vue'
 import {
   Editor,
   rootCtx,
@@ -10,12 +10,26 @@ import {
   remarkCtx,
   remarkPluginsCtx
 } from '@milkdown/kit/core'
-import { commonmark } from '@milkdown/kit/preset/commonmark'
-import { gfm } from '@milkdown/kit/preset/gfm'
+import {
+  commonmark,
+  imageSchema
+} from '@milkdown/kit/preset/commonmark'
+import {
+  gfm,
+  addRowBeforeCommand,
+  addRowAfterCommand,
+  addColBeforeCommand,
+  addColAfterCommand,
+  setAlignCommand,
+  selectRowCommand,
+  selectColCommand,
+  selectTableCommand,
+  deleteSelectedCellsCommand
+} from '@milkdown/kit/preset/gfm'
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { history } from '@milkdown/kit/plugin/history'
-import { replaceAll, $prose } from '@milkdown/kit/utils'
-import { TextSelection, type EditorState } from '@milkdown/kit/prose/state'
+import { replaceAll, $prose, callCommand } from '@milkdown/kit/utils'
+import { NodeSelection, TextSelection, type EditorState } from '@milkdown/kit/prose/state'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { useDocumentsStore } from '@/stores/documents'
 import { useUiStore } from '@/stores/ui'
@@ -31,6 +45,10 @@ import {
 } from '@/editor/pm-find'
 import { createCenterPlugin } from '@/editor/pm-center'
 import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
+import { createElementToolbar, type ElToolbarState } from '@/editor/pm-element-toolbar'
+import { parseAltMods, buildAltMods, stepWidth, type ImageMods } from '@/editor/image-utils'
+// 图片修饰符即显渲染:extendSchema 返回新 holder,须 .use 挂载生效
+import { styledImageSchema } from '@/editor/wysiwyg-image-style'
 import type { FindQuery, FindStatus } from '@/find-shared'
 import FindBar from './FindBar.vue'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
@@ -337,6 +355,88 @@ const findProse = $prose(() => createFindPlugin())
 const centerProsePlugin = $prose(() => createCenterPlugin())
 // 图片粘贴/拖拽:占位图 → 上传 → 原地换链接（与源码模式共用上传链路）
 const wysiwygImagePlugin = $prose(() => createWysiwygImagePlugin())
+// 图片/表格点击 → 元素工具条(浮层数据源)
+const elToolbar = ref<ElToolbarState | null>(null)
+const elToolbarPlugin = $prose(() =>
+  createElementToolbar((state) => {
+    elToolbar.value = state
+  })
+)
+
+/* ---------- 元素工具条:图片/表格操作 ---------- */
+
+function withView(fn: (view: EditorView) => void): void {
+  if (!editor) return
+  editor.action((ctx) => fn(ctx.get(editorViewCtx)))
+}
+
+/** 图片:改 alt 修饰符(setNodeMarkup 单事务,可撤销) */
+function elImageMods(next: ImageMods | ((cur: ImageMods) => ImageMods)): void {
+  const t = elToolbar.value
+  if (!t || t.kind !== 'image') return
+  withView((view) => {
+    const node = view.state.doc.nodeAt(t.pos)
+    if (!node || node.type.name !== 'image') return
+    const { mods, clean } = parseAltMods(String(node.attrs.alt ?? ''))
+    const alt = buildAltMods(clean, typeof next === 'function' ? next(mods) : next)
+    if (alt === String(node.attrs.alt)) return
+    const tr = view.state.tr.setNodeMarkup(t.pos, undefined, { ...node.attrs, alt })
+    // 操作后保持图片选中:setNodeMarkup 会把 NodeSelection 归一为 TextSelection,
+    // 工具条会因失配而闪没,这里显式恢复
+    tr.setSelection(NodeSelection.create(tr.doc, t.pos))
+    view.dispatch(tr)
+  })
+}
+
+function elImageDelete(): void {
+  const t = elToolbar.value
+  if (!t || t.kind !== 'image') return
+  withView((view) => {
+    const node = view.state.doc.nodeAt(t.pos)
+    if (!node) return
+    view.dispatch(view.state.tr.delete(t.pos, t.pos + node.nodeSize))
+  })
+}
+
+/* 表格:走 Milkdown gfm 命令(先选中行列/全表,再删) */
+function elTable(action: Parameters<Editor['action']>[0]): void {
+  if (editor) editor.action(action)
+}
+function elTableAddRow(before: boolean): void {
+  elTable(callCommand((before ? addRowBeforeCommand : addRowAfterCommand).key))
+}
+function elTableAddCol(left: boolean): void {
+  elTable(callCommand((left ? addColBeforeCommand : addColAfterCommand).key))
+}
+function elTableDeleteRow(): void {
+  const t = elToolbar.value
+  if (!t) return
+  elTable(callCommand(selectRowCommand.key, { index: t.row, pos: t.pos }))
+  elTable(callCommand(deleteSelectedCellsCommand.key))
+}
+function elTableDeleteCol(): void {
+  const t = elToolbar.value
+  if (!t) return
+  elTable(callCommand(selectColCommand.key, { index: t.col, pos: t.pos }))
+  elTable(callCommand(deleteSelectedCellsCommand.key))
+}
+function elTableDeleteTable(): void {
+  const t = elToolbar.value
+  if (!t) return
+  elTable(callCommand(selectTableCommand.key))
+  elTable(callCommand(deleteSelectedCellsCommand.key))
+}
+function elTableAlign(how: 'left' | 'center' | 'right' | 'none'): void {
+  elTable(callCommand(setAlignCommand.key, how === 'none' ? undefined : how))
+}
+
+/** 浮层定位(贴元素上方,太靠上时翻到下方) */
+const elToolbarStyle = computed(() => {
+  const t = elToolbar.value
+  if (!t) return {}
+  const top = t.rect.y < 48 ? t.rect.y + t.rect.h + 8 : t.rect.y - 40
+  return { left: `${t.rect.x + t.rect.w / 2}px`, top: `${top}px` }
+})
 
 onMounted(() => {
   if (!host.value) return
@@ -364,6 +464,7 @@ onMounted(() => {
       }))
     })
     .use(commonmark)
+    .use(styledImageSchema)
     .use(gfm)
     .use(listener)
     // 撤销/重做（1.7 P0）：commonmark 预设不含 history，不挂载即显模式 Ctrl+Z 完全失效
@@ -371,6 +472,7 @@ onMounted(() => {
     .use(findProse)
     .use(centerProsePlugin)
     .use(wysiwygImagePlugin)
+    .use(elToolbarPlugin)
   void instance.create().then((e) => {
     editor = e
     // 开发期调试钩子：CDP 查 PM 文档 JSON / 序列化输出 / 内部 remark mdast
@@ -467,7 +569,75 @@ watch(
       @replace-all="doReplaceAll"
       @close="closeFind"
     />
-    <div ref="host" class="wysiwyg-host" />
+    <div ref="host" class="wysiwyg-host">
+      <!-- 元素工具条:点击图片/表格时的浮动操作条(与源码模式工具条同按钮集) -->
+      <div v-if="elToolbar" class="el-toolbar" :style="elToolbarStyle" @mousedown.prevent>
+        <template v-if="elToolbar.kind === 'image'">
+          <button :title="$t('img.wider')" @click="elImageMods((c) => stepWidth(c, 1))">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="3" width="11" height="8" rx="1.5"/><path d="M7 5.5v3M5.75 6.75 7 5.5l1.25 1.25"/></svg>
+          </button>
+          <button :title="$t('img.narrower')" @click="elImageMods((c) => stepWidth(c, -1))">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="3" width="11" height="8" rx="1.5"/><path d="M7 5.5v3M5.75 7.25 7 8.5l1.25-1.25"/></svg>
+          </button>
+          <i class="et-sep" />
+          <button :title="$t('img.alignLeft')" @click="elImageMods((c) => ({ ...c, align: 'left' }))">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="1.5" y="3.5" width="7" height="7" rx="1"/><path d="M1.5 1.5h11M1.5 12.5h11"/></svg>
+          </button>
+          <button :title="$t('img.alignCenter')" @click="elImageMods((c) => ({ ...c, align: 'center' }))">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1"/><path d="M1.5 1.5h11M1.5 12.5h11"/></svg>
+          </button>
+          <button :title="$t('img.alignRight')" @click="elImageMods((c) => ({ ...c, align: 'right' }))">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="5.5" y="3.5" width="7" height="7" rx="1"/><path d="M1.5 1.5h11M1.5 12.5h11"/></svg>
+          </button>
+          <i class="et-sep" />
+          <button :title="$t('img.resetMods')" @click="elImageMods({})">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7a5 5 0 1 1 1.5 3.5M2 7V4m0 3h3"/></svg>
+          </button>
+          <i class="et-sep" />
+          <button class="danger" :title="$t('img.delete')" @click="elImageDelete()">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h8M5.5 4V2.5h3V4M4 4l.5 7.5h5L10 4M6 6.5v3M8 6.5v3"/></svg>
+          </button>
+        </template>
+        <template v-else>
+          <button :title="$t('table.addRowAbove')" @click="elTableAddRow(true)">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 8.5h10M2 11.5h10M7 1.5v3M5.5 3h3" /></svg>
+          </button>
+          <button :title="$t('table.addRowBelow')" @click="elTableAddRow(false)">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 2.5h10M2 5.5h10M7 9.5v3M5.5 11h3" /></svg>
+          </button>
+          <button :title="$t('table.deleteRow')" :disabled="!elToolbar.canDeleteRow" class="danger" @click="elTableDeleteRow()">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 2.5h10M2 5.5h10M2 11h6M9.5 9.5l3.5 3.5M13 9.5l-3.5 3.5" /></svg>
+          </button>
+          <i class="et-sep" />
+          <button :title="$t('table.addColLeft')" @click="elTableAddCol(true)">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M6.5 2v10M10 2v10M1.5 7h3M3 5.5v3" /></svg>
+          </button>
+          <button :title="$t('table.addColRight')" @click="elTableAddCol(false)">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M4 2v10M7.5 2v10M9.5 7h3M11 5.5v3" /></svg>
+          </button>
+          <button :title="$t('table.deleteCol')" :disabled="!elToolbar.canDeleteCol" class="danger" @click="elTableDeleteCol()">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M4 2v10M7.5 2v10M9.5 5.5l4 4M13.5 5.5l-4 4" /></svg>
+          </button>
+          <i class="et-sep" />
+          <button :title="$t('table.alignLeft')" @click="elTableAlign('left')">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 3.5h10M2 7h6M2 10.5h10" /></svg>
+          </button>
+          <button :title="$t('table.alignCenter')" @click="elTableAlign('center')">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 3.5h10M4 7h6M2 10.5h10" /></svg>
+          </button>
+          <button :title="$t('table.alignRight')" @click="elTableAlign('right')">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 3.5h10M6 7h6M2 10.5h10" /></svg>
+          </button>
+          <button :title="$t('table.alignNone')" @click="elTableAlign('none')">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 3.5h10M2 7h10M2 10.5h10" /></svg>
+          </button>
+          <i class="et-sep" />
+          <button :title="$t('table.deleteTable')" class="danger" @click="elTableDeleteTable()">
+            <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h8M5.5 4V2.5h3V4M4 4l.5 7.5h5L10 4M6 6.5v3M8 6.5v3" /></svg>
+          </button>
+        </template>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -485,5 +655,61 @@ watch(
   min-width: 0;
   overflow-y: auto;
   position: relative;
+}
+
+/* 元素工具条:贴目标浮动操作条(图片/表格) */
+.el-toolbar {
+  position: absolute;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 12, 9, 0.28);
+}
+
+.el-toolbar button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.el-toolbar button:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.el-toolbar button.danger:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.el-toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.el-toolbar button:disabled:hover {
+  background: transparent;
+  color: var(--text-2);
+}
+
+.et-sep {
+  width: 1px;
+  height: 15px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
 }
 </style>

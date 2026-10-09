@@ -56,6 +56,30 @@ export function parseImageLine(lineText: string): ImageLine | null {
   return { raw: m[0], alt: clean, src: m[2], mods }
 }
 
+/** 从 alt 原文解析修饰符（即显 toDOM/工具条用,不依赖整行上下文） */
+export function parseAltMods(altRaw: string): { mods: ImageMods; clean: string } {
+  const pipe = altRaw.indexOf('|')
+  if (pipe < 0) return { mods: {}, clean: altRaw }
+  const tokens = altRaw.slice(pipe + 1).split('|')
+  return parseMods(tokens, altRaw.slice(0, pipe))
+}
+
+/** 由干净 alt + 修饰符重建 alt 原文（即显 setNodeMarkup 用） */
+export function buildAltMods(clean: string, mods: ImageMods): string {
+  return buildAlt(clean, mods)
+}
+
+/** 修饰符 → img style 字符串（与 services/markdown.ts 渲染规则保持一致） */
+export function modsToStyle(mods: ImageMods): string {
+  const s: string[] = []
+  if (mods.width) s.push(`width:${mods.width}`)
+  if (mods.height) s.push(`height:${mods.height}`)
+  if (mods.align === 'center') s.push('display:block', 'margin-inline:auto')
+  else if (mods.align === 'right') s.push('display:block', 'margin-left:auto', 'margin-right:0')
+  else if (mods.align === 'left') s.push('display:block', 'margin-right:auto', 'margin-left:0')
+  return s.join(';')
+}
+
 /** 把修饰符写回 alt 文本（保持「文字|token|token」形态） */
 function buildAlt(alt: string, mods: ImageMods): string {
   const tokens: string[] = []

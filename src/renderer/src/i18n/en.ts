@@ -186,6 +186,7 @@ export const en: MsgSchema = {
   'img.alignCenter': 'Center',
   'img.alignRight': 'Align right',
   'img.resetMods': 'Clear size & alignment (back to natural size)',
+  'img.delete': 'Delete Image',
 
   // Editor (source mode)
   'editor.saveFirstForImage': 'Save the document before pasting images',

@@ -86,14 +86,14 @@ export async function persistImage(
     const res = await window.api.image.upload(name, `data:${file.type};base64,${toBase64(buf)}`)
     if (res.ok && res.url) {
       ui.showToast(t('editor.imageUploaded', { name }))
-      return `![${name}](${res.url})`
+      return `![${name}|center](${res.url})`
     }
     console.warn('[editor] image upload failed, fallback to .assets:', res.error)
     ui.showToast(t('editor.imageUploadFailed'))
   }
   try {
     await window.api.fs.writeFileBinary(`${dir}/${assetsDir}/${name}`, toBase64(buf))
-    return `![${name}](./${assetsDir}/${name})`
+    return `![${name}|center](./${assetsDir}/${name})`
   } catch (err) {
     console.error('[editor] image save failed:', err)
     ui.showToast(t('editor.imageSaveFailed', { name }))

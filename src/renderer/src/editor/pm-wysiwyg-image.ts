@@ -78,7 +78,7 @@ async function handleImages(files: File[], view: EditorView, drop?: DragEvent): 
     const buf = new Uint8Array(await file.arrayBuffer())
     const uid = `${Date.now()}-${++seq}`
     const fullSrc = `data:${file.type};base64,${toBase64Safe(buf)}#${uid}`
-    insertPlaceholder(view, fullSrc, uid, drop)
+    insertPlaceholder(view, fullSrc, `${name}|center`, uid, drop)
     createMask(view, uid)
 
     const link = await persistImage({ name, type: file.type }, buf, docPath)
@@ -106,9 +106,9 @@ function srcEndsWithUid(src: string, uid: string): boolean {
   return src.endsWith(`#${uid}`)
 }
 
-function insertPlaceholder(view: EditorView, src: string, uid: string, drop?: DragEvent): void {
+function insertPlaceholder(view: EditorView, src: string, alt: string, uid: string, drop?: DragEvent): void {
   const schema = view.state.schema
-  const node = schema.nodes.image.create({ src, alt: '' })
+  const node = schema.nodes.image.create({ src, alt })
   let pos: number | undefined
   if (drop) {
     try {

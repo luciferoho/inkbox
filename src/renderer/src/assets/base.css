@@ -160,6 +160,10 @@ kbd {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-2);
 }
+/* 横竖滚动条交汇处的 resize grip：默认白底箭头在暗色主题刺眼，透明化兜底双主题 */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
 
 /* ---------- 应用骨架 ---------- */
 .app {
