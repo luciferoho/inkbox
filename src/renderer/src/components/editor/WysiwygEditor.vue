@@ -30,6 +30,7 @@ import {
   findReplaceAll
 } from '@/editor/pm-find'
 import { createCenterPlugin } from '@/editor/pm-center'
+import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import type { FindQuery, FindStatus } from '@/find-shared'
 import FindBar from './FindBar.vue'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
@@ -107,8 +108,20 @@ function exitCodeBlock(view: EditorView, append: boolean): void {
 function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   const { state } = view
   if (event.key === 'Tab') {
-    if (!inCodeBlock(state)) return false
+    // 始终拦截:普通段落放行 Tab 会被浏览器抢走焦点(跳到状态栏按钮)
     event.preventDefault()
+    if (!inCodeBlock(state)) {
+      // 普通段落:插入/删除 2 空格,焦点留在编辑器
+      const { $from } = state.selection
+      if (event.shiftKey) {
+        const lineText = $from.parent.textBetween(0, $from.parentOffset, undefined, '￼')
+        const m = /^ {1,2}/.exec(lineText)
+        if (m) view.dispatch(state.tr.delete($from.start(), $from.start() + m[0].length))
+      } else {
+        view.dispatch(state.tr.insertText('  '))
+      }
+      return true
+    }
     if (event.shiftKey) {
       const { $from } = state.selection
       const lineText = $from.parent.textBetween(0, $from.parentOffset, undefined, '￼')
@@ -322,6 +335,8 @@ function onWinKeydown(e: KeyboardEvent): void {
 const findProse = $prose(() => createFindPlugin())
 // GitHub 居中块显示层（<div align="center">,详见 pm-center.ts）
 const centerProsePlugin = $prose(() => createCenterPlugin())
+// 图片粘贴/拖拽:占位图 → 上传 → 原地换链接（与源码模式共用上传链路）
+const wysiwygImagePlugin = $prose(() => createWysiwygImagePlugin())
 
 onMounted(() => {
   if (!host.value) return
@@ -355,6 +370,7 @@ onMounted(() => {
     .use(history)
     .use(findProse)
     .use(centerProsePlugin)
+    .use(wysiwygImagePlugin)
   void instance.create().then((e) => {
     editor = e
     // 开发期调试钩子：CDP 查 PM 文档 JSON / 序列化输出 / 内部 remark mdast

@@ -192,6 +192,7 @@ export const zh = {
   // 编辑器（源码模式）
   'editor.saveFirstForImage': '请先保存文档，再粘贴图片',
   'editor.imageSaveFailed': '图片保存失败：{name}',  'editor.imageUploaded': '已上传图床：{name}',
+  'editor.imageUploading': '图片上传中…',
   'editor.imageUploadFailed': '图床上传失败，已回退本地保存',
 
   'editor.imagesInserted': '已插入 {n} 张图片到 {dir}/',

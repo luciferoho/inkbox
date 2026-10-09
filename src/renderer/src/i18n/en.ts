@@ -190,6 +190,7 @@ export const en: MsgSchema = {
   // Editor (source mode)
   'editor.saveFirstForImage': 'Save the document before pasting images',
   'editor.imageSaveFailed': 'Failed to save image: {name}',  'editor.imageUploaded': 'Uploaded to image host: {name}',
+  'editor.imageUploading': 'Uploading image…',
   'editor.imageUploadFailed': 'Upload failed, saved to local .assets instead',
 
   'editor.imagesInserted': 'Inserted {n} image(s) into {dir}/',

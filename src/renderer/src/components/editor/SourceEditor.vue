@@ -32,6 +32,12 @@ import FindBar from './FindBar.vue'
 import { htmlToMarkdown } from '@/services/richPaste'
 import { t } from '@/i18n'
 import {
+  assetsDirFor,
+  fileExt,
+  mimeFromName,
+  persistImage
+} from '@/editor/image-persist'
+import {
   detectTable,
   applyTableOp,
   cellStart,
@@ -158,79 +164,30 @@ function makeState(content: string): EditorState {
   })
 }
 
-/* ---------- 图片粘贴/拖拽 → 自动落盘 .assets 并插入链接 ---------- */
-
-function fileExt(mime: string): string {
-  const map: Record<string, string> = {
-    'image/png': 'png',
-    'image/jpeg': 'jpg',
-    'image/gif': 'gif',
-    'image/webp': 'webp',
-    'image/bmp': 'bmp',
-    'image/svg+xml': 'svg'
-  }
-  return map[mime] ?? 'png'
-}
-
-/** 文件名 → MIME（工具条插入本地图片用；未知扩展按 png） */
-function mimeFromName(name: string): string {
-  const map: Record<string, string> = {
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    png: 'image/png',
-    gif: 'image/gif',
-    webp: 'image/webp',
-    bmp: 'image/bmp',
-    svg: 'image/svg+xml'
-  }
-  return map[name.split('.').pop()?.toLowerCase() ?? ''] ?? 'image/png'
-}
-
-/** 文档旁的 .assets 目录信息：`dir` 为文档所在目录，`assetsDir` 为资源目录名 */
-function assetsDirFor(docPath: string): { dir: string; assetsDir: string } {
-  const sepIdx = Math.max(docPath.lastIndexOf('/'), docPath.lastIndexOf('\\'))
-  const dir = sepIdx > 0 ? docPath.slice(0, sepIdx) : '.'
-  const base = (docPath.split(/[\\/]/).pop() ?? 'doc').replace(/\.[^.]+$/, '')
-  return { dir, assetsDir: `${base}.assets` }
-}
-
-/** Uint8Array → base64（分段避免 String.fromCharCode 展开上限） */
-function toBase64(buf: Uint8Array): string {
-  let bin = ''
-  for (let k = 0; k < buf.length; k += 0x8000) {
-    bin += String.fromCharCode(...buf.subarray(k, k + 0x8000))
-  }
-  return btoa(bin)
-}
+/* ---------- 图片粘贴/拖拽 → 上传链路见 editor/image-persist.ts ---------- */
 
 /**
- * 单张图片落点：开启图床上传先传 PicGo server（成功返回远端链接）；
- * 未开启/失败回退本地 .assets 落盘。null = 两条路都失败（调用方跳过该图）。
+ * 上传占位符：粘贴/插入图片后立即在光标处显示「上传中」,完成后原地替换为最终链接。
+ * 纯文本占位（含唯一 id），替换按整串精确查找，用户上传期间的编辑不会破坏替换定位。
  */
-async function persistImage(
-  file: { name: string; type: string },
-  buf: Uint8Array,
-  dir: string,
-  assetsDir: string
-): Promise<string | null> {
-  const name = file.name
-  if (ui.upload.enabled) {
-    const res = await window.api.image.upload(name, `data:${file.type};base64,${toBase64(buf)}`)
-    if (res.ok && res.url) {
-      ui.showToast(t('editor.imageUploaded', { name }))
-      return `![${name}](${res.url})`
-    }
-    console.warn('[editor] image upload failed, fallback to .assets:', res.error)
-    ui.showToast(t('editor.imageUploadFailed'))
+let uploadSeq = 0
+function withUploadingPlaceholder(
+  view: EditorView,
+  run: (finish: (link: string | null) => void) => Promise<void>
+): Promise<void> {
+  const uid = `${Date.now()}-${++uploadSeq}`
+  const ph = `⏳ ${t('editor.imageUploading')} (inkbox-uploading-${uid})`
+  const pos = view.state.selection.main.head
+  view.dispatch({ changes: { from: pos, insert: `${ph}\n` } })
+  const finish = (link: string | null): void => {
+    const full = view.state.doc.toString()
+    const i = full.indexOf(ph)
+    if (i < 0) return // 占位符被用户删除:静默放弃
+    view.dispatch({
+      changes: { from: i, to: i + ph.length + 1, insert: link === null ? '' : `${link}\n` }
+    })
   }
-  try {
-    await window.api.fs.writeFileBinary(`${dir}/${assetsDir}/${name}`, toBase64(buf))
-    return `![${name}](./${assetsDir}/${name})`
-  } catch (err) {
-    console.error('[editor] image save failed:', err)
-    ui.showToast(t('editor.imageSaveFailed', { name }))
-    return null
-  }
+  return run(finish)
 }
 
 async function insertImagesFrom(
@@ -247,26 +204,31 @@ async function insertImagesFrom(
     ui.showToast(t('editor.saveFirstForImage'))
     return true
   }
-  const { dir, assetsDir } = assetsDirFor(tab.path)
+  const docPath = tab.path
+  const { dir, assetsDir } = assetsDirFor(docPath)
   const stamp = new Date()
   const pad = (n: number): string => String(n).padStart(2, '0')
-  const ts = `${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}_${pad(
-    stamp.getHours()
-  )}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}`
+  const ts = `${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(
+    stamp.getDate()
+  )}_${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}`
 
-  const links: string[] = []
+  let failed = false
   for (const [i, file] of files.entries()) {
     const name = `IMG_${ts}${files.length > 1 ? `_${i + 1}` : ''}.${fileExt(file.type)}`
     const buf = new Uint8Array(await file.arrayBuffer())
-    const link = await persistImage({ name, type: file.type }, buf, dir, assetsDir)
-    if (link) links.push(link)
+    // 占位符立即上屏;上传/落盘完成后原地替换(图床失败回退本地链接)
+    await withUploadingPlaceholder(view, async (finish) => {
+      const link = await persistImage({ name, type: file.type }, buf, docPath)
+      if (link) finish(link)
+      else {
+        finish(null)
+        failed = true
+      }
+    })
   }
-  if (links.length === 0) return true
-  const pos = view.state.selection.main.head
-  view.dispatch({
-    changes: { from: pos, insert: links.join('\n') + '\n' }
-  })
-  if (!ui.upload.enabled) ui.showToast(t('editor.imagesInserted', { n: links.length, dir: assetsDir }))
+  if (!ui.upload.enabled && !failed) {
+    ui.showToast(t('editor.imagesInserted', { n: files.length, dir: assetsDir }))
+  }
   return true
 }
 
@@ -280,7 +242,8 @@ async function insertImageFromDisk(): Promise<void> {
   }
   const src = await window.api.dialog.openImage()
   if (!src) return
-  const { dir, assetsDir } = assetsDirFor(tab.path)
+  const docPath = tab.path
+  const { dir, assetsDir } = assetsDirFor(docPath)
   const name = src.split(/[\\/]/).pop() ?? 'image'
   // 主进程读（base64 中转），上传或落盘都在这条链路上
   let base64: string
@@ -293,10 +256,11 @@ async function insertImageFromDisk(): Promise<void> {
   }
   const type = mimeFromName(name)
   const buf = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
-  const link = await persistImage({ name, type }, buf, dir, assetsDir)
-  if (!link) return
-  const pos = view.state.selection.main.head
-  view.dispatch({ changes: { from: pos, insert: `${link}\n` } })
+  await withUploadingPlaceholder(view, async (finish) => {
+    const link = await persistImage({ name, type }, buf, docPath)
+    if (link) finish(`${link}\n`)
+    else finish(null)
+  })
   if (!ui.upload.enabled) ui.showToast(t('editor.imagesInserted', { n: 1, dir: assetsDir }))
   view.focus()
 }
