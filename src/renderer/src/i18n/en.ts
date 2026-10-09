@@ -355,6 +355,7 @@ export const en: MsgSchema = {
   'updater.title': 'Software Updates',
   'updater.readyTitle': 'Update Ready',
   'updater.forced': 'Force Update',
+  'updater.forcedHint': 'You must complete this update to continue using the app',
   'updater.close': 'Close',
   'updater.checking': 'Checking for updates…',
   'updater.idle': 'Click the button below to check for the latest version',

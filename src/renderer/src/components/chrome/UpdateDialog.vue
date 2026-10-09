@@ -127,6 +127,7 @@ async function onInstall(): Promise<void> {
               <span class="lead-t">{{ $t('updater.availableLead') }}</span>
               <span class="ver-hl">v{{ s.version }}</span>
             </p>
+            <p v-if="s.force" class="hint">{{ $t('updater.forcedHint') }}</p>
             <div v-if="notesHtml" class="update-notes" v-html="notesHtml" />
             <div class="actions">
               <button v-if="!s.force" class="btn ghost" @click="close()">{{ $t('updater.later') }}</button>
@@ -150,9 +151,10 @@ async function onInstall(): Promise<void> {
               <span v-else>{{ s.percent }}%</span>
               <span v-if="!connecting">{{ speedText }}</span>
             </p>
-            <p class="hint">{{ $t('updater.downloadHint') }}</p>
+            <p v-if="!s.force" class="hint">{{ $t('updater.downloadHint') }}</p>
+            <p v-else class="hint">{{ $t('updater.forcedHint') }}</p>
             <div class="actions">
-              <button class="btn ghost" @click="close()">{{ $t('updater.hide') }}</button>
+              <button v-if="!locked" class="btn ghost" @click="close()">{{ $t('updater.hide') }}</button>
             </div>
           </template>
 

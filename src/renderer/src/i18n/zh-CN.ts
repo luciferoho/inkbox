@@ -354,6 +354,7 @@ export const zh = {
   'updater.title': '软件更新',
   'updater.readyTitle': '更新已就绪',
   'updater.forced': '强制更新',
+  'updater.forcedHint': '必须完成更新后才能继续使用应用',
   'updater.close': '关闭',
   'updater.checking': '正在检查更新…',
   'updater.idle': '点击下方按钮检查最新版本',

@@ -87,8 +87,8 @@ function attachListeners(auto: AppUpdater): void {
     }
     const notes = releaseNotesText(ui)
     const force = /强制更新|force-update/i.test(notes)
+    // 强制更新仅锁定弹窗（不可关闭、必须完成更新），下载仍由用户点击触发
     patch({ phase: 'available', version: ui.version, notes, force, percent: 0, error: '' })
-    if (force) void auto.downloadUpdate() // 强制更新：不经用户确认直接下载
   })
   auto.on('update-not-available', () => {
     patch({ phase: 'none', version: app.getVersion(), force: false })
