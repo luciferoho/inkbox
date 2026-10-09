@@ -215,7 +215,8 @@ function installBrowserMock(): void {
         percent: 0,
         bps: 0,
         force: false,
-        error: ''
+        error: '',
+        releaseDate: ''
       }
       const listeners = new Set<(s: import('@shared/types').UpdateStatePayload) => void>()
       const emit = (patch: Partial<import('@shared/types').UpdateStatePayload>): void => {
@@ -233,7 +234,8 @@ function installBrowserMock(): void {
                 notes,
                 force: false,
                 percent: 0,
-                error: ''
+                error: '',
+                releaseDate: new Date(Date.now() - 3600_000).toISOString()
               }),
             800
           )

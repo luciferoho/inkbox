@@ -376,8 +376,11 @@ export const en: MsgSchema = {
   'updater.ok': 'OK',
   'updater.failed': 'Update check failed',
   'updater.retry': 'Retry',
+  'updater.skipVersion': 'Skip This Version',
+  'updater.releasedAt': 'Released {date}',
   'titlebar.updateDownloading': 'Downloading update {percent}%',
   'titlebar.updateReady': 'Update ready — click to view',
+  'titlebar.updateAvailable': 'Update available',
   'app.updatedRestored': 'Updated to v{v} — unsaved content restored',
 
   'settings.theme': 'Theme',

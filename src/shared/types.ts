@@ -239,8 +239,10 @@ export interface UpdateStatePayload {
   percent: number
   /** 下载速度 bytes/s */
   bps: number
-  /** 强制更新（Release notes 含标记：弹窗不可关闭、自动开始下载） */
+  /** 强制更新（Release notes 含标记：弹窗不可关闭） */
   force: boolean
   /** 错误原因（phase=error） */
   error: string
+  /** 新版本发布时间（ISO 字符串，来自 latest.yml 的 releaseDate） */
+  releaseDate: string
 }

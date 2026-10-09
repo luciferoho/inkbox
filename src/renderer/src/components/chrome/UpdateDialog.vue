@@ -57,6 +57,23 @@ const startingDownload = ref(false)
 /** 连接中（已点击但尚无进度数据）：进度条显示流动动画 */
 const connecting = computed(() => startingDownload.value && s.value.phase === 'downloading' && s.value.percent === 0)
 
+/** 发布时间格式化（精确到分,本地时区） */
+const releaseDateText = computed(() => {
+  const iso = s.value.releaseDate
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+})
+
+/** 跳过此版本：记录版本号并关闭（设置里手动检查不受影响） */
+function skipVersion(): void {
+  if (!s.value.version) return
+  ui.skipUpdate(s.value.version)
+  ui.updateDialogOpen = false
+}
+
 watch(
   () => s.value.phase,
   (phase) => {
@@ -112,7 +129,6 @@ async function onInstall(): Promise<void> {
           <header class="head">
             <h2 class="title">
               {{ s.phase === 'downloaded' ? $t('updater.readyTitle') : $t('updater.title') }}
-              <span v-if="s.version" class="ver">v{{ s.version }}</span>
               <span v-if="s.force" class="force">{{ $t('updater.forced') }}</span>
             </h2>
             <button v-if="!locked" class="close" :title="$t('updater.close')" @click="close()">✕</button>
@@ -127,9 +143,11 @@ async function onInstall(): Promise<void> {
               <span class="lead-t">{{ $t('updater.availableLead') }}</span>
               <span class="ver-hl">v{{ s.version }}</span>
             </p>
+            <p v-if="releaseDateText" class="meta">{{ $t('updater.releasedAt', { date: releaseDateText }) }}</p>
             <p v-if="s.force" class="hint">{{ $t('updater.forcedHint') }}</p>
             <div v-if="notesHtml" class="update-notes" v-html="notesHtml" />
             <div class="actions">
+              <button v-if="!s.force" class="btn ghost" @click="skipVersion()">{{ $t('updater.skipVersion') }}</button>
               <button v-if="!s.force" class="btn ghost" @click="close()">{{ $t('updater.later') }}</button>
               <button class="btn primary" :disabled="startingDownload" @click="onUpdate()">
                 {{ startingDownload ? $t('updater.preparing') : $t('updater.downloadNow') }}

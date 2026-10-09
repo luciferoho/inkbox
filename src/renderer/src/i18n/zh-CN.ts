@@ -375,8 +375,11 @@ export const zh = {
   'updater.ok': '好的',
   'updater.failed': '检查更新失败',
   'updater.retry': '重试',
+  'updater.skipVersion': '跳过此版本',
+  'updater.releasedAt': '发布于 {date}',
   'titlebar.updateDownloading': '正在下载更新 {percent}%',
   'titlebar.updateReady': '更新已就绪，点击查看',
+  'titlebar.updateAvailable': '有可用更新',
   'app.updatedRestored': '已更新到 v{v}，未保存内容已恢复',
 
   'settings.theme': '主题',

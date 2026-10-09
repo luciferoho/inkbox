@@ -25,6 +25,8 @@ export const useUiStore = defineStore('ui', {
     updateState: { phase: 'idle', version: '', notes: '', percent: 0, bps: 0, force: false, error: '' } as UpdateStatePayload,
     /** 更新弹窗开关 */
     updateDialogOpen: false,
+    /** 已跳过的更新版本（不再自动提示;设置里手动检查不受影响） */
+    skippedUpdateVersion: localStorage.getItem('inkbox:skippedUpdateVersion') ?? '',
     /** 本次检查是否由用户主动发起（主动检查的结果用 toast 呈现；启动自动检查保持静默） */
     updateCheckByUser: false,
     focusMode: false,
@@ -101,6 +103,11 @@ export const useUiStore = defineStore('ui', {
     pageWidthMinPct: 50
   }),
   actions: {
+    /** 跳过指定更新版本：不再自动提示（设置里手动检查不受影响） */
+    skipUpdate(version: string): void {
+      this.skippedUpdateVersion = version
+      localStorage.setItem('inkbox:skippedUpdateVersion', version)
+    },
     async init(): Promise<void> {
       const cfg = await window.api.app.getConfig()
       this.applyConfig(cfg)

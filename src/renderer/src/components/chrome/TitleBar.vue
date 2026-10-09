@@ -1,9 +1,18 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
 
 const ui = useUiStore()
 const docs = useDocumentsStore()
+
+/** 有可用更新且未跳过该版本时显示标志（强制更新直接弹窗,无需标志） */
+const updateBadgeVisible = computed(
+  () =>
+    ui.updateState.phase === 'available' &&
+    !ui.updateState.force &&
+    ui.skippedUpdateVersion !== ui.updateState.version
+)
 const api = window.api
 </script>
 
@@ -17,6 +26,19 @@ const api = window.api
         />
       </svg>
       <span class="wordmark">{{ $t('titlebar.brand') }}</span>
+      <!-- 有可用更新（非强制、未跳过）：轻提示入口,点击打开更新弹窗 -->
+      <button
+        v-if="updateBadgeVisible"
+        class="update-badge"
+        :title="$t('titlebar.updateAvailable')"
+        @click="ui.updateDialogOpen = true"
+      >
+        <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+          <path d="M12 3v10m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+        </svg>
+        {{ $t('titlebar.updateAvailable') }}
+      </button>
     </div>
 
     <div class="doc-title">
@@ -97,6 +119,29 @@ const api = window.api
 
 .spark {
   color: var(--accent);
+}
+
+/* 有可用更新:品牌名后的轻提示入口 */
+.update-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  padding: 2px 9px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background 0.12s, color 0.12s;
+}
+
+.update-badge:hover {
+  background: var(--accent);
+  color: #fff;
 }
 
 .wordmark {

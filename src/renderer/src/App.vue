@@ -134,7 +134,8 @@ onMounted(() => {
   let prevUpdatePhase: UpdateStatePayload['phase'] = 'idle'
   window.api.update.onState((s) => {
     ui.updateState = s
-    if (s.phase === 'available' && !ui.updateDialogOpen) ui.updateDialogOpen = true
+    // 仅强制更新自动弹窗（不可关闭）;普通更新以品牌名旁的轻提示呈现,由用户点击打开
+    if (s.phase === 'available' && s.force && !ui.updateDialogOpen) ui.updateDialogOpen = true
     // 已是最新：不弹窗。用户主动检查时 toast 轻提示；启动自动检查保持静默
     if (s.phase === 'none') {
       ui.updateDialogOpen = false

@@ -25,7 +25,8 @@ let state: UpdateStatePayload = {
   percent: 0,
   bps: 0,
   force: false,
-  error: ''
+  error: '',
+  releaseDate: ''
 }
 
 let autoUpdater: AppUpdater | null = null
@@ -88,7 +89,15 @@ function attachListeners(auto: AppUpdater): void {
     const notes = releaseNotesText(ui)
     const force = /强制更新|force-update/i.test(notes)
     // 强制更新仅锁定弹窗（不可关闭、必须完成更新），下载仍由用户点击触发
-    patch({ phase: 'available', version: ui.version, notes, force, percent: 0, error: '' })
+    patch({
+      phase: 'available',
+      version: ui.version,
+      notes,
+      force,
+      percent: 0,
+      error: '',
+      releaseDate: typeof ui.releaseDate === 'string' ? ui.releaseDate : ''
+    })
   })
   auto.on('update-not-available', () => {
     patch({ phase: 'none', version: app.getVersion(), force: false })
@@ -115,7 +124,7 @@ async function ensureUpdater(): Promise<AppUpdater> {
   if (autoUpdater) return autoUpdater
   const au = await loadAutoUpdater()
   au.autoDownload = false // 有更新不自动下载，由用户在弹窗中决定
-  au.autoInstallOnAppQuit = true // 已下载待装时，用户直接退出也顺带安装
+  au.autoInstallOnAppQuit = false // 已下载也不随退出自动安装：重启后仍提示，由用户确认后安装
   if (!app.isPackaged) au.forceDevUpdateConfig = true // dev 走项目根 dev-app-update.yml,否则 checkForUpdates 静默返回 null
   attachListeners(au)
   autoUpdater = au
