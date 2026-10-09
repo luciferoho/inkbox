@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { defaultConfig, type AppConfig, type PluginCommand, type PluginInfo, type WindowPrefs } from '@shared/types'
+import { defaultConfig, type AppConfig, type PluginCommand, type PluginInfo, type UpdateStatePayload, type WindowPrefs } from '@shared/types'
 import type { ShortcutOverrides } from '@shared/shortcuts'
 import { i18n, resolveLocale, t, type LocalePref } from '@/i18n'
 import { useDocumentsStore } from './documents'
@@ -21,6 +21,12 @@ export const useUiStore = defineStore('ui', {
     maximized: false,
     /** 窗口固定（始终置顶），由主进程 win:state 广播同步 */
     alwaysOnTop: false,
+    /** 更新流程状态快照（主进程单源，update:state 广播） */
+    updateState: { phase: 'idle', version: '', notes: '', percent: 0, bps: 0, force: false, error: '' } as UpdateStatePayload,
+    /** 更新弹窗开关 */
+    updateDialogOpen: false,
+    /** 本次检查是否由用户主动发起（主动检查的结果用 toast 呈现；启动自动检查保持静默） */
+    updateCheckByUser: false,
     focusMode: false,
     typewriterMode: false,
     /** 禅模式：隐藏标签栏/状态栏/侧栏，Esc 或菜单退出 */

@@ -28,6 +28,22 @@ const api = window.api
     </div>
 
     <div class="win-controls">
+      <!-- 更新下载指示：下载中显示进度，已就绪着色；点击重开更新弹窗 -->
+      <button
+        v-if="ui.updateState.phase === 'downloading' || ui.updateState.phase === 'downloaded'"
+        class="win-btn update-indicator"
+        :class="{ ready: ui.updateState.phase === 'downloaded' }"
+        :title="ui.updateState.phase === 'downloaded'
+          ? $t('titlebar.updateReady')
+          : $t('titlebar.updateDownloading', { percent: ui.updateState.percent })"
+        @click="ui.updateDialogOpen = true"
+      >
+        <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+          <path d="M12 3v10m0 0l-4-4m4 4l4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+        </svg>
+        <span v-if="ui.updateState.phase === 'downloading'" class="pct">{{ ui.updateState.percent }}%</span>
+      </button>
       <button
         class="win-btn"
         :class="{ pinned: ui.alwaysOnTop }"
@@ -156,6 +172,34 @@ const api = window.api
 }
 
 .win-btn.pinned:hover {
+  color: var(--accent);
+}
+
+/* 更新下载指示：下载中常规色+百分比,已就绪琥珀色 */
+.win-btn.update-indicator {
+  /* 覆盖 .win-btn 的 grid:图标与百分比横向排列,与其他窗口按钮同高对齐 */
+  width: 78px;
+  min-width: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+}
+
+.win-btn.update-indicator .pct {
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.win-btn.update-indicator.ready {
+  width: 46px;
+  min-width: 46px;
+  padding: 0;
+  color: var(--accent);
+}
+
+.win-btn.update-indicator.ready:hover {
   color: var(--accent);
 }
 </style>

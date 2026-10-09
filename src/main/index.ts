@@ -6,7 +6,7 @@ import { createMainWindow } from './window'
 import { createMenu, setShortcutOverrides } from './menu'
 import { registerIpcHandlers } from './ipc'
 import { createTray, markQuitting, resetQuitting, showMainWindow } from './tray'
-import { initAutoUpdate } from './updater'
+import { initUpdateController } from './updater'
 import { applyLocaleFromConfig } from './i18n'
 import { getConfig } from './ipc/config'
 import { detectAbnormalExitAndMark, markCleanExit } from './session'
@@ -71,7 +71,7 @@ if (!gotLock) {
     createMenu(win)
     createTray()
     // 启动 10s 后检查更新（GitHub Releases 有新版本才提示，未配置/失败静默）
-    setTimeout(() => initAutoUpdate(), 10_000)
+    initUpdateController()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {

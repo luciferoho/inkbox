@@ -163,20 +163,12 @@ onMounted(() => {
   void window.api.app.getInfo().then((i) => (appInfo.value = i))
 })
 
-const checkingUpdate = ref(false)
-async function checkUpdate(): Promise<void> {
-  if (checkingUpdate.value) return
-  checkingUpdate.value = true
-  try {
-    const r = await window.api.app.checkUpdate()
-    if (r.status === 'latest') ui.showToast(t('about.upToDate', { v: r.version }))
-    else if (r.status === 'downloading') ui.showToast(t('about.updateFound', { v: r.version }))
-    else if (r.status === 'downloaded') ui.showToast(t('about.updateDownloaded', { v: r.version }))
-    else if (r.reason === 'dev') ui.showToast(t('about.updateDev'))
-    else ui.showToast(t('about.updateFail', { reason: r.reason }))
-  } finally {
-    checkingUpdate.value = false
-  }
+function checkUpdate(): void {
+  ui.updateDialogOpen = true
+  // 主动检查标记：「已是最新」时用 toast 轻提示（启动自动检查保持静默）
+  ui.updateCheckByUser = true
+  // 首次点击主动检查;已下载待装/下载中则弹窗直接呈现对应阶段
+  if (['idle', 'none', 'error'].includes(ui.updateState.phase)) void window.api.update.check()
 }
 </script>
 
@@ -519,8 +511,8 @@ async function checkUpdate(): Promise<void> {
             </div>
             <div class="row">
               <span class="label">{{ $t('about.checkUpdate') }}</span>
-              <button class="about-check" :disabled="checkingUpdate" @click="checkUpdate">
-                {{ checkingUpdate ? $t('about.checking') : $t('about.checkUpdateBtn') }}
+              <button class="about-check" @click="checkUpdate">
+                {{ $t('about.checkUpdateBtn') }}
               </button>
             </div>
             <p v-if="appInfo.electron" class="row-hint">

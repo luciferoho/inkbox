@@ -71,7 +71,6 @@ interface Window {
       setLocale(locale: import('@shared/types').AppConfig['locale']): Promise<void>
       setShortcutsCapture(on: boolean): void
       getInfo(): Promise<import('@shared/types').AppInfo>
-      checkUpdate(): Promise<import('@shared/types').UpdateCheckResult>
       debugMenuAccels(): Promise<Record<string, string | null>>
       debugMenuInvoke(id: string): Promise<boolean>
       getWindowPrefs(key: string): Promise<import('@shared/types').WindowPrefs>
@@ -95,6 +94,14 @@ interface Window {
       takeInitialDoc(): Promise<import('@shared/types').InitialDoc>
       closeConfirmed(): Promise<void>
       onRequestClose(cb: () => void): () => void
+    }
+    update: {
+      check(): Promise<void>
+      download(): Promise<void>
+      install(): Promise<void>
+      state(): Promise<import('@shared/types').UpdateStatePayload>
+      restartVersion(): Promise<string>
+      onState(cb: (s: import('@shared/types').UpdateStatePayload) => void): () => void
     }
     onMenuCommand(cb: (cmd: import('@shared/types').MenuCommand) => void): () => void
     onWinState(cb: (state: { maximized: boolean; alwaysOnTop: boolean }) => void): () => void

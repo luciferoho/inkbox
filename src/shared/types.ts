@@ -218,9 +218,29 @@ export interface AppInfo {
   packaged: boolean
 }
 
-/** 手动检查更新结果（关于页「检查更新」按钮） */
-export type UpdateCheckResult =
-  | { status: 'latest'; version: string }
-  | { status: 'downloading'; version: string }
-  | { status: 'downloaded'; version: string }
-  | { status: 'unavailable'; reason: string }
+/** 更新流程阶段 */
+export type UpdatePhase =
+  | 'idle'        // 未检查
+  | 'checking'    // 检查中
+  | 'available'   // 发现新版本（未下载）
+  | 'none'        // 已是最新
+  | 'downloading' // 下载中
+  | 'downloaded'  // 已下载待装
+  | 'error'       // 出错
+
+/** 更新状态快照（主进程单源，经 update:state 全量广播） */
+export interface UpdateStatePayload {
+  phase: UpdatePhase
+  /** 新版本号（available 之后有效） */
+  version: string
+  /** 更新内容（Release notes,markdown） */
+  notes: string
+  /** 下载进度 0-100 */
+  percent: number
+  /** 下载速度 bytes/s */
+  bps: number
+  /** 强制更新（Release notes 含标记：弹窗不可关闭、自动开始下载） */
+  force: boolean
+  /** 错误原因（phase=error） */
+  error: string
+}

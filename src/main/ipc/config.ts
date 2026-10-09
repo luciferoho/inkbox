@@ -19,7 +19,6 @@ import {
   setShortcutOverrides
 } from '../menu'
 import { retranslateTray } from '../tray'
-import { checkUpdateManual } from '../updater'
 
 /** 简单 JSON 配置存储（userData/config.json），深度合并默认值 */
 let cache: AppConfig | null = null
@@ -228,9 +227,6 @@ export function registerConfigIpc(): void {
     platform: process.platform,
     packaged: app.isPackaged
   }))
-
-  /** 关于页：手动检查更新（打包版有效；发现新版自动下载、退出后安装） */
-  ipcMain.handle('app:checkUpdate', () => checkUpdateManual())
 
   // dev-only 验证钩子：真窗口注入不了 OS 键击，用活体菜单读加速器/触发命令
   if (!app.isPackaged) {

@@ -1,5 +1,5 @@
 import { app, ipcMain } from 'electron'
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { SessionPayload } from '@shared/types'
@@ -31,9 +31,20 @@ function safeName(key: string): string {
   return key.replace(/[^a-zA-Z0-9_-]/g, '-') + '.json'
 }
 
-/** 启动时调用：检测上次是否异常退出，并留下本次运行锁 */
+/** 启动时调用：检测上次是否异常退出，并留下本次运行锁。
+ *  更新重启标记视同异常恢复（还原未保存内容），消费后清除 */
 export function detectAbnormalExitAndMark(): boolean {
-  const crashed = existsSync(runningLockPath())
+  const flagPath = updateRestartFlagPath()
+  const restartFlag = existsSync(flagPath)
+  if (restartFlag) {
+    try {
+      updateRestartVersion = readFileSync(flagPath, 'utf-8').trim()
+    } catch {
+      updateRestartVersion = ''
+    }
+    rmSync(flagPath, { force: true })
+  }
+  const crashed = existsSync(runningLockPath()) || Boolean(updateRestartVersion)
   sessionCrashed = crashed
   try {
     mkdirSync(app.getPath('userData'), { recursive: true })
@@ -56,6 +67,31 @@ export function markCleanExit(): void {
 
 export function isSessionCrashed(): boolean {
   return sessionCrashed
+}
+
+/* ---------- 更新重启标记 ----------
+   「安装更新并重启」前写入：下次启动按崩溃恢复路径还原未保存内容与标签，
+   消费后清除。让更新重装对用户而言是无损的。 */
+
+function updateRestartFlagPath(): string {
+  return join(app.getPath('userData'), 'update-restart.flag')
+}
+
+/** 安装更新前调用：留下待恢复标记（内容为新版本号） */
+export function markUpdateRestartPending(version: string): void {
+  try {
+    mkdirSync(app.getPath('userData'), { recursive: true })
+    writeFileSync(updateRestartFlagPath(), version, 'utf-8')
+  } catch {
+    /* 标记失败只失去恢复能力 */
+  }
+}
+
+/** 本次启动消费到的更新重启版本号（'' = 非更新重启） */
+let updateRestartVersion = ''
+
+export function getUpdateRestartVersion(): string {
+  return updateRestartVersion
 }
 
 /** 窗口正常关闭：清掉自己的会话文件（标签随窗口关闭，不再恢复） */

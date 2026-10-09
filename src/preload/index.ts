@@ -11,7 +11,7 @@ import type {
   SearchOptions,
   SearchOutcome,
   SessionPayload,
-  UpdateCheckResult,
+  UpdateStatePayload,
   WindowPrefs
 } from '@shared/types'
 
@@ -132,8 +132,6 @@ const api = {
     setShortcutsCapture: (on: boolean): void => ipcRenderer.send('app:shortcutsCapture', on),
     /** 关于页：应用版本与运行环境 */
     getInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:getInfo'),
-    /** 关于页：手动检查更新 */
-    checkUpdate: (): Promise<UpdateCheckResult> => ipcRenderer.invoke('app:checkUpdate'),
     /** dev-only：活体菜单加速器快照 / 按命令 id 触发菜单项（真窗口注入不了 OS 键击时验证用） */
     debugMenuAccels: (): Promise<Record<string, string | null>> =>
       ipcRenderer.invoke('app:debugMenuAccels'),
@@ -148,6 +146,20 @@ const api = {
       const listener = (_e: Electron.IpcRendererEvent, cfg: AppConfig): void => cb(cfg)
       ipcRenderer.on('app:configChanged', listener)
       return () => ipcRenderer.removeListener('app:configChanged', listener)
+    }
+  },
+  /** 更新流程：状态单源在主进程，渲染层经 onState 订阅全量快照 */
+  update: {
+    check: (): Promise<void> => ipcRenderer.invoke('update:check'),
+    download: (): Promise<void> => ipcRenderer.invoke('update:download'),
+    install: (): Promise<void> => ipcRenderer.invoke('update:install'),
+    state: (): Promise<UpdateStatePayload> => ipcRenderer.invoke('update:state'),
+    /** 本次启动消费到的更新重启版本号（'' = 非更新重启） */
+    restartVersion: (): Promise<string> => ipcRenderer.invoke('update:restartVersion'),
+    onState: (cb: (s: UpdateStatePayload) => void): (() => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, s: UpdateStatePayload): void => cb(s)
+      ipcRenderer.on('update:state', listener)
+      return () => ipcRenderer.removeListener('update:state', listener)
     }
   },
   image: {

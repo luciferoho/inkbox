@@ -167,7 +167,6 @@ function installBrowserMock(): void {
         platform: 'browser',
         packaged: false
       }),
-      checkUpdate: async () => ({ status: 'latest', version: '1.0.0' }),
       // 浏览器 mock：没有应用菜单可挂起，改键录制的加速键防护为空操作
       setShortcutsCapture: () => undefined,
       debugMenuAccels: async () => ({}),
@@ -197,6 +196,85 @@ function installBrowserMock(): void {
       readCode: async () => null,
       openDir: async () => undefined
     },
+    update: (() => {
+      // 浏览器 mock：模拟完整更新流程（available → downloading → downloaded）
+      // notes 用 GitHub 渲染后的 HTML 形态（electron-updater 实际行为）,验证 HTML→markdown 转换
+      const notes = [
+        '<p>跟随当前版本的体验打磨。</p>',
+        '<h2>新增</h2>',
+        '<ul>',
+        '<li>支持 GitHub 风格居中块渲染</li>',
+        '<li>更新弹窗与下载进度指示</li>',
+        '<li>修复若干问题</li>',
+        '</ul>'
+      ].join('\n')
+      let state: import('@shared/types').UpdateStatePayload = {
+        phase: 'idle',
+        version: '',
+        notes: '',
+        percent: 0,
+        bps: 0,
+        force: false,
+        error: ''
+      }
+      const listeners = new Set<(s: import('@shared/types').UpdateStatePayload) => void>()
+      const emit = (patch: Partial<import('@shared/types').UpdateStatePayload>): void => {
+        state = { ...state, ...patch }
+        for (const cb of listeners) cb(state)
+      }
+      return {
+        check: async () => {
+          emit({ phase: 'checking', error: '' })
+          setTimeout(
+            () =>
+              emit({
+                phase: 'available',
+                version: '9.9.9',
+                notes,
+                force: false,
+                percent: 0,
+                error: ''
+              }),
+            800
+          )
+        },
+        download: async () => {
+          // 先模拟连接空窗（真实场景 download-progress 首个事件前有 1-3s 延迟）
+          setTimeout(() => {
+            let percent = 0
+            const timer = setInterval(() => {
+              percent = Math.min(100, percent + Math.round(8 + Math.random() * 14))
+              emit({ phase: 'downloading', percent, bps: 1024 * 1024 * 2.4 })
+              if (percent >= 100) {
+                clearInterval(timer)
+                setTimeout(() => emit({ phase: 'downloaded', percent: 100 }), 500)
+              }
+            }, 350)
+          }, 1200)
+        },
+        install: async () => {
+          // mock：重置回 idle（真实流程由主进程交接安装器）
+          emit({ phase: 'idle' })
+        },
+        state: async () => state,
+        restartVersion: async () => '',
+        onState: (cb: (s: import('@shared/types').UpdateStatePayload) => void) => {
+          listeners.add(cb)
+          return () => listeners.delete(cb)
+        },
+        /** 测试钩子：模拟强制更新（弹窗不可关闭、自动开始下载） */
+        force: () => {
+          emit({
+            phase: 'available',
+            version: '9.9.9',
+            notes: '## 强制更新\n\nforce-update：本版本必须升级。',
+            force: true,
+            percent: 0,
+            error: ''
+          })
+        }
+      }
+    })(),
     win: {
       minimize: () => undefined,
       toggleMaximize: () => undefined,

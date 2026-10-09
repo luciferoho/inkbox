@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, nextTick, defineAsyncComponent } from 'vue'
-import type { MenuCommand } from '@shared/types'
+import type { MenuCommand, UpdateStatePayload } from '@shared/types'
 import { t } from '@/i18n'
 import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
@@ -17,6 +17,7 @@ import ConfirmDialog from '@/components/chrome/ConfirmDialog.vue'
 import Toast from '@/components/chrome/Toast.vue'
 // 弹窗类按需加载（exporter 连带 pdf/字体资源链，设置页打开频率低）
 const SettingsDialog = defineAsyncComponent(() => import('@/components/chrome/SettingsDialog.vue'))
+const UpdateDialog = defineAsyncComponent(() => import('@/components/chrome/UpdateDialog.vue'))
 const ExportDialog = defineAsyncComponent(() => import('@/components/chrome/ExportDialog.vue'))
 import { useAutosave } from '@/composables/useAutosave'
 import { useDrafts } from '@/composables/useDrafts'
@@ -118,6 +119,9 @@ onMounted(() => {
       crashed: init.crashed
     })
     if (backupEntries.length > 0) ui.showToast(t('app.draftsRestored', { n: backupEntries.length }))
+    // 更新重装的启动：提示已升级 + 未保存内容已恢复（draftsRestored 提示可能已同时出现）
+    const restartVersion = await window.api.update.restartVersion()
+    if (restartVersion) ui.showToast(t('app.updatedRestored', { v: restartVersion }))
     // 恢复完成：淡出开屏页，进入应用（用户看到的直接是恢复后的界面）
     await nextTick()
     dismissSplash()
@@ -125,6 +129,27 @@ onMounted(() => {
   window.api.onWinState((s) => {
     ui.maximized = s.maximized
     ui.alwaysOnTop = s.alwaysOnTop
+  })
+  // 更新状态：单源快照回显；发现新版本自动弹出更新弹窗（强制更新在弹窗内不可关闭）
+  let prevUpdatePhase: UpdateStatePayload['phase'] = 'idle'
+  window.api.update.onState((s) => {
+    ui.updateState = s
+    if (s.phase === 'available' && !ui.updateDialogOpen) ui.updateDialogOpen = true
+    // 已是最新：不弹窗。用户主动检查时 toast 轻提示；启动自动检查保持静默
+    if (s.phase === 'none') {
+      ui.updateDialogOpen = false
+      if (ui.updateCheckByUser) {
+        ui.updateCheckByUser = false
+        ui.showToast(t('updater.upToDate'))
+      }
+    }
+    // 下载/待装阶段出错：弹窗可能已被收起，用 toast 告知
+    if (s.phase === 'error' && ['downloading', 'downloaded'].includes(prevUpdatePhase)) {
+      ui.showToast(t('updater.failed'))
+    }
+    // 无流程可回退的空转态（网络失败且未捕获到原因）：收起弹窗避免空白
+    if (s.phase === 'idle') ui.updateDialogOpen = false
+    prevUpdatePhase = s.phase
   })
   window.api.onMenuCommand(dispatch)
   // 任一窗口改了全局配置（主题/语言/字号等）：本窗口即时跟随
@@ -225,6 +250,7 @@ async function handleRequestClose(): Promise<void> {
     <StatusBar v-if="!ui.zenMode" />
     <ImageViewer />
     <SettingsDialog />
+    <UpdateDialog />
     <ExportDialog />
     <ConfirmDialog />
     <Toast />
