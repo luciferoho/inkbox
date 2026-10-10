@@ -13,10 +13,15 @@ import { detectAbnormalExitAndMark, markCleanExit } from './session'
 
 // 单实例：再次点击桌面图标/启动应用时，聚焦现有窗口而不是开新窗口
 // INKBOX_TEST_UPDATE=1（更新链路诊断）：改用独立 userData，不与安装版抢单实例锁
+// INKBOX_USER_DATA=<dir>：通用并行实例入口（如验证实例与日常实例共存）
 if (process.env.INKBOX_TEST_UPDATE === '1') {
   const testDir = join(app.getPath('appData'), 'Inkbox-UpdaterTest')
   mkdirSync(testDir, { recursive: true })
   app.setPath('userData', testDir)
+} else if (process.env.INKBOX_USER_DATA) {
+  const dir = process.env.INKBOX_USER_DATA
+  mkdirSync(dir, { recursive: true })
+  app.setPath('userData', dir)
 }
 
 const gotLock = app.requestSingleInstanceLock()

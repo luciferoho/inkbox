@@ -68,6 +68,9 @@
   text-decoration: none;
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
 }
+.wysiwyg-host .luci-prose a:hover {
+  border-bottom-color: var(--accent);
+}
 
 /* 行内代码与代码块（墨块） */
 .wysiwyg-host .luci-prose code {
@@ -96,14 +99,17 @@
   color: inherit;
 }
 
-/* 引用 */
+/* 引用：琥珀细条 + 淡琥珀底（与 preview.css 同一套语言,勿用选区蓝） */
 .wysiwyg-host .luci-prose blockquote {
   margin: 1em 0;
   padding: 0.5em 1em;
   border-left: 3px solid var(--accent);
-  background: var(--selection);
+  background: var(--accent-soft);
   border-radius: 0 8px 8px 0;
   color: var(--text-2);
+}
+.wysiwyg-host .luci-prose blockquote p {
+  margin: 0.3em 0;
 }
 
 /* 列表 */
