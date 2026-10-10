@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron'
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { CancellationError, CancellationToken } from 'builder-util-runtime'
 import type { AppUpdater, UpdateInfo } from 'electron-updater'
 import type { UpdateStatePayload } from '@shared/types'
 import { markUpdateRestartPending } from './session'
@@ -12,6 +13,12 @@ import { markUpdateRestartPending } from './session'
  *   立即自动下载，且更新弹窗不可关闭
  * - 下载进度经 update:state 全量广播到所有窗口（右上角图标/弹窗共用状态）
  * - 增量更新由 electron-updater 依据 .blockmap 自动完成，无需额外处理
+ * - 下载停滞看门狗：electron-updater 的 60s 空闲超时依赖 request 的 'socket'
+ *   事件，而 Electron net 的 ClientRequest 不派发该事件 → 超时钩子在打包版
+ *   永远不会生效。分块（增量）请求一旦挂起就既不报错也不回退，表现为进度
+ *   永久卡死（如 99%）。看门狗监测进度事件间隔，停滞即取消本次下载自动重试，
+ *   第 2 次重试起禁用增量改整包单流下载（抗代理/网络抖动），重试预算用尽
+ *   进入 error 态交用户手动重试
  * - 安装前由渲染层落盘未保存内容，主进程写入更新重启标记 →
  *   重装后首次启动按恢复路径还原未保存内容与标签（见 session.ts）
  */
@@ -31,6 +38,17 @@ let state: UpdateStatePayload = {
 
 let autoUpdater: AppUpdater | null = null
 let listenersAttached = false
+
+/* ---------- 下载停滞看门狗 ---------- */
+
+/** 判定停滞的进度事件间隔：健康下载中进度事件亚秒级到达 */
+const STALL_MS = 30_000
+const STALL_MAX_RETRIES = 2
+let lastProgressAt = 0
+let stallRetries = 0
+let stallTimer: ReturnType<typeof setInterval> | null = null
+let downloadToken: CancellationToken | null = null
+let activeDownload: Promise<unknown> | null = null
 
 function broadcast(): void {
   for (const w of BrowserWindow.getAllWindows()) {
@@ -89,6 +107,7 @@ function attachListeners(auto: AppUpdater): void {
     const notes = releaseNotesText(ui)
     const force = /强制更新|force-update/i.test(notes)
     // 强制更新仅锁定弹窗（不可关闭、必须完成更新），下载仍由用户点击触发
+    stallRetries = 0 // 新一轮下载会话,重试预算重置
     patch({
       phase: 'available',
       version: ui.version,
@@ -103,6 +122,7 @@ function attachListeners(auto: AppUpdater): void {
     patch({ phase: 'none', version: app.getVersion(), force: false })
   })
   auto.on('download-progress', (p) => {
+    lastProgressAt = Date.now()
     patch({
       phase: 'downloading',
       percent: Math.min(100, Math.round(p.percent ?? 0)),
@@ -110,12 +130,17 @@ function attachListeners(auto: AppUpdater): void {
     })
   })
   auto.on('update-downloaded', (i) => {
+    disarmStallWatchdog()
+    stallRetries = 0
     const ui = i as { version?: string }
     patch({ phase: 'downloaded', version: ui.version ?? state.version, percent: 100 })
   })
   auto.on('error', (err: Error) => {
     // idle 阶段的错误（如未发布 Release）静默保持 idle，不打扰用户
     if (state.phase === 'idle') return
+    // 看门狗主动取消不进 error 态（随后自动重试）
+    if (err instanceof CancellationError || /cancel/i.test(err?.message ?? '')) return
+    disarmStallWatchdog()
     patch({ phase: 'error', error: err?.message ?? String(err) })
   })
 }
@@ -158,10 +183,84 @@ export async function updateCheck(): Promise<void> {
   }
 }
 
-/** 开始下载（仅 available 阶段有效） */
+/** 开始下载（仅 available 阶段有效；看门狗重试走 startDownload） */
 export function updateDownload(): void {
-  if (state.phase !== 'available' || !autoUpdater) return
-  void autoUpdater.downloadUpdate()
+  if (state.phase !== 'available') return
+  void startDownload()
+}
+
+/** 发起（或看门狗重试）下载：自带 CancellationToken 供停滞看门狗取消挂起请求 */
+async function startDownload(): Promise<void> {
+  const auto = await ensureUpdater()
+  downloadToken = new CancellationToken()
+  lastProgressAt = Date.now()
+  patch({ phase: 'downloading', percent: 0, bps: 0 }) // 重试时进度条从 0 重爬,不残留旧值
+  armStallWatchdog()
+  const p = auto.downloadUpdate(downloadToken)
+  activeDownload = p
+  try {
+    await p
+    // 成功路径由 update-downloaded 事件收尾（含看门狗解除）
+  } catch (err) {
+    // 取消（看门狗恢复流程）静默;其余错误已由 error 事件广播为 error 态
+    if (!(err instanceof CancellationError)) {
+      console.log('[updater] download failed:', err instanceof Error ? err.message : err)
+    }
+  } finally {
+    if (activeDownload === p) activeDownload = null
+  }
+}
+
+function armStallWatchdog(): void {
+  disarmStallWatchdog()
+  stallTimer = setInterval(() => {
+    if (state.phase !== 'downloading') {
+      disarmStallWatchdog()
+      return
+    }
+    if (Date.now() - lastProgressAt < STALL_MS) return
+    void recoverStalledDownload()
+  }, 5_000)
+}
+
+function disarmStallWatchdog(): void {
+  if (stallTimer) {
+    clearInterval(stallTimer)
+    stallTimer = null
+  }
+}
+
+/** 停滞恢复：取消挂起的下载自动重试;第 2 次重试起禁用增量改整包单流;
+ *  重试预算用尽 → error 态交用户手动重试（弹窗「重试」→ 重新检查 → 再下载） */
+async function recoverStalledDownload(): Promise<void> {
+  lastProgressAt = Date.now() // 先重置时钟,恢复期间不再重复触发
+  stallRetries++
+  const auto = autoUpdater
+  if (!auto || !downloadToken) return
+  if (stallRetries > STALL_MAX_RETRIES) {
+    disarmStallWatchdog()
+    downloadToken.cancel() // 释放仍挂起的请求（其 CancellationError 不会进 error 态）
+    patch({
+      phase: 'error',
+      error: `下载多次停滞（已自动重试 ${STALL_MAX_RETRIES} 次），请检查网络（GitHub 访问）后在更新弹窗点「重试」`
+    })
+    return
+  }
+  if (stallRetries === STALL_MAX_RETRIES) auto.disableDifferentialDownload = true
+  console.log(
+    `[updater] download stalled ${Math.round(STALL_MS / 1000)}s, auto retry #${stallRetries} (differential: ${!auto.disableDifferentialDownload})`
+  )
+  downloadToken.cancel()
+  // 等挂起的请求中止、downloadPromise 清空,再重新发起（带 5s 兜底防取消本身挂住）
+  const pending = activeDownload
+  if (pending) {
+    await Promise.race([
+      pending.catch(() => {}),
+      new Promise((r) => setTimeout(r, 5_000))
+    ])
+  }
+  await new Promise((r) => setTimeout(r, 300))
+  if (state.phase === 'downloading') await startDownload()
 }
 
 /**

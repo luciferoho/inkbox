@@ -1,7 +1,7 @@
 {
   "name": "inkbox",
   "productName": "Inkbox",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "墨匣 Inkbox — 墨匣纸面 Markdown 编辑器 (Electron + Vue)",
   "main": "out/main/index.js",
   "author": "Lucifer",
