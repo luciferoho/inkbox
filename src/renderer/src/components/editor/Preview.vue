@@ -144,6 +144,7 @@ async function render(content: string): Promise<void> {
   // 新一轮已渲染完的 DOM 上重跑 mermaid（把 SVG 内的 <style> 文本当源码）
   if (seq !== renderSeq) return
   collectBlocks()
+  applyPvFocus() // DOM 重建后重放双栏联动高亮（光标没动就不需要等下一次 emit）
   await renderMermaid()
   if (findOpen.value) pvSearch() // 内容重渲染重置了 DOM，开着查找就重扫
 }
@@ -478,7 +479,28 @@ function syncToLine(line: number, _frac: number): void {
   el.scrollTop = Math.max(0, cur.top + f * topSpan - 6)
 }
 
-defineExpose({ syncToLine })
+defineExpose({ syncToLine, focusImage })
+
+/* ---------- 双栏联动：光标所在图片语法 → 对应图高亮 ---------- */
+
+/** 图片 <img> 带所在精确行（markdown.ts 渲染时打 data-source-line,0 基） */
+let pvFocus: { line: number; k: number } | null = null
+
+/** 源码光标落在图片语法上时由 EditorArea 调用（line=null 撤高亮）；
+ *  行号 1 基,k 为同行第几张（同段多图按源码出现序 = DOM 顺序对应） */
+function focusImage(line: number | null, k = 0): void {
+  pvFocus = line === null ? null : { line, k }
+  applyPvFocus()
+}
+
+function applyPvFocus(): void {
+  const root = body.value
+  if (!root) return
+  root.querySelectorAll('.pv-img-focus').forEach((el) => el.classList.remove('pv-img-focus'))
+  if (!pvFocus) return
+  const imgs = root.querySelectorAll<HTMLElement>(`img[data-source-line="${pvFocus.line - 1}"]`)
+  imgs[pvFocus.k]?.classList.add('pv-img-focus')
+}
 
 /* ---------- 查找（预览只读：DOM 高亮定位，无替换） ---------- */
 

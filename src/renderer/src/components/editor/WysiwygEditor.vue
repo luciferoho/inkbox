@@ -46,7 +46,8 @@ import {
 import { createCenterPlugin } from '@/editor/pm-center'
 import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createElementToolbar, type ElToolbarState } from '@/editor/pm-element-toolbar'
-import { parseAltMods, buildAltMods, stepWidth, type ImageMods } from '@/editor/image-utils'
+import { parseAltMods, buildAltMods, stepWidth, luciToDisplaySrc, type ImageMods } from '@/editor/image-utils'
+import { t } from '@/i18n'
 // 图片修饰符即显渲染:extendSchema 返回新 holder,须 .use 挂载生效
 import { styledImageSchema } from '@/editor/wysiwyg-image-style'
 import type { FindQuery, FindStatus } from '@/find-shared'
@@ -370,6 +371,74 @@ function withView(fn: (view: EditorView) => void): void {
   editor.action((ctx) => fn(ctx.get(editorViewCtx)))
 }
 
+/** 选中图片的展示地址（工具条地址行;luci-img:// 已解回用户写的路径） */
+const elImgSrcFull = computed(() => {
+  const t = elToolbar.value
+  if (!t || t.kind !== 'image') return ''
+  let raw = ''
+  withView((view) => {
+    raw = String(view.state.doc.nodeAt(t.pos)?.attrs.src ?? '')
+  })
+  return luciToDisplaySrc(raw, docDirOf())
+})
+
+async function copyImgSrc(): Promise<void> {
+  const text = elImgSrcFull.value
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    // 剪贴板 API 被拒（失焦等）→ execCommand 兜底
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.cssText = 'position:fixed;opacity:0'
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    ta.remove()
+  }
+  ui.showToast(t('img.srcCopied'))
+}
+
+/* ---------- 图片悬浮地址提示：贴图片下缘内侧,不遮挡正文 ---------- */
+
+const imgTip = ref<{ x: number; y: number; w: number; text: string } | null>(null)
+
+function onHostOver(e: MouseEvent): void {
+  const target = e.target
+  if (!(target instanceof HTMLImageElement) || !target.closest('.luci-prose')) return
+  if (elToolbar.value) return // 图片已选中时工具条上有完整地址,不重复提示
+  const text = luciToDisplaySrc(target.getAttribute('src') ?? '', docDirOf())
+  if (!text) return // 上传占位图（data:）不提示
+  const h = host.value
+  if (!h) return
+  const ir = target.getBoundingClientRect()
+  const hr = h.getBoundingClientRect()
+  imgTip.value = {
+    x: ir.left - hr.left + h.scrollLeft,
+    y: ir.top - hr.top + h.scrollTop + ir.height,
+    w: ir.width,
+    text
+  }
+}
+
+function onHostOut(e: MouseEvent): void {
+  if (!imgTip.value) return
+  if (e.target === e.relatedTarget) return
+  imgTip.value = null
+}
+
+const imgTipStyle = computed(() => {
+  const t = imgTip.value
+  if (!t) return {}
+  return { left: `${t.x + 8}px`, top: `${t.y - 8}px`, maxWidth: `${Math.max(60, t.w - 16)}px` }
+})
+
+/* 图片被选中（工具条出现）时收起悬浮地址:工具条上有完整地址,提示就多余了 */
+watch(elToolbar, (t) => {
+  if (t) imgTip.value = null
+})
+
 /** 图片:改 alt 修饰符(setNodeMarkup 单事务,可撤销) */
 function elImageMods(next: ImageMods | ((cur: ImageMods) => ImageMods)): void {
   const t = elToolbar.value
@@ -430,11 +499,11 @@ function elTableAlign(how: 'left' | 'center' | 'right' | 'none'): void {
   elTable(callCommand(setAlignCommand.key, how === 'none' ? undefined : how))
 }
 
-/** 浮层定位(贴元素上方,太靠上时翻到下方) */
+/** 浮层定位(贴元素上方,顶到可视区时钳在可见范围内) */
 const elToolbarStyle = computed(() => {
   const t = elToolbar.value
   if (!t) return {}
-  const top = t.rect.y < 48 ? t.rect.y + t.rect.h + 8 : t.rect.y - 40
+  const top = Math.max(t.rect.y - 40, t.minY)
   return { left: `${t.rect.x + t.rect.w / 2}px`, top: `${top}px` }
 })
 
@@ -442,6 +511,10 @@ onMounted(() => {
   if (!host.value) return
   // 点击即显区域任意位置都要让编辑器拿到焦点，避免"点了但打不了字"
   host.value.addEventListener('mousedown', onHostMousedown)
+  // 图片悬浮地址提示（mouseover/out 冒泡委托）;滚动即收起避免提示漂移
+  host.value.addEventListener('mouseover', onHostOver)
+  host.value.addEventListener('mouseout', onHostOut)
+  host.value.addEventListener('scroll', onHostScroll, { passive: true })
   window.addEventListener('keydown', onWinKeydown)
   onFindStatus(syncFindStatus)
   const instance = Editor.make()
@@ -509,6 +582,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   host.value?.removeEventListener('mousedown', onHostMousedown)
+  host.value?.removeEventListener('mouseover', onHostOver)
+  host.value?.removeEventListener('mouseout', onHostOut)
+  host.value?.removeEventListener('scroll', onHostScroll)
   window.removeEventListener('keydown', onWinKeydown)
   onFindStatus(null)
   try {
@@ -526,6 +602,10 @@ function onHostMousedown(): void {
   } catch {
     /* 编辑器未就绪时忽略 */
   }
+}
+
+function onHostScroll(): void {
+  imgTip.value = null
 }
 
 /* 切换标签：整档替换（编辑器未就绪时暂存，create 完成后应用），并回到顶部 */
@@ -570,10 +650,19 @@ watch(
       @close="closeFind"
     />
     <div ref="host" class="wysiwyg-host">
+      <!-- 图片悬浮地址:贴图片下缘内侧的轻提示,pointer-events 不挡交互 -->
+      <div v-if="imgTip" class="img-src-tip" :style="imgTipStyle">{{ imgTip.text }}</div>
       <!-- 元素工具条:点击图片/表格时的浮动操作条(与源码模式工具条同按钮集) -->
-      <div v-if="elToolbar" class="el-toolbar" :style="elToolbarStyle" @mousedown.prevent>
+      <div v-if="elToolbar" class="el-toolbar" :class="{ col: elToolbar.kind === 'image' }" :style="elToolbarStyle" @mousedown.prevent>
         <template v-if="elToolbar.kind === 'image'">
-          <button :title="$t('img.wider')" @click="elImageMods((c) => stepWidth(c, 1))">
+          <div class="et-src">
+            <span class="et-src-text" :title="elImgSrcFull">{{ elImgSrcFull }}</span>
+            <button class="et-src-copy" :title="$t('img.copySrc')" @click="copyImgSrc">
+              <svg viewBox="0 0 14 14" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="4.5" y="4.5" width="8" height="8" rx="1.5"/><path d="M9.5 4.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>
+            </button>
+          </div>
+          <div class="et-row">
+            <button :title="$t('img.wider')" @click="elImageMods((c) => stepWidth(c, 1))">
             <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="3" width="11" height="8" rx="1.5"/><path d="M7 5.5v3M5.75 6.75 7 5.5l1.25 1.25"/></svg>
           </button>
           <button :title="$t('img.narrower')" @click="elImageMods((c) => stepWidth(c, -1))">
@@ -597,6 +686,7 @@ watch(
           <button class="danger" :title="$t('img.delete')" @click="elImageDelete()">
             <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h8M5.5 4V2.5h3V4M4 4l.5 7.5h5L10 4M6 6.5v3M8 6.5v3"/></svg>
           </button>
+          </div>
         </template>
         <template v-else>
           <button :title="$t('table.addRowAbove')" @click="elTableAddRow(true)">
@@ -672,6 +762,47 @@ watch(
   box-shadow: 0 8px 24px rgba(15, 12, 9, 0.28);
 }
 
+/* 图片工具条带地址行 → 纵向两行(地址行 + 按钮行);表格仍是单行按钮 */
+.el-toolbar.col {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 6px;
+}
+
+.et-src {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 2px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.et-src-text {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace;
+  font-size: 11px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl; /* 长路径截头保留尾段(文件名是关键信息) */
+  text-align: left;
+}
+
+.et-src-copy {
+  width: 22px !important;
+  height: 22px !important;
+  flex-shrink: 0;
+}
+
+.et-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .el-toolbar button {
   width: 26px;
   height: 26px;
@@ -711,5 +842,25 @@ watch(
   background: var(--border);
   margin: 0 4px;
   flex-shrink: 0;
+}
+
+/* 图片悬浮地址:半透明深色 pill 贴图片下缘内侧（压图不压正文,双主题都可读） */
+.img-src-tip {
+  position: absolute;
+  z-index: 5;
+  transform: translateY(-100%);
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: rgba(22, 18, 14, 0.82);
+  color: #f3ede4;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  box-shadow: 0 3px 10px rgba(15, 12, 9, 0.25);
 }
 </style>

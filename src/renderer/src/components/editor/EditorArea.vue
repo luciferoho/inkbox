@@ -95,6 +95,17 @@ function onEditorSync(line: number, frac: number): void {
 function onPreviewSync(line: number, frac: number): void {
   if (ui.editorMode === 'split') editorRef.value?.syncToLine(line, frac)
 }
+
+/* 双栏联动：光标在图片语法上 → 预览对应图高亮；离开双栏清掉 */
+function onImageFocus(line: number | null, k: number): void {
+  if (ui.editorMode === 'split') previewRef.value?.focusImage(line, k)
+}
+watch(
+  () => ui.editorMode,
+  (m) => {
+    if (m !== 'split') previewRef.value?.focusImage(null)
+  }
+)
 </script>
 
 <template>
@@ -170,6 +181,7 @@ function onPreviewSync(line: number, frac: number): void {
             ref="editorRef"
             class="pane pane-editor"
             @scroll-sync="onEditorSync"
+            @image-focus="onImageFocus"
           />
           <div v-if="ui.editorMode === 'split'" class="pane-divider" />
           <Preview

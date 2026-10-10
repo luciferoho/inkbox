@@ -13,8 +13,11 @@ export interface ElToolbarState {
   kind: 'image' | 'table'
   /** 目标节点位置（操作时按此定位,随每次 update 刷新） */
   pos: number
-  /** 相对 host 的矩形（浮层定位用） */
+  /** 相对 host 的矩形（浮层定位用,内容坐标:滚动容器内的绝对位置） */
   rect: { x: number; y: number; w: number; h: number }
+  /** host 可视区顶部的内容坐标 + 余量:浮层贴图片上方时不得低于此线,
+   *  否则滚动到图片顶到可视区时浮层会被 host 顶边裁掉（地址行整行消失） */
+  minY: number
   /** 表格:光标所在行/列（0 基） */
   row: number
   col: number
@@ -100,7 +103,8 @@ export function createElementToolbar(
         y: ir.top - hr.top + host.scrollTop,
         w: ir.width,
         h: ir.height
-      }
+      },
+      minY: host.scrollTop + 6
     }
     const meta =
       t.kind === 'table'

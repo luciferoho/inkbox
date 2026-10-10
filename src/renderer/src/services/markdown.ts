@@ -116,12 +116,23 @@ export const md: MarkdownIt = MarkdownItDefault({
   .use(footnote)
   .use(emoji)
 
-/* 顶层块附源码行号（token.map 为 0 基，[start, end)）：供双栏同步滚动插值 */
+/* 顶层块附源码行号（token.map 为 0 基，[start, end)）：供双栏同步滚动插值；
+ * 图片 token 另打所在精确行（段内按软/硬换行累计）——供双栏「光标在图片语法上 →
+ * 预览对应图高亮」按行定位（同段多图按 DOM 顺序区分） */
 md.core.ruler.push('luci_source_line', (state: StateCore) => {
   for (const tok of state.tokens) {
     if (tok.map && tok.level === 0 && tok.nesting !== -1) {
       tok.attrSet('data-source-line', String(tok.map[0]))
       tok.attrSet('data-source-line-end', String(tok.map[1]))
+    }
+    if (tok.type === 'inline' && tok.map && tok.children) {
+      let line = tok.map[0]
+      for (const child of tok.children) {
+        if (child.type === 'softbreak' || child.type === 'hardbreak') line++
+        else if (child.type === 'image') {
+          child.attrSet('data-source-line', String(line))
+        }
+      }
     }
   }
 })

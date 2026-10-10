@@ -189,6 +189,8 @@ export const zh = {
   'img.alignRight': '居右',
   'img.resetMods': '清除尺寸与对齐（恢复原始大小）',
   'img.delete': '删除图片',
+  'img.copySrc': '复制图片地址',
+  'img.srcCopied': '已复制图片地址',
 
   // 编辑器（源码模式）
   'editor.saveFirstForImage': '请先保存文档，再粘贴图片',

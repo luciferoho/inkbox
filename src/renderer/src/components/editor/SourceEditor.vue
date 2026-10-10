@@ -52,7 +52,10 @@ import {
   type ImageMods
 } from '@/editor/image-utils'
 
-const emit = defineEmits<{ (e: 'scroll-sync', line: number, frac: number): void }>()
+const emit = defineEmits<{
+  (e: 'scroll-sync', line: number, frac: number): void
+  (e: 'image-focus', line: number | null, k: number): void
+}>()
 
 const ui = useUiStore()
 const docs = useDocumentsStore()
@@ -146,6 +149,7 @@ function makeState(content: string): EditorState {
         if (u.docChanged || u.selectionSet) {
           updateTableInfo()
           updateImageInfo()
+          updateImageFocus(u.state)
           if (findBarOpen.value) recountMatches()
         }
         if (applying) return
@@ -359,6 +363,48 @@ function updateImageInfo(): void {
   // 行内只有图片（允许前后空白）才算图片上下文：避免行内图文混排时格式按钮消失
   imageInfo.value = /^\s*!\[[^\]]*\]\([^)\s]+\)\s*$/.test(line.text) ? parseImageLine(line.text) : null
 }
+
+/* ---------- 双栏联动：光标在图片语法上 → 预览对应图高亮 ---------- */
+
+/** 图片语法（行内式与引用式）；光标落点含起止符 */
+const IMG_SYNTAX_RE = /!\[[^\]]*\]\([^)]*\)|!\[[^\]]*\]\[[^\]]*\]/g
+
+let lastImgFocusSig = ''
+
+/** 光标所在图片语法 → (1 基行号, 行内第几张)。经 EditorArea 转给 Preview
+ *  高亮对应图（同段多图按行内出现序区分）；光标不在图片上发 null 撤高亮。
+ *  只在签名变化时发,打字/移动光标的高频调用无副作用 */
+function updateImageFocus(state: EditorState): void {
+  const pos = state.selection.main.head
+  const line = state.doc.lineAt(pos)
+  IMG_SYNTAX_RE.lastIndex = 0
+  let hit = -1
+  let idx = 0
+  let m: RegExpExecArray | null
+  while ((m = IMG_SYNTAX_RE.exec(line.text))) {
+    const from = line.from + m.index
+    if (pos >= from && pos <= from + m[0].length) {
+      hit = idx
+      break
+    }
+    idx++
+  }
+  const sig = hit >= 0 ? `${line.number}:${hit}` : ''
+  if (sig === lastImgFocusSig) return
+  lastImgFocusSig = sig
+  emit('image-focus', hit >= 0 ? line.number : null, hit)
+}
+
+/* 重进双栏时强制重发一次（离开期间高亮已被清,签名去重会挡住重发） */
+watch(
+  () => ui.editorMode,
+  (m) => {
+    if (m === 'split' && view) {
+      lastImgFocusSig = ''
+      updateImageFocus(view.state)
+    }
+  }
+)
 
 /** 用新修饰符重写光标行（单事务，可撤销），保持光标在行内 */
 function runImageMods(next: ImageMods | ((cur: ImageMods) => ImageMods)): void {

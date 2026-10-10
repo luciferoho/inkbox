@@ -155,6 +155,13 @@
   border-radius: 8px;
   cursor: zoom-in;
 }
+/* 双栏联动：源码光标落在图片语法上 → 预览对应图轻量高亮（琥珀描边 + 微光,
+   跟随主题变量;只标边界不遮内容） */
+.md-preview img.pv-img-focus {
+  outline: 2px solid color-mix(in srgb, var(--accent-strong) 85%, transparent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-strong) 16%, transparent);
+}
 .md-preview mark {
   background: var(--accent-soft);
   color: var(--accent-strong);

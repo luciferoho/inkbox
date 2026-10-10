@@ -121,3 +121,30 @@ export function widthLabel(mods: ImageMods): string {
   if (mods.width?.endsWith('px')) return mods.width
   return 'auto'
 }
+
+/**
+ * 图片 src 的展示形态（悬浮提示/工具条地址行）：
+ * - luci-img:// 解回用户写的路径（文档目录内 → ./相对路径,目录外 → 绝对路径）
+ * - data: 为上传占位图 → 空串（调用方据此不显示）
+ * - 其余（http 等）原样
+ */
+export function luciToDisplaySrc(raw: string, docDir: string | null): string {
+  if (!raw || raw.startsWith('data:')) return ''
+  if (raw.startsWith('luci-img://')) {
+    let abs = raw.slice('luci-img://'.length)
+    try {
+      abs = decodeURIComponent(abs)
+    } catch {
+      /* 游离 % 序列按原样 */
+    }
+    const normAbs = abs.replace(/\\/g, '/')
+    if (docDir) {
+      const normDir = docDir.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase()
+      if (normAbs.toLowerCase().startsWith(normDir + '/')) {
+        return './' + normAbs.slice(normDir.length + 1)
+      }
+    }
+    return normAbs
+  }
+  return raw
+}
