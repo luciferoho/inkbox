@@ -26,18 +26,35 @@ const MIME_EXT: Record<string, string> = {
   'image/avif': '.avif'
 }
 
+/** 上传结果：失败时 code='unreachable' 表示服务端连不上（未启动/端口不对/超时），供渲染层给出针对性提示 */
+export interface UploadResult {
+  ok: boolean
+  url?: string
+  error?: string
+  code?: 'unreachable'
+}
+
+/** 网络层异常 → 归一化错误信息（fetch 抛错不拦会被 IPC 序列化成 reject,渲染层拿不到结构化结果） */
+function toNetError(err: unknown): string {
+  const msg = String((err as Error)?.message ?? err)
+  if (/ERR_CONNECTION_REFUSED|ECONNREFUSED/i.test(msg)) return 'connection refused (server not running?)'
+  if ((err as Error)?.name === 'TimeoutError' || /TIMEOUT|ETIMEDOUT/i.test(msg)) return 'timeout'
+  return msg
+}
+
 /** 向 server POST 一种形态的 list,返回解析结果 */
-async function postToServer(
-  server: string,
-  list: unknown[],
-  fileName: string
-): Promise<{ ok: boolean; url?: string; error?: string }> {
-  const res = await net.fetch(server, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ list }),
-    signal: AbortSignal.timeout(30_000)
-  })
+async function postToServer(server: string, list: unknown[]): Promise<UploadResult> {
+  let res: Response
+  try {
+    res = await net.fetch(server, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ list }),
+      signal: AbortSignal.timeout(30_000)
+    })
+  } catch (err) {
+    return { ok: false, error: toNetError(err), code: 'unreachable' }
+  }
   const data = (await res.json().catch(() => null)) as
     | { success?: boolean; result?: unknown }
     | null
@@ -52,7 +69,7 @@ async function postToServer(
 export function registerNetIpc(): void {
   ipcMain.handle(
     'image:upload',
-    async (_e, fileName: string, dataUrl: string): Promise<{ ok: boolean; url?: string; error?: string }> => {
+    async (_e, fileName: string, dataUrl: string): Promise<UploadResult> => {
       const { server } = getConfig().upload
       if (!/^https?:\/\//i.test(server)) return { ok: false, error: 'invalid server url' }
       if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
@@ -81,10 +98,10 @@ export function registerNetIpc(): void {
 
       try {
         // 路径形态
-        const byPath = await postToServer(server, [tmpPath], safeName + ext)
+        const byPath = await postToServer(server, [tmpPath])
         if (byPath.ok) return byPath
         // 回退：base64 形态（标准 PicGo server）
-        const byBase64 = await postToServer(server, [dataUrl], safeName + ext)
+        const byBase64 = await postToServer(server, [dataUrl])
         if (byBase64.ok) return byBase64
         // 两种都失败:优先返回路径形态的错误（主策略,信息更贴近真实原因）
         return byPath.error ? byPath : byBase64
@@ -94,3 +111,4 @@ export function registerNetIpc(): void {
     }
   )
 }
+

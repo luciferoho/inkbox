@@ -81,7 +81,12 @@ async function handleImages(files: File[], view: EditorView, drop?: DragEvent): 
     insertPlaceholder(view, fullSrc, `${name}|center`, uid, drop)
     createMask(view, uid)
 
-    const link = await persistImage({ name, type: file.type }, buf, docPath)
+    const link = await persistImage({ name, type: file.type }, buf, docPath).catch((err) => {
+      // persistImage 理论上不 reject,这里兜底保证占位图/遮罩总能收尾,不留永久「上传中」
+      console.error('[editor] image persist crashed:', err)
+      ui.showToast(t('editor.imageSaveFailed', { name }))
+      return null
+    })
     try {
       if (link) {
         const raw = /\]\(([^)\s]+)\)/.exec(link)?.[1]

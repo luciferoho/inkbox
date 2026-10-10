@@ -72,7 +72,8 @@ export interface FileEntry {
 /**
  * 单张图片落点：开启图床上传先传 PicGo server（成功返回远端链接）；
  * 未开启/失败回退本地 .assets 落盘。null = 两条路都失败（调用方跳过该图）。
- * 失败/成功均以 toast 呈现（imageUploaded/imageUploadFailed/imageSaveFailed）。
+ * 失败/成功均以 toast 呈现（imageUploaded/imageUploadFailed/picgoUnreachable/imageSaveFailed）。
+ * 本函数不 reject：上传链路的任何异常都归一化为回退本地,调用方的占位符/遮罩总能收尾。
  */
 export async function persistImage(
   file: FileEntry,
@@ -83,13 +84,28 @@ export async function persistImage(
   const { dir, assetsDir } = assetsDirFor(docPath)
   const name = file.name
   if (ui.upload.enabled) {
-    const res = await window.api.image.upload(name, `data:${file.type};base64,${toBase64(buf)}`)
+    let res: { ok: boolean; url?: string; error?: string; code?: 'unreachable' }
+    try {
+      res = await window.api.image.upload(name, `data:${file.type};base64,${toBase64(buf)}`)
+    } catch (err) {
+      // IPC reject 兜底（正常失败已在主进程归一化为 {ok:false}）
+      console.warn('[editor] image upload ipc rejected:', err)
+      res = { ok: false, error: String(err) }
+    }
+    // 双保险：主进程未升级时拿不到 code,从错误串里识别连接拒绝/超时
+    if (!res.ok && res.code !== 'unreachable' && res.error) {
+      const e = res.error
+      if (/ERR_CONNECTION_REFUSED|ECONNREFUSED/i.test(e)) res = { ...res, code: 'unreachable' }
+    }
     if (res.ok && res.url) {
       ui.showToast(t('editor.imageUploaded', { name }))
       return `![${name}|center](${res.url})`
     }
     console.warn('[editor] image upload failed, fallback to .assets:', res.error)
-    ui.showToast(t('editor.imageUploadFailed'))
+    // 服务端连不上（典型：设置了图床但本地 PicGo 没启动）→ 点名提示;其余失败走通用文案
+    ui.showToast(
+      res.code === 'unreachable' ? t('editor.picgoUnreachable') : t('editor.imageUploadFailed')
+    )
   }
   try {
     await window.api.fs.writeFileBinary(`${dir}/${assetsDir}/${name}`, toBase64(buf))

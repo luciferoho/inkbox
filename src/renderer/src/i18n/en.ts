@@ -193,6 +193,8 @@ export const en: MsgSchema = {
   'editor.imageSaveFailed': 'Failed to save image: {name}',  'editor.imageUploaded': 'Uploaded to image host: {name}',
   'editor.imageUploading': 'Uploading image…',
   'editor.imageUploadFailed': 'Upload failed, saved to local .assets instead',
+  'editor.picgoUnreachable':
+    'Cannot reach the image host — check that local PicGo is running; saved to local .assets instead',
 
   'editor.imagesInserted': 'Inserted {n} image(s) into {dir}/',
 

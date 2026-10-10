@@ -195,6 +195,7 @@ export const zh = {
   'editor.imageSaveFailed': '图片保存失败：{name}',  'editor.imageUploaded': '已上传图床：{name}',
   'editor.imageUploading': '图片上传中…',
   'editor.imageUploadFailed': '图床上传失败，已回退本地保存',
+  'editor.picgoUnreachable': '无法连接图床服务，请检查本地 PicGo 是否已启动；已回退本地保存',
 
   'editor.imagesInserted': '已插入 {n} 张图片到 {dir}/',
 

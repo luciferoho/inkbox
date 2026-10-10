@@ -163,8 +163,11 @@ const api = {
     }
   },
   image: {
-    /** 图床上传（PicGo server 协议）：返回 {ok, url} 或 {ok:false, error}，失败由调用方回退本地 */
-    upload: (fileName: string, dataUrl: string): Promise<{ ok: boolean; url?: string; error?: string }> =>
+    /** 图床上传（PicGo server 协议）：返回 {ok, url} 或 {ok:false, error, code?}，code='unreachable' 表示服务端连不上（PicGo 未启动等）；失败由调用方回退本地 */
+    upload: (
+      fileName: string,
+      dataUrl: string
+    ): Promise<{ ok: boolean; url?: string; error?: string; code?: 'unreachable' }> =>
       ipcRenderer.invoke('image:upload', fileName, dataUrl)
   },
   plugin: {

@@ -78,7 +78,7 @@ interface Window {
       onConfigChanged(cb: (cfg: import('@shared/types').AppConfig) => void): () => void
     }
     image: {
-      upload(fileName: string, dataUrl: string): Promise<{ ok: boolean; url?: string; error?: string }>
+      upload(fileName: string, dataUrl: string): Promise<{ ok: boolean; url?: string; error?: string; code?: 'unreachable' }>
     }
     plugin: {
       list(): Promise<import('@shared/types').PluginInfo[]>
