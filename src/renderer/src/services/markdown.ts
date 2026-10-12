@@ -39,6 +39,7 @@ import xml from 'highlight.js/lib/languages/xml'
 import yaml from 'highlight.js/lib/languages/yaml'
 import 'katex/dist/katex.min.css'
 import { t } from '@/i18n'
+import { applyCopiedFeedback, COPY_ICON, writeClipboard } from '@/editor/code-copy'
 
 for (const [name, lang] of Object.entries({
   bash,
@@ -426,34 +427,6 @@ export function ensureMath(src: string): Promise<void> {
 
 /* ---------- 代码块 chrome：语言标签栏 + 复制按钮（md-preview 渲染管线） ---------- */
 
-const COPY_ICON =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
-  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-  '<rect x="9" y="9" width="13" height="13" rx="2"/>' +
-  '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
-const COPIED_ICON =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" ' +
-  'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>'
-
-async function writeClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    // 回退：clipboard API 不可用（如非安全上下文）时走 execCommand
-    const ta = document.createElement('textarea')
-    ta.value = text
-    ta.style.position = 'fixed'
-    ta.style.opacity = '0'
-    document.body.appendChild(ta)
-    ta.select()
-    const ok = document.execCommand('copy')
-    ta.remove()
-    return ok
-  }
-}
-
-/** document 级事件委托：渲染管线产出的所有复制按钮共用一个监听器 */
 let codeCopyBound = false
 function ensureCodeCopyHandler(): void {
   if (codeCopyBound) return
@@ -466,15 +439,7 @@ function ensureCodeCopyHandler(): void {
     const text = btn.closest('.md-code')?.querySelector('pre')?.textContent ?? ''
     if (!text) return
     void writeClipboard(text).then((ok) => {
-      if (!ok) return
-      btn.classList.add('is-copied')
-      btn.innerHTML = COPIED_ICON
-      btn.title = t('code.copied')
-      window.setTimeout(() => {
-        btn.classList.remove('is-copied')
-        btn.innerHTML = COPY_ICON
-        btn.title = t('code.copy')
-      }, 1200)
+      if (ok) applyCopiedFeedback(btn, t('code.copied'), t('code.copy'))
     })
   })
 }

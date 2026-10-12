@@ -99,6 +99,57 @@
   color: inherit;
 }
 
+/* 代码块 chrome：语言标签栏 + 复制按钮（pm-codeblock-chrome 的 widget 栏 + 相邻 pre） */
+.wysiwyg-host .luci-prose .md-code-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px 4px 14px;
+  margin: 1em 0 0;
+  background: var(--code-bar);
+  border: 1px solid var(--code-edge);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  user-select: none;
+}
+.wysiwyg-host .luci-prose .md-code-bar + pre {
+  margin-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.wysiwyg-host .luci-prose .md-code-lang {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--code-comment);
+}
+.wysiwyg-host .luci-prose .md-code-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--code-comment);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.wysiwyg-host .luci-prose .md-code-copy:hover {
+  color: var(--code-fg);
+  background: var(--code-edge);
+}
+.wysiwyg-host .luci-prose .md-code-copy.is-copied {
+  color: var(--accent);
+}
+.wysiwyg-host .luci-prose .md-code-copy svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
 /* 引用：琥珀细条 + 淡琥珀底（与 preview.css 同一套语言,勿用选区蓝） */
 .wysiwyg-host .luci-prose blockquote {
   margin: 1em 0;

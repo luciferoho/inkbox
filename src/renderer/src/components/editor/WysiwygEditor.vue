@@ -46,6 +46,7 @@ import {
 import { createCenterPlugin } from '@/editor/pm-center'
 import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createElementToolbar, type ElToolbarState } from '@/editor/pm-element-toolbar'
+import { createCodeblockChromePlugin } from '@/editor/pm-codeblock-chrome'
 import { parseAltMods, buildAltMods, stepWidth, luciToDisplaySrc, type ImageMods } from '@/editor/image-utils'
 import { t } from '@/i18n'
 // 图片修饰符即显渲染:extendSchema 返回新 holder,须 .use 挂载生效
@@ -363,6 +364,8 @@ const elToolbarPlugin = $prose(() =>
     elToolbar.value = state
   })
 )
+// 代码块 chrome：语言标签栏 + 复制按钮（每块上方 widget 栏）
+const codeblockChromePlugin = $prose(() => createCodeblockChromePlugin())
 
 /* ---------- 元素工具条:图片/表格操作 ---------- */
 
@@ -546,6 +549,7 @@ onMounted(() => {
     .use(centerProsePlugin)
     .use(wysiwygImagePlugin)
     .use(elToolbarPlugin)
+    .use(codeblockChromePlugin)
   void instance.create().then((e) => {
     editor = e
     // 开发期调试钩子：CDP 查 PM 文档 JSON / 序列化输出 / 内部 remark mdast
