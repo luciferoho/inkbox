@@ -283,6 +283,9 @@ export const en: MsgSchema = {
 
   // Export dialog
   'export.title': 'Export document',
+  // Code block copy button (md-preview pipeline)
+  'code.copy': 'Copy code',
+  'code.copied': 'Copied',
   'export.fileName': 'File name',
   'export.nameRequired': 'Please enter a file name',
   'export.format': 'Format',

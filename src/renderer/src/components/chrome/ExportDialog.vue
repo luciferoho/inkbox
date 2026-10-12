@@ -130,7 +130,11 @@ watch(
 function activePreviewHtml(): string | null {
   const preview = document.querySelector('.md-preview')
   if (!preview || !preview.innerHTML.trim()) return null
-  return preview.innerHTML
+  // 剥离预览专用的代码块 chrome（语言标签栏/复制按钮），导出产物保持纯净结构
+  const clone = preview.cloneNode(true) as HTMLElement
+  clone.querySelectorAll('.md-code-bar').forEach((el) => el.remove())
+  clone.querySelectorAll('.md-code').forEach((el) => el.replaceWith(...el.childNodes))
+  return clone.innerHTML
 }
 
 /* pdf.js 模块懒加载（约 400KB，导出对话框才用到） */

@@ -27,6 +27,7 @@
 
   /* 代码块（浅底暖纸）与语法配色：hljs 各类目一令牌，preview/wysiwyg/导出共用 */
   --code-bg: #f2ecdf;
+  --code-bar: #eae2d2;
   --code-fg: #2b2420;
   --code-edge: rgba(38, 32, 25, 0.08);
   --code-comment: #9c9184;
@@ -83,6 +84,7 @@
 
   /* 代码块（暗底暖墨）：维持深底形态，令牌与亮色同名 */
   --code-bg: #26201a;
+  --code-bar: #1d1812;
   --code-fg: #ece4d8;
   --code-edge: rgba(255, 244, 230, 0.07);
   --code-comment: #8a7f70;

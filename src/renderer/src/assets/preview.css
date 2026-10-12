@@ -92,6 +92,61 @@
   color: inherit;
 }
 
+/* 代码块 chrome：语言标签栏 + 复制按钮（fence 渲染包 .md-code 容器） */
+.md-preview .md-code {
+  position: relative;
+  margin: 1em 0;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px var(--code-edge);
+  overflow: hidden;
+}
+.md-preview .md-code-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px 4px 14px;
+  background: var(--code-bar);
+  border-bottom: 1px solid var(--code-edge);
+}
+.md-preview .md-code-lang {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--code-comment);
+  user-select: none;
+}
+.md-preview .md-code-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--code-comment);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.md-preview .md-code-copy:hover {
+  color: var(--code-fg);
+  background: var(--code-edge);
+}
+.md-preview .md-code-copy.is-copied {
+  color: var(--accent);
+}
+.md-preview .md-code-copy svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+.md-preview .md-code pre {
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 /* 引用：琥珀细条 */
 .md-preview blockquote {
   margin: 1em 0;

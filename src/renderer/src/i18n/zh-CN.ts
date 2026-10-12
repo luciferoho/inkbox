@@ -284,6 +284,9 @@ export const zh = {
 
   // 导出对话框
   'export.title': '导出文档',
+  // 代码块复制按钮（md-preview 渲染管线）
+  'code.copy': '复制代码',
+  'code.copied': '已复制',
   'export.fileName': '文件名',
   'export.nameRequired': '请填写导出文件名',
   'export.format': '格式',
