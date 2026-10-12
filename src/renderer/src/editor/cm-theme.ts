@@ -1,5 +1,6 @@
 import { EditorView } from '@codemirror/view'
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import { foldGutter, HighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import type { Extension } from '@codemirror/state'
 import { tags as t } from '@lezer/highlight'
 
 /**
@@ -40,6 +41,27 @@ const luciBase = EditorView.theme({
   '.cm-activeLineGutter': {
     color: 'var(--accent)',
     backgroundColor: 'transparent'
+  },
+  /* 折叠箭头（luciFoldGutter 自定义 marker）：圆角 chevron，替换默认尖角字形 */
+  '.cm-fold-chevron': {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '16px',
+    height: '16px',
+    borderRadius: '5px',
+    color: 'var(--text-2)',
+    cursor: 'pointer',
+    transition: 'color 0.15s ease, background 0.15s ease'
+  },
+  '.cm-fold-chevron:hover': {
+    color: 'var(--accent)',
+    backgroundColor: 'var(--accent-soft)'
+  },
+  '.cm-fold-chevron svg': {
+    width: '12px',
+    height: '12px',
+    display: 'block'
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
     backgroundColor: 'var(--selection) !important'
@@ -172,3 +194,25 @@ const luciHighlight = HighlightStyle.define([
 ])
 
 export const luciTheme = [luciBase, syntaxHighlighting(luciHighlight)]
+
+/**
+ * 折叠 gutter：用圆角 chevron 替换默认的尖角字形 marker
+ * （defaultHighlightStyle 邻接，供源码/双栏编辑器替代 basicSetup 内置 foldGutter）
+ */
+const FOLD_CHEVRON_DOWN =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+  'stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>'
+const FOLD_CHEVRON_RIGHT =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+  'stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>'
+
+export function luciFoldGutter(): Extension {
+  return foldGutter({
+    markerDOM: (open) => {
+      const span = document.createElement('span')
+      span.className = 'cm-fold-chevron'
+      span.innerHTML = open ? FOLD_CHEVRON_DOWN : FOLD_CHEVRON_RIGHT
+      return span
+    }
+  })
+}

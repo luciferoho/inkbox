@@ -96,8 +96,9 @@
 .md-preview .md-code {
   position: relative;
   margin: 1em 0;
+  border: 1px solid var(--code-edge);
   border-radius: 10px;
-  box-shadow: inset 0 0 0 1px var(--code-edge);
+  background: var(--code-bar);
   overflow: hidden;
 }
 .md-preview .md-code-bar {

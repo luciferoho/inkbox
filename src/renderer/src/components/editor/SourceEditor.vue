@@ -1,14 +1,49 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { EditorView, keymap, type Command, type ViewUpdate } from '@codemirror/view'
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  highlightActiveLine,
+  drawSelection,
+  dropCursor,
+  rectangularSelection,
+  crosshairCursor,
+  type Command,
+  type ViewUpdate
+} from '@codemirror/view'
 import { Compartment, EditorState, type Extension } from '@codemirror/state'
-import { basicSetup } from 'codemirror'
+import {
+  closeBrackets,
+  closeBracketsKeymap,
+  autocompletion,
+  completionKeymap
+} from '@codemirror/autocomplete'
+import {
+  foldKeymap,
+  indentOnInput,
+  bracketMatching,
+  syntaxHighlighting,
+  defaultHighlightStyle
+} from '@codemirror/language'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
-import { search, SearchQuery, setSearchQuery, findNext, findPrevious, replaceNext, replaceAll as cmReplaceAll } from '@codemirror/search'
+import {
+  search,
+  searchKeymap,
+  highlightSelectionMatches,
+  SearchQuery,
+  setSearchQuery,
+  findNext,
+  findPrevious,
+  replaceNext,
+  replaceAll as cmReplaceAll
+} from '@codemirror/search'
 import { luciFindHighlight, setLuciFindQuery } from '@/editor/cm-find-highlight'
-import { indentWithTab } from '@codemirror/commands'
-import { luciTheme } from '@/editor/cm-theme'
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { luciTheme, luciFoldGutter } from '@/editor/cm-theme'
 import { yamlFrontmatter } from '@/editor/cm-frontmatter'
 import { cmPhrases } from '@/editor/cm-i18n'
 import {
@@ -130,7 +165,33 @@ function makeState(content: string): EditorState {
         { key: 'Enter', run: (v) => (vimOwnsKey(v) ? vimHandle(v, '<CR>') : continueList(v)) },
         { key: 'Backspace', run: (v) => (vimOwnsKey(v) ? vimHandle(v, '<BS>') : deleteListMarker(v)) }
       ]),
-      basicSetup,
+      // 显式组装基础扩展（替代 basicSetup）：组成一致，折叠 gutter 换自定义
+      // 圆角 chevron（luciFoldGutter）；lint 键位未纳入（项目无 lint 扩展）
+      lineNumbers(),
+      highlightActiveLineGutter(),
+      highlightSpecialChars(),
+      history(),
+      luciFoldGutter(),
+      drawSelection(),
+      dropCursor(),
+      EditorState.allowMultipleSelections.of(true),
+      indentOnInput(),
+      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      bracketMatching(),
+      closeBrackets(),
+      autocompletion(),
+      rectangularSelection(),
+      crosshairCursor(),
+      highlightActiveLine(),
+      highlightSelectionMatches(),
+      keymap.of([
+        ...closeBracketsKeymap,
+        ...defaultKeymap,
+        ...searchKeymap,
+        ...historyKeymap,
+        ...foldKeymap,
+        ...completionKeymap
+      ]),
       markdown({ base: markdownLanguage, codeLanguages: languages, addKeymap: false, extensions: [yamlFrontmatter] }),
       search({ top: true }),
       luciFindHighlight(),
