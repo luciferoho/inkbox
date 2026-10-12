@@ -86,7 +86,8 @@
   --code-bg: #26201a;
   --code-bar: #1d1812;
   --code-fg: #ece4d8;
-  --code-edge: rgba(255, 244, 230, 0.07);
+  /* 描边 7% 太淡：暗色下代码块与纸卡同色系，边界糊（看着费眼睛），加重到 16% */
+  --code-edge: rgba(255, 244, 230, 0.16);
   --code-comment: #8a7f70;
   --code-keyword: #f4c67f;
   --code-string: #a8c98a;
