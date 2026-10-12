@@ -12,6 +12,16 @@ asar: true
 extraResources:
   - from: build/icon.png
     to: icon.png
+# Win10 磁贴清单：放在 exe 旁覆盖「从图标推导磁贴底色」的默认行为
+# （否则近黑图标被推导成浅灰互补色，与深色主题磁贴不协调）。需在快捷方式创建前就位。
+# 配套 tile-*.png 为不透明合成磁贴图（墨脊底+居中星形），见清单注释。
+extraFiles:
+  - from: build/Inkbox.VisualElementsManifest.xml
+    to: Inkbox.VisualElementsManifest.xml
+  - from: build/tile-150.png
+    to: tile-150.png
+  - from: build/tile-70.png
+    to: tile-70.png
   # 内置插件：随包分发（主进程 builtinRoot 打包后从 resources/ 读取）
   - from: builtin-plugins
     to: builtin-plugins
@@ -32,7 +42,8 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
-  shortcutName: 墨匣 Inkbox
+  # 快捷方式名保持纯产品名：升级安装时 NSIS 会按注册表记录的旧名自动重命名旧 lnk
+  shortcutName: Inkbox
   artifactName: ${productName}-${version}-setup.${ext}
   # 未签名告警不影响本地构建；正式分发前再配置签名（M5 后续）
 portable:

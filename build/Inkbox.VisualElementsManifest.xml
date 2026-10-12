@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Windows 10 磁贴清单：显式指定开始菜单磁贴背景色。
+  Win10（8.1+）默认从应用图标推导磁贴底色——墨匣图标近黑低饱和，
+  被推导成浅灰「互补色」(#949493)，与深色主题下其他磁贴不协调。
+  本文件须与 Inkbox.exe 同目录、且在快捷方式创建前就位（微软文档：
+  how-to-customize-start-screen-tiles-for-desktop-apps）。
+  注意：不要添加 Square150x150Logo/Square70x70Logo——manifest logo
+  会按 1:1 铺满磁贴（图标过大），且透明通道渲染不保证；不提供 logo 时
+  系统自动用 exe 图标缩小居中、名称显示在磁贴下方，与其他应用一致。
+  修改本文件后需碰 .lnk 时间戳让 shell 重新解析；已固定的磁贴还要
+  「取消固定→重新固定」才会重新渲染。
+-->
+<Application xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <!-- 本机 Win10 实测：磁贴背景色渲染时不采纳清单 BackgroundColor（VS Code 的
+       #2D2D30 同样未生效，系统按「图标亮度互补色」自动定底），唯一稳定生效的
+       是 logo 图片——因此采用 VS Code 同款做法：不透明合成 logo（墨脊底 + 居中
+       琥珀星，星占 42% 避免占满磁贴）铺满磁贴，视觉完全确定。
+       ShowNameOnSquare150x150Logo 与 ForegroundText 为必需属性。 -->
+  <VisualElements
+    BackgroundColor="#26201A"
+    Square150x150Logo="tile-150.png"
+    Square70x70Logo="tile-70.png"
+    ShowNameOnSquare150x150Logo="on"
+    ForegroundText="light"
+    ShortDisplayName="Inkbox" />
+</Application>
