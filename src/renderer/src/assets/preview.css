@@ -94,7 +94,9 @@
 
 /* 代码块 chrome：语言标签栏 + 复制按钮（fence 渲染包 .md-code 容器） */
 .md-preview .md-code {
-  position: relative;
+  /* 注意：这里不能加 position:relative——内部 pre[data-source-line] 的
+     offsetTop 是滚动映射（双栏同步）的坐标依据，relative 会把它变成
+     局部坐标，导致滚动同步跳变（2026-10 实测） */
   margin: 1em 0;
   border: 1px solid var(--code-edge);
   border-radius: 10px;

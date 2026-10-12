@@ -88,12 +88,12 @@ function activeDocDir(): string | null {
   return sepIdx > 0 ? p.slice(0, sepIdx) : null
 }
 
-/* 双栏同步滚动（仅 split 模式生效） */
-function onEditorSync(line: number, frac: number): void {
-  if (ui.editorMode === 'split') previewRef.value?.syncToLine(line, frac)
+/* 双栏同步滚动（仅 split 模式生效）；edge=顶/底端点显式对齐 */
+function onEditorSync(line: number, frac: number, edge: 'top' | 'bottom' | null = null): void {
+  if (ui.editorMode === 'split') previewRef.value?.syncToLine(line, frac, edge)
 }
-function onPreviewSync(line: number, frac: number): void {
-  if (ui.editorMode === 'split') editorRef.value?.syncToLine(line, frac)
+function onPreviewSync(line: number, frac: number, edge: 'top' | 'bottom' | null = null): void {
+  if (ui.editorMode === 'split') editorRef.value?.syncToLine(line, frac, edge)
 }
 
 /* 双栏联动：光标在图片语法上 → 预览对应图高亮；离开双栏清掉 */

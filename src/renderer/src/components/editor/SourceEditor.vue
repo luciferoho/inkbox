@@ -88,9 +88,12 @@ import {
 } from '@/editor/image-utils'
 
 const emit = defineEmits<{
-  (e: 'scroll-sync', line: number, frac: number): void
+  (e: 'scroll-sync', line: number, frac: number, edge: ScrollEdge): void
   (e: 'image-focus', line: number | null, k: number): void
 }>()
+
+/** 滚动到顶/底的显式信号：两侧视口高度不同，「行贴顶」模型到不了同一端点 */
+type ScrollEdge = 'top' | 'bottom' | null
 
 const ui = useUiStore()
 const docs = useDocumentsStore()
@@ -514,6 +517,16 @@ function onScrollDom(): void {
     // 排队期间若刚发生过程序同步，丢弃本次陈旧行号，避免回声
     if (!view || Date.now() < lockUntil) return
     const sd = view.scrollDOM
+    // 顶/底边缘发显式信号（编辑器底部有 40vh 内边距，「滚到底」时
+    // 视口顶行远小于末行，插值模型无法把预览也带到同一端点）
+    if (sd.scrollTop + sd.clientHeight >= sd.scrollHeight - 4) {
+      emit('scroll-sync', Number.MAX_SAFE_INTEGER, 0, 'bottom')
+      return
+    }
+    if (sd.scrollTop <= 2) {
+      emit('scroll-sync', 0, 0, 'top')
+      return
+    }
     const rect = sd.getBoundingClientRect()
     // posAtCoords 接收视口（client）坐标：取文本区中部、视口顶下方 4px
     const pos = view.posAtCoords({ x: rect.left + sd.clientWidth * 0.4, y: rect.top + 4 })
@@ -521,20 +534,28 @@ function onScrollDom(): void {
       pos !== null
         ? view.state.doc.lineAt(pos).number
         : view.state.doc.lineAt(view.state.selection.main.head).number
-    emit('scroll-sync', line, 0)
+    emit('scroll-sync', line, 0, null)
   }, 16)
 }
 
 /* 预览滚动 → 同步编辑器：
    直接按高度图估算设置 scrollTop（不依赖渲染帧），再让 scrollIntoView 在
    可见环境下用精确测量修正。两者目标一致（该行贴视口顶），不会互相打架。 */
-function syncToLine(line: number, _frac: number): void {
+function syncToLine(line: number, _frac: number, edge: ScrollEdge = null): void {
   if (!view) return
+  const sd = view.scrollDOM
+  lockUntil = Date.now() + 120
+  if (edge === 'bottom') {
+    sd.scrollTop = sd.scrollHeight
+    return
+  }
+  if (edge === 'top') {
+    sd.scrollTop = 0
+    return
+  }
   const ln = Math.min(Math.max(1, Math.round(line)), view.state.doc.lines)
   const pos = view.state.doc.line(ln).from
-  const sd = view.scrollDOM
   const content = sd.querySelector<HTMLElement>('.cm-content')
-  lockUntil = Date.now() + 120
   const block = view.lineBlockAt(pos)
   sd.scrollTop = Math.max(0, block.top + (content?.offsetTop ?? 0) - 6)
   view.dispatch({

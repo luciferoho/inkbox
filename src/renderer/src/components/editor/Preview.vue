@@ -7,7 +7,12 @@ import FindBar from './FindBar.vue'
 import '@/assets/preview.css'
 
 const props = defineProps<{ content: string; docDir: string | null }>()
-const emit = defineEmits<{ (e: 'scroll-sync', line: number, frac: number): void }>()
+const emit = defineEmits<{
+  (e: 'scroll-sync', line: number, frac: number, edge: ScrollEdge): void
+}>()
+
+/** 滚动到顶/底的显式信号：两侧视口高度不同，「行贴顶」模型到不了同一个端点 */
+type ScrollEdge = 'top' | 'bottom' | null
 
 const ui = useUiStore()
 const scroller = ref<HTMLElement | null>(null)
@@ -419,10 +424,14 @@ async function renderMermaid(): Promise<void> {
 
 function collectBlocks(): void {
   if (!body.value) return
+  /* top 用 rect 差值而非 offsetTop：offsetTop 相对最近的定位祖先，块内一旦
+     出现 relative 容器（如曾经的 .md-code）就会退化为局部坐标，滚动映射
+     整段跳变；rect 差值对任何中间定位祖先免疫 */
+  const bodyTop = body.value.getBoundingClientRect().top
   blocks = [...body.value.querySelectorAll<HTMLElement>('[data-source-line]')].map((el) => ({
     line: Number(el.dataset.sourceLine) + 1,
     end: Math.max(Number(el.dataset.sourceLine) + 1, Number(el.dataset.sourceLineEnd)),
-    top: el.offsetTop,
+    top: el.getBoundingClientRect().top - bodyTop,
     height: el.offsetHeight
   }))
   // 脚注区补锚：markdown-it-footnote 的 section 没有 data-source-line
@@ -431,7 +440,12 @@ function collectBlocks(): void {
   const foot = body.value.querySelector<HTMLElement>('.footnotes')
   if (foot) {
     const totalLines = props.content ? props.content.split('\n').length : 1
-    blocks.push({ line: totalLines, end: totalLines, top: foot.offsetTop, height: foot.offsetHeight })
+    blocks.push({
+      line: totalLines,
+      end: totalLines,
+      top: foot.getBoundingClientRect().top - bodyTop,
+      height: foot.offsetHeight
+    })
   }
 }
 
@@ -449,22 +463,49 @@ function blockAtScrollTop(st: number): { i: number; f: number } {
   return { i, f }
 }
 
-/* 预览滚动 → 通知编辑器：块内按行跨度插值出行号 */
+/* 预览滚动 → 通知编辑器：块内按行跨度插值出行号；
+   顶/底边缘发显式信号（两侧视口高度不同，插值模型到不了同一端点） */
+function edgeOf(el: HTMLElement): ScrollEdge {
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 4) return 'bottom'
+  if (el.scrollTop <= 2) return 'top'
+  return null
+}
+
 function onScrollDom(): void {
   if (Date.now() < lockUntil) return
   const el = scroller.value
   if (!el || blocks.length === 0) return
+  const edge = edgeOf(el)
+  if (edge) {
+    emit('scroll-sync', edge === 'bottom' ? Number.MAX_SAFE_INTEGER : 0, 0, edge)
+    return
+  }
   const { i, f } = blockAtScrollTop(el.scrollTop)
   const cur = blocks[i]
   const next = blocks[i + 1]
   const lineSpan = next ? next.line - cur.line : Math.max(1, cur.end - cur.line)
-  emit('scroll-sync', cur.line + f * lineSpan, 0)
+  emit('scroll-sync', cur.line + f * lineSpan, 0, null)
 }
 
-/* 编辑器滚动 → 同步预览：目标行落在哪个块内，块内按高度比例插值 */
-function syncToLine(line: number, _frac: number): void {
+/* 编辑器滚动 → 同步预览：目标行落在哪个块内，块内按高度比例插值；
+   顶/底边缘信号直接对齐端点（编辑器底部有 40vh 内边距，插值模型
+   两侧「滚到底」的最大滚动量不一致，必须显式对齐） */
+/** 最近一次源码侧同步的目标行：图片加载撑高预览后，按它把预览重新对齐 */
+let lastSyncLine: number | null = null
+
+function syncToLine(line: number, _frac: number, edge: ScrollEdge = null): void {
   const el = scroller.value
   if (!el || blocks.length === 0) return
+  lastSyncLine = edge ? null : line
+  lockUntil = Date.now() + 120
+  if (edge === 'bottom') {
+    el.scrollTop = el.scrollHeight
+    return
+  }
+  if (edge === 'top') {
+    el.scrollTop = 0
+    return
+  }
   let i = 0
   for (let k = 0; k < blocks.length; k++) {
     if (blocks[k].line <= line) i = k
@@ -475,7 +516,6 @@ function syncToLine(line: number, _frac: number): void {
   const lineSpan = next ? next.line - cur.line : Math.max(1, cur.end - cur.line)
   const f = Math.min(1, Math.max(0, (line - cur.line) / lineSpan))
   const topSpan = next ? next.top - cur.top : Math.max(1, cur.height)
-  lockUntil = Date.now() + 120
   el.scrollTop = Math.max(0, cur.top + f * topSpan - 6)
 }
 
@@ -644,9 +684,19 @@ function onClickDom(e: MouseEvent): void {
 
 let resizeObserver: ResizeObserver | undefined
 
+/** 图片加载完成会撑高预览（加载前 img 无高度，映射表按占位高度收集）：
+    load 不冒泡，捕获委托重收集锚点，并按源码侧最近目标行把预览重新对齐，
+    否则图片多的文档在加载窗口期滚动后，两侧会停留在错位状态 */
+function onImgLoad(): void {
+  collectBlocks()
+  const line = lastSyncLine
+  if (line !== null) syncToLine(line, 0)
+}
+
 onMounted(() => {
   scroller.value?.addEventListener('scroll', onScrollDom, { passive: true })
   scroller.value?.addEventListener('click', onClickDom)
+  scroller.value?.addEventListener('load', onImgLoad, { capture: true, passive: true })
   // 字体加载/窗口缩放/图表渲染后块位置会变，重收集保持映射准确
   resizeObserver = new ResizeObserver(() => collectBlocks())
   if (scroller.value) resizeObserver.observe(scroller.value)
@@ -656,6 +706,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   scroller.value?.removeEventListener('scroll', onScrollDom)
   scroller.value?.removeEventListener('click', onClickDom)
+  scroller.value?.removeEventListener('load', onImgLoad, { capture: true })
   resizeObserver?.disconnect()
   disconnectMermaidObserver()
   window.clearTimeout(renderTimer)
