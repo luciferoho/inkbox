@@ -4,6 +4,7 @@ import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import { useDocumentsStore } from '@/stores/documents'
 import { useUiStore } from '@/stores/ui'
 import { persistImage, fileExt, toLuciImgUrl } from '@/editor/image-persist'
+import { registerPmView } from '@/editor/pm-registry'
 import { t } from '@/i18n'
 
 /**
@@ -16,6 +17,8 @@ import { t } from '@/i18n'
 
 interface UploadMask {
   uid: string
+  /** 遮罩跟踪哪些图片：粘贴占位按 src 尾部 #uid 匹配；已有图片按 src 全等匹配 */
+  matches: (src: string) => boolean
   view: EditorView
   el: HTMLDivElement
   onScroll: () => void
@@ -46,14 +49,18 @@ export function createWysiwygImagePlugin(): Plugin {
       }
     },
     // 文档变化（打字/换行）时重定位所有遮罩,保持盖在图片上
-    view: (editorView) => ({
-      update: (v) => relocateForView(v),
-      destroy: () => {
-        for (const [uid, m] of [...masks]) {
-          if (m.view === editorView) removeMask(uid)
+    view: (editorView) => {
+      const unregister = registerPmView(editorView)
+      return {
+        update: (v) => relocateForView(v),
+        destroy: () => {
+          unregister()
+          for (const [uid, m] of [...masks]) {
+            if (m.view === editorView) removeMask(uid)
+          }
         }
       }
-    })
+    }
   })
 }
 
@@ -79,7 +86,7 @@ async function handleImages(files: File[], view: EditorView, drop?: DragEvent): 
     const uid = `${Date.now()}-${++seq}`
     const fullSrc = `data:${file.type};base64,${toBase64Safe(buf)}#${uid}`
     insertPlaceholder(view, fullSrc, `${name}|center`, uid, drop)
-    createMask(view, uid)
+    createMask(view, uid, (s) => srcEndsWithUid(s, uid))
 
     const link = await persistImage({ name, type: file.type }, buf, docPath).catch((err) => {
       // persistImage 理论上不 reject,这里兜底保证占位图/遮罩总能收尾,不留永久「上传中」
@@ -96,7 +103,7 @@ async function handleImages(files: File[], view: EditorView, drop?: DragEvent): 
             : toLuciImgUrl(docPath, raw)
           // 先把目标图加载进缓存再换 src：替换瞬间即取即显,不留空白
           await preloadImage(finalSrc)
-          swapSrc(view, uid, finalSrc)
+          swapSrc(view, (s) => srcEndsWithUid(s, uid), finalSrc)
         } else removePlaceholder(view, uid)
       } else removePlaceholder(view, uid)
     } finally {
@@ -132,10 +139,10 @@ function insertPlaceholder(view: EditorView, src: string, alt: string, uid: stri
   view.dispatch(tr)
 }
 
-function findImgPos(view: EditorView, uid: string): number | null {
+function findImgPos(view: EditorView, m: UploadMask): number | null {
   let found: number | null = null
   view.state.doc.descendants((n, pos) => {
-    if (n.type.name === 'image' && srcEndsWithUid(n.attrs.src as string, uid)) {
+    if (n.type.name === 'image' && m.matches(n.attrs.src as string)) {
       found = pos
       return false
     }
@@ -144,10 +151,10 @@ function findImgPos(view: EditorView, uid: string): number | null {
   return found
 }
 
-function swapSrc(view: EditorView, uid: string, final: string): void {
+function swapSrc(view: EditorView, matches: (src: string) => boolean, final: string): void {
   const found: { pos: number; node: PMNode }[] = []
   view.state.doc.descendants((n, pos) => {
-    if (n.type.name === 'image' && srcEndsWithUid(n.attrs.src as string, uid)) {
+    if (n.type.name === 'image' && matches(n.attrs.src as string)) {
       found.push({ pos, node: n })
     }
   })
@@ -178,7 +185,7 @@ function hostOf(view: EditorView): HTMLElement | null {
   return view.dom.closest('.wysiwyg-host')
 }
 
-function createMask(view: EditorView, uid: string): void {
+function createMask(view: EditorView, uid: string, matches: (src: string) => boolean): void {
   const host = hostOf(view)
   if (!host) return
   const el = document.createElement('div')
@@ -194,14 +201,14 @@ function createMask(view: EditorView, uid: string): void {
   host.addEventListener('scroll', onScroll, { passive: true })
   // 占位图加载/换行导致尺寸变化时重定位（PM doc 不变,update 不会触发）
   const ro = new ResizeObserver(() => positionMask(view, uid))
-  masks.set(uid, { uid, view, el, onScroll, ro, observed: null })
+  masks.set(uid, { uid, matches, view, el, onScroll, ro, observed: null })
   positionMask(view, uid)
 }
 
 function positionMask(view: EditorView, uid: string): void {
   const m = masks.get(uid)
   if (!m || m.el.parentElement !== hostOf(view)) return
-  const imgPos = findImgPos(view, uid)
+  const imgPos = findImgPos(view, m)
   if (imgPos === null) {
     // 图片被用户删除:遮罩一并撤下
     removeMask(uid)
@@ -245,6 +252,26 @@ function removeMask(uid: string): void {
 }
 
 /* ---------- 预加载与工具 ---------- */
+
+/** 已有图片的上传占位（右键「转 PicGo 上传」用）：按 src 全等匹配盖上传中遮罩。
+    与粘贴链路的区别：不插入占位图，原图在上传期间保持可见 */
+export function maskExistingImage(view: EditorView, src: string): void {
+  createMask(view, src, (s) => s === src)
+}
+
+/** 已有图片上传收尾：finalSrc 非空 → 预加载后原地换 src；为 null（失败）→ 只撤遮罩保留原图 */
+export async function unmaskExistingImage(
+  view: EditorView,
+  src: string,
+  finalSrc: string | null
+): Promise<void> {
+  if (finalSrc) {
+    // 先预加载目标图入缓存再换 src：替换瞬间即取即显,不留空白（与粘贴链路一致）
+    await preloadImage(finalSrc)
+    swapSrc(view, (s) => s === src, finalSrc)
+  }
+  removeMask(src)
+}
 
 /** 预加载目标图入缓存（decode 后即显）。10s 兜底永不取消——decode 挂起也不能卡死替换 */
 function preloadImage(src: string): Promise<void> {

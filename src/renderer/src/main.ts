@@ -188,7 +188,11 @@ function installBrowserMock(): void {
     },
     image: {
       // 浏览器 mock：没有图床可传，统一回退本地（mock FS）
-      upload: async () => ({ ok: false, error: 'mock' })
+      upload: async () => ({ ok: false, error: 'mock' }),
+      onPicgoUploadRequest: () => () => undefined,
+      // 浏览器 mock：无主进程剪贴板/资源管理器
+      copyImage: async () => false,
+      openDir: () => undefined
     },
     plugin: {
       // 浏览器 mock：无插件目录可扫，空列表（宿主不装载任何插件）

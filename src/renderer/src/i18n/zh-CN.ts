@@ -191,6 +191,9 @@ export const zh = {
   'img.delete': '删除图片',
   'img.copySrc': '复制图片地址',
   'img.srcCopied': '已复制图片地址',
+  'img.ctxCopyImage': '复制图像',
+  'img.ctxOpenDir': '打开图片所在目录',
+  'img.ctxUploadPicgo': '转 PicGo 上传',
 
   // 编辑器（源码模式）
   'editor.saveFirstForImage': '请先保存文档，再粘贴图片',

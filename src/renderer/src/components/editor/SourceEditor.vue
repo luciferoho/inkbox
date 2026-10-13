@@ -86,6 +86,7 @@ import {
   widthLabel,
   type ImageMods
 } from '@/editor/image-utils'
+import { registerCmView } from '@/editor/cm-registry'
 
 const emit = defineEmits<{
   (e: 'scroll-sync', line: number, frac: number, edge: ScrollEdge): void
@@ -100,6 +101,7 @@ const docs = useDocumentsStore()
 
 const host = ref<HTMLElement | null>(null)
 let view: EditorView | null = null
+let unregisterCm: (() => void) | null = null
 let tabId: number | null = null
 /** 外部整档替换（切标签）不记 dirty、不触发同步 */
 let applying = false
@@ -571,6 +573,7 @@ onMounted(() => {
     state: makeState(docs.active?.content ?? ''),
     parent: host.value
   })
+  unregisterCm = registerCmView(view)
   tabId = docs.activeId
   view.scrollDOM.addEventListener('scroll', onScrollDom, { passive: true })
   // 点击编辑区任意位置（含内边距/行号间隙）都要拿到焦点，避免"点了但打不了字"
@@ -586,6 +589,7 @@ function onHostMousedown(): void {
 onBeforeUnmount(() => {
   host.value?.removeEventListener('mousedown', onHostMousedown)
   view?.scrollDOM.removeEventListener('scroll', onScrollDom)
+  unregisterCm?.()
   view?.destroy()
   view = null
 })

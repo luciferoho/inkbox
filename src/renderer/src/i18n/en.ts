@@ -189,6 +189,9 @@ export const en: MsgSchema = {
   'img.delete': 'Delete Image',
   'img.copySrc': 'Copy image address',
   'img.srcCopied': 'Image address copied',
+  'img.ctxCopyImage': 'Copy image',
+  'img.ctxOpenDir': 'Open image folder',
+  'img.ctxUploadPicgo': 'Upload via PicGo',
 
   // Editor (source mode)
   'editor.saveFirstForImage': 'Save the document before pasting images',

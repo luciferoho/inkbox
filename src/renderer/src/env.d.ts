@@ -79,6 +79,11 @@ interface Window {
     }
     image: {
       upload(fileName: string, dataUrl: string): Promise<{ ok: boolean; url?: string; error?: string; code?: 'unreachable' }>
+      onPicgoUploadRequest(cb: (payload: { src: string }) => void): () => void
+      /** 复制图像数据到剪贴板（可粘贴进微信等任意应用） */
+      copyImage(src: string): Promise<boolean>
+      /** 资源管理器中打开本地图片所在目录并选中 */
+      openDir(src: string): void
     }
     plugin: {
       list(): Promise<import('@shared/types').PluginInfo[]>

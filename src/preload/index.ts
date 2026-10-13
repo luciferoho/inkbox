@@ -168,7 +168,17 @@ const api = {
       fileName: string,
       dataUrl: string
     ): Promise<{ ok: boolean; url?: string; error?: string; code?: 'unreachable' }> =>
-      ipcRenderer.invoke('image:upload', fileName, dataUrl)
+      ipcRenderer.invoke('image:upload', fileName, dataUrl),
+    /** 图片右键菜单「转 PicGo 上传」：主进程菜单点击后通知渲染层执行上传+文档替换 */
+    onPicgoUploadRequest: (cb: (payload: { src: string }) => void): (() => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, payload: { src: string }): void => cb(payload)
+      ipcRenderer.on('image:picgo-upload', listener)
+      return () => ipcRenderer.removeListener('image:picgo-upload', listener)
+    },
+    /** 复制图像数据到剪贴板（nativeImage 在主进程），可粘贴进微信等任意应用 */
+    copyImage: (src: string): Promise<boolean> => ipcRenderer.invoke('image:copy-image', src),
+    /** 资源管理器中打开本地图片所在目录并选中（主进程解 luci-img://） */
+    openDir: (src: string): void => ipcRenderer.send('image:open-dir', src)
   },
   plugin: {
     /** 扫描插件目录（清单校验在主进程），返回全部发现的插件（含 error 项） */

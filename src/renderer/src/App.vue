@@ -3,6 +3,7 @@ import { onMounted, nextTick, defineAsyncComponent } from 'vue'
 import type { MenuCommand, UpdateStatePayload } from '@shared/types'
 import { t } from '@/i18n'
 import { useUiStore } from '@/stores/ui'
+import { initImageContextMenu } from '@/editor/image-context-menu'
 import { useDocumentsStore } from '@/stores/documents'
 import { useWorkspaceStore } from '@/stores/workspace'
 import TitleBar from '@/components/chrome/TitleBar.vue'
@@ -13,6 +14,7 @@ import ShortcutPanel from '@/components/sidebar/ShortcutPanel.vue'
 import EditorArea from '@/components/editor/EditorArea.vue'
 import StatusBar from '@/components/chrome/StatusBar.vue'
 import ImageViewer from '@/components/chrome/ImageViewer.vue'
+import ImageContextMenu from '@/components/chrome/ImageContextMenu.vue'
 import ConfirmDialog from '@/components/chrome/ConfirmDialog.vue'
 import Toast from '@/components/chrome/Toast.vue'
 // 弹窗类按需加载（exporter 连带 pdf/字体资源链，设置页打开频率低）
@@ -98,6 +100,8 @@ useAutosave()
 useDrafts()
 
 onMounted(() => {
+  // 图片右键菜单「转 PicGo 上传」的渲染层执行端（主进程菜单发 image:picgo-upload）
+  initImageContextMenu()
   // 开屏兜底：恢复流程万一卡住，8 秒后强制进入应用
   window.setTimeout(dismissSplash, 8000)
   // 启动编排：偏好 → 初始载荷（窗口键/拖出文档/崩溃标志）→ 备份恢复 → 会话恢复
@@ -250,6 +254,7 @@ async function handleRequestClose(): Promise<void> {
     </div>
     <StatusBar v-if="!ui.zenMode" />
     <ImageViewer />
+    <ImageContextMenu />
     <SettingsDialog />
     <UpdateDialog />
     <ExportDialog />

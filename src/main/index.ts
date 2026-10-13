@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { createMainWindow } from './window'
 import { createMenu, setShortcutOverrides } from './menu'
 import { registerIpcHandlers } from './ipc'
+import { registerImageContextMenu } from './ipc/contextMenu'
 import { createTray, markQuitting, resetQuitting, showMainWindow } from './tray'
 import { initUpdateController } from './updater'
 import { applyLocaleFromConfig } from './i18n'
@@ -63,6 +64,8 @@ if (!gotLock) {
     // 语言偏好要在创建菜单/托盘之前生效
     applyLocaleFromConfig(() => getConfig().locale ?? 'system')
     registerIpcHandlers()
+    // 图片右键菜单（复制图像 / 打开目录 / 转 PicGo 上传）
+    registerImageContextMenu()
 
     // 本地图片协议：预览里的相对路径图片映射为 luci-img://<绝对路径>
     protocol.handle('luci-img', (request) => {
