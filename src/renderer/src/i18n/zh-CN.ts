@@ -284,6 +284,9 @@ export const zh = {
 
   // 导出对话框
   'export.title': '导出文档',
+  'export.theme': '主题',
+  'export.themeLight': '亮色',
+  'export.themeDark': '暗色',
   // 代码块复制按钮（md-preview 渲染管线）
   'code.copy': '复制代码',
   'code.copied': '已复制',

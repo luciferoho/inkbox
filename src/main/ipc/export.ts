@@ -1,6 +1,7 @@
 import { BrowserWindow, app, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createCanvas, loadImage } from '@napi-rs/canvas'
 import type { PdfExportOptions } from '@shared/types'
 import { m } from '../i18n'
 
@@ -113,17 +114,21 @@ export function registerExportIpc(): void {
 /* 40px body 内边距 + 820px 纸面 = 900 */
 const PNG_WIDTH = 900
 const PNG_MAX_HEIGHT = 16000
+/* 分段截帧的单帧高度：必须低于屏幕工作区高度（~1400），否则 offscreen
+   paint 帧会被合成器钳制截断（本机实测） */
+const PNG_CHUNK = 1300
 
 /* capturePage 在 offscreen 模式下抛 UnknownVizError（Windows），
-   改从 paint 事件取整帧：每次 paint 的 image 就是当前完整画面 */
-async function renderPng(html: string): Promise<{ data: Buffer; truncated: boolean }> {
-  const tmp = join(app.getPath('userData'), 'export-tmp.html')
-  await writeFile(tmp, html, 'utf-8')
-  const win = new BrowserWindow({
+   改从 paint 事件取整帧：每次 paint 的 image 就是当前完整画面。
+   注意：offscreen 窗口 setContentSize 拉高后 paint 不会产出新尺寸的帧
+   （实测恒为初始 1200 高）——因此用「两遍渲染」：第一遍量内容高度，
+   第二遍直接按目标高度建窗加载，backing store 创建即分配，无 resize 依赖 */
+function createOffscreen(width: number, height: number): Electron.BrowserWindow {
+  return new BrowserWindow({
     show: false,
     frame: false,
-    width: PNG_WIDTH,
-    height: 1200,
+    width,
+    height,
     webPreferences: {
       sandbox: true,
       contextIsolation: true,
@@ -131,26 +136,111 @@ async function renderPng(html: string): Promise<{ data: Buffer; truncated: boole
       offscreen: true
     }
   })
-  /* 回调里的赋值不参与 TS 控制流分析，用对象属性绕开 never 收窄 */
-  const frame: { image: Electron.NativeImage | null } = { image: null }
-  const onPaint = (_e: Electron.Event, _dirty: Electron.Rectangle, image: Electron.NativeImage): void => {
-    frame.image = image
-  }
+}
+
+/** 等网络图片加载完成再量高度：img 未加载时高度为 0，scrollHeight 只算到
+    占位值，长图会在这里就被截短（5s 兜底：加载慢不无限等） */
+function waitForImagesAndMeasure(win: Electron.BrowserWindow): Promise<number> {
+  return win.webContents.executeJavaScript(`
+      new Promise((resolve) => {
+        const imgs = [...document.images]
+        const done = () => resolve(Math.ceil(document.documentElement.scrollHeight))
+        let left = imgs.length
+        if (!left) return done()
+        const t = setTimeout(done, 5000)
+        imgs.forEach((img) => {
+          const step = () => {
+            if (--left === 0) {
+              clearTimeout(t)
+              done()
+            }
+          }
+          if (img.complete) step()
+          else {
+            img.addEventListener('load', step, { once: true })
+            img.addEventListener('error', step, { once: true })
+          }
+        })
+      })
+    `) as Promise<number>
+}
+
+async function renderPng(html: string): Promise<{ data: Buffer; truncated: boolean }> {
+  const tmp = join(app.getPath('userData'), 'export-tmp.html')
+  await writeFile(tmp, html, 'utf-8')
   try {
-    win.webContents.on('paint', onPaint)
-    await win.loadFile(tmp)
+    /* 第一遍：量内容真实高度（offscreen 探针只读 DOM，够用） */
+    const probe = createOffscreen(PNG_WIDTH, 1200)
+    probe.webContents.setFrameRate(60)
+    await probe.loadFile(tmp)
     await delay(300)
-    const full = await win.webContents.executeJavaScript(
-      'Math.ceil(document.documentElement.scrollHeight)'
-    )
+    const full = await waitForImagesAndMeasure(probe)
+    probe.destroy()
+
     const height = Math.min(Math.max(400, full), PNG_MAX_HEIGHT)
-    win.setContentSize(PNG_WIDTH, height)
-    await delay(500) // 等重排重绘出一帧新图
-    if (!frame.image) throw new Error('PNG render produced no frame')
-    return { data: frame.image.toPNG(), truncated: full > PNG_MAX_HEIGHT }
+    const truncated = full > PNG_MAX_HEIGHT
+
+    /* 第二遍：正式渲染。关键约束（本机实测）：离屏窗口的 paint 帧与
+       capturePage 都被钳制在屏幕工作区高度（~1400，帧缓冲/合成器均按
+       可视区域裁剪），整页一帧必然截断。解法 = 固定矮窗口（1300 < 1400）
+       分段滚动逐屏取帧，主进程用 @napi-rs/canvas 拼成完整长图 */
+    const win = createOffscreen(PNG_WIDTH, PNG_CHUNK)
+    /* 回调里的赋值不参与 TS 控制流分析，用对象属性绕开 never 收窄 */
+    const frame: { image: Electron.NativeImage | null } = { image: null }
+    let paintSeq = 0
+    win.webContents.on('paint', (_e, _dirty, image) => {
+      paintSeq++
+      frame.image = image
+    })
+    try {
+      win.webContents.setFrameRate(60)
+      await win.loadFile(tmp)
+      await delay(300)
+      const full = await waitForImagesAndMeasure(win)
+      const limit = Math.min(full, PNG_MAX_HEIGHT)
+      const truncated = full > PNG_MAX_HEIGHT
+      const theme = /data-theme="dark"/.test(html) ? '#1d1814' : '#f6f2ec'
+
+      /* 滚动条宽度：paint 帧含窗口右侧滚动条，拼接时逐帧裁掉 */
+      const scrollbar = Number(
+        await win.webContents.executeJavaScript(
+          'window.innerWidth - document.documentElement.clientWidth'
+        )
+      )
+      const contentW = PNG_WIDTH - scrollbar
+      const canvas = createCanvas(contentW, limit)
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = theme
+      ctx.fillRect(0, 0, contentW, limit)
+
+      const maxScroll = Math.max(0, limit - PNG_CHUNK)
+      for (let offset = 0; offset < limit; offset += PNG_CHUNK) {
+        const target = Math.min(offset, maxScroll)
+        const before = paintSeq
+        await win.webContents.executeJavaScript(`window.scrollTo(0, ${target})`)
+        /* 等滚动后的重绘帧落地（帧率 60，最多 1.5s），再多稳一帧 */
+        const t0 = Date.now()
+        while (paintSeq <= before && Date.now() - t0 < 1500) await delay(40)
+        await delay(80)
+        if (!frame.image) throw new Error('PNG render produced no frame')
+        const img = await loadImage(frame.image.toPNG())
+        const segH = Math.min(PNG_CHUNK, limit - target)
+        ctx.drawImage(img, 0, 0, contentW, segH, 0, target, contentW, segH)
+        if (target >= maxScroll) break
+      }
+
+      if (truncated) {
+        /* 截断提示不用文字绘制：主进程 canvas 的 font 解析在打包环境会崩
+           （'familie' in undefined），截断本身在对话框里已有 toast 提示 */
+        ctx.fillStyle = 'rgba(214, 106, 85, 0.35)'
+        ctx.fillRect(0, limit - 56, contentW, 56)
+      }
+      console.log(`[export:png] full=${full} limit=${limit} chunks=${Math.ceil(limit / PNG_CHUNK)}`)
+      return { data: canvas.toBuffer('image/png'), truncated }
+    } finally {
+      win.destroy()
+    }
   } finally {
-    win.webContents.off('paint', onPaint)
-    win.destroy()
     await rm(tmp, { force: true }).catch(() => undefined)
   }
 }

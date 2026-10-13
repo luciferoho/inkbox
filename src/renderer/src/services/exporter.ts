@@ -93,9 +93,10 @@ const CODE_TOKENS_DARK = `
   --code-deletion: #d66a55;
 `
 
-/* 纸面亮色主题的设计令牌（导出固定亮色：分享与打印观感一致） */
-const EXPORT_TOKENS = `
+/* 纸面亮色主题的设计令牌（HTML/PNG 导出可选亮暗，PDF 固定亮色白底打印） */
+const EXPORT_TOKENS_LIGHT = `
 :root {
+  --bg: #f6f2ec;
   --surface: #ffffff;
   --surface-2: #efe9e0;
   --border: #e4dcd0;
@@ -105,6 +106,7 @@ const EXPORT_TOKENS = `
   --accent-strong: #b16014;
   --accent-soft: rgba(201, 112, 31, 0.12);
   --danger: #c2503e;
+  --export-shadow: 0 1px 3px rgba(38, 32, 25, 0.05), 0 16px 44px rgba(38, 32, 25, 0.07);
   --radius-m: 10px;
   --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
   --font-serif: Georgia, 'Source Serif SC', 'Noto Serif SC', 'Times New Roman', serif;
@@ -113,11 +115,33 @@ const EXPORT_TOKENS = `
   --preview-line-height: 1.7;
 ${CODE_TOKENS_LIGHT}
 }
-[data-theme='dark'] {
+`
+
+/* 墨匣暗色主题的设计令牌（暗色导出：深底浅字，代码块同为暗色） */
+const EXPORT_TOKENS_DARK = `
+:root {
+  --bg: #1d1814;
+  --surface: #272019;
+  --surface-2: #332a21;
+  --border: #3b3128;
+  --text: #eae2d6;
+  --text-2: #a89d8e;
+  --accent: #e6a054;
+  --accent-strong: #f0b26e;
+  --accent-soft: rgba(230, 160, 84, 0.14);
+  --danger: #d66a55;
+  --export-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 16px 44px rgba(0, 0, 0, 0.4);
+  --radius-m: 10px;
+  --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
+  --font-serif: Georgia, 'Source Serif SC', 'Noto Serif SC', 'Times New Roman', serif;
+  --font-mono: 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  --preview-font-size: 16px;
+  --preview-line-height: 1.7;
 ${CODE_TOKENS_DARK}
 }
-* { box-sizing: border-box; margin: 0; padding: 0; }
 `
+
+const EXPORT_TOKENS_COMMON = `* { box-sizing: border-box; margin: 0; padding: 0; }`
 
 function bufToBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf)
@@ -200,7 +224,10 @@ export async function buildExportHtml(
     inlineImages(previewHtml)
   ])
 
-  /* 打印密度：A4 上 16px 正文太稀，落到 13px / 1.65 行距 */
+  /* 打印密度：A4 上 16px 正文太稀，落到 13px / 1.65 行距。
+     PDF 固定亮色白底（打印观感），theme 选项仅对 HTML/PNG 生效 */
+  const theme = opts.forPrint ? 'light' : opts.theme ?? 'light'
+  const tokens = theme === 'dark' ? EXPORT_TOKENS_DARK : EXPORT_TOKENS_LIGHT
   const pageCss = opts.forPrint
     ? `
 body { background: #fff; padding: 0; }
@@ -217,14 +244,14 @@ body { background: #fff; padding: 0; }
 .md-preview p, .md-preview li { orphans: 2; widows: 2; }
 `
     : `
-body { background: #f6f2ec; padding: 40px 20px 64px; }
+body { background: var(--bg); padding: 40px 20px 64px; }
 .export-page {
   max-width: 820px;
   margin: 0 auto;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
-  box-shadow: 0 1px 3px rgba(38, 32, 25, 0.05), 0 16px 44px rgba(38, 32, 25, 0.07);
+  box-shadow: var(--export-shadow);
 }
 .md-preview { padding: 24px 44px 36px; }
 .md-preview img { cursor: default; }
@@ -234,14 +261,15 @@ body { background: #f6f2ec; padding: 40px 20px 64px; }
 `
 
   /* 关键：容器必须带 .md-preview，preview.css 的全部排版规则以它为前缀。
-     data-theme 注入导出主题：代码块/语法色随应用当前明暗 */
+     data-theme 与令牌集同主题注入：整页（纸面/文字/代码块/语法色）随所选明暗 */
   return `<!doctype html>
-<html lang="zh-CN" data-theme="${opts.theme ?? 'light'}">
+<html lang="zh-CN" data-theme="${theme}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
-<style>${EXPORT_TOKENS}</style>
+<style>${tokens}</style>
+<style>${EXPORT_TOKENS_COMMON}</style>
 <style>${katexInlined}</style>
 <style>${previewCss}</style>
 <style>${pageCss}</style>

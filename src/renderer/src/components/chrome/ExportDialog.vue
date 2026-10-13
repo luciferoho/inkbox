@@ -28,6 +28,8 @@ const FMT_DEFAULT: ExportFmt = 'png'
 const margin = ref<'normal' | 'narrow' | 'none'>('normal')
 const landscape = ref(false)
 const pageNumbers = ref(false)
+/** 导出主题（HTML/PNG）：默认跟随应用当前明暗，可手动切换；PDF 固定亮色 */
+const exportTheme = ref<'light' | 'dark'>(ui.effectiveTheme)
 const fileName = ref('')
 const busy = ref(false)
 const previewHtml = ref('')
@@ -89,7 +91,7 @@ function schedulePreview(): void {
   genTimer = window.setTimeout(() => void regenerate(), 600)
 }
 
-watch([fmt, margin, landscape, pageNumbers], schedulePreview)
+watch([fmt, margin, landscape, pageNumbers, exportTheme], schedulePreview)
 
 /** 对话框每次打开：重置文件名与预览 */
 watch(
@@ -200,7 +202,7 @@ async function regenerate(): Promise<void> {
   const seq = ++genSeq
   generating.value = true
   try {
-    const html = await buildExportHtml(tab.name, body, { forPrint: fmt.value === 'pdf', theme: ui.effectiveTheme })
+    const html = await buildExportHtml(tab.name, body, { forPrint: fmt.value === 'pdf', theme: exportTheme.value })
     if (seq !== genSeq) return
     if (fmt.value === 'pdf') {
       const b64 = await window.api.export.previewPdf(html, {
@@ -264,7 +266,7 @@ async function doExport(): Promise<void> {
   }
   busy.value = true
   try {
-    const html = await buildExportHtml(tab.name, body, { forPrint: fmt.value === 'pdf', theme: ui.effectiveTheme })
+    const html = await buildExportHtml(tab.name, body, { forPrint: fmt.value === 'pdf', theme: exportTheme.value })
     if (fmt.value === 'html') {
       const path = await window.api.dialog.saveFile(`${name}.html`, 'html')
       if (!path) return
@@ -320,6 +322,18 @@ async function doExport(): Promise<void> {
                 <button :class="{ on: fmt === 'pdf' }" @click="fmt = 'pdf'">PDF</button>
                 <button :class="{ on: fmt === 'html' }" @click="fmt = 'html'">HTML</button>
                 <button :class="{ on: fmt === 'latex' }" @click="fmt = 'latex'">LaTeX</button>
+              </div>
+            </div>
+
+            <div v-if="fmt === 'png' || fmt === 'html'" class="field">
+              <span class="label">{{ $t('export.theme') }}</span>
+              <div class="seg">
+                <button :class="{ on: exportTheme === 'light' }" @click="exportTheme = 'light'">
+                  {{ $t('export.themeLight') }}
+                </button>
+                <button :class="{ on: exportTheme === 'dark' }" @click="exportTheme = 'dark'">
+                  {{ $t('export.themeDark') }}
+                </button>
               </div>
             </div>
 

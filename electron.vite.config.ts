@@ -8,6 +8,13 @@ export default defineConfig({
       alias: {
         '@shared': resolve(__dirname, 'src/shared')
       }
+    },
+    build: {
+      rollupOptions: {
+        /* native 模块（.node）不可打包：动态 import 会把它拆进 chunk，
+           运行时加载崩溃（GlobalFonts 'families' in undefined） */
+        external: ['@napi-rs/canvas']
+      }
     }
   },
   preload: {

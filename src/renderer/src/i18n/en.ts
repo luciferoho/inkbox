@@ -283,6 +283,9 @@ export const en: MsgSchema = {
 
   // Export dialog
   'export.title': 'Export document',
+  'export.theme': 'Theme',
+  'export.themeLight': 'Light',
+  'export.themeDark': 'Dark',
   // Code block copy button (md-preview pipeline)
   'code.copy': 'Copy code',
   'code.copied': 'Copied',
