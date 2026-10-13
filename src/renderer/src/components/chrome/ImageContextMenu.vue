@@ -68,34 +68,36 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* 材质与即显元素工具条（el-toolbar）完全一致：纸面底、8px 圆角、同款投影 */
 .img-ctx-menu {
   position: fixed;
   z-index: 120;
   min-width: 168px;
-  padding: 4px;
-  background: var(--surface);
+  padding: 6px;
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-m);
-  box-shadow: var(--shadow-pop);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 12, 9, 0.28);
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
 .img-ctx-item {
   display: flex;
   align-items: center;
-  height: 28px;
+  height: 26px;
   padding: 0 10px;
-  border-radius: var(--radius-s);
-  color: var(--text);
+  border-radius: 6px;
+  color: var(--text-2);
   font-size: 12.5px;
   text-align: left;
   white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
 }
 
 .img-ctx-item:hover {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
+  background: var(--surface-2);
+  color: var(--text);
 }
 </style>
