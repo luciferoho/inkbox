@@ -1,5 +1,5 @@
 import { type Command, type KeyBinding, type EditorView } from '@codemirror/view'
-import { EditorSelection } from '@codemirror/state'
+import { EditorSelection, type Line } from '@codemirror/state'
 import { syntaxTree } from '@codemirror/language'
 import type { SyntaxNode } from '@lezer/common'
 
@@ -112,9 +112,9 @@ function inBlockNode(state: EditorView['state'], pos: number): boolean {
 }
 
 /** 选区覆盖的行（跨行选区含首尾行），跳过空行与代码围栏内行 */
-function targetLines(view: EditorView): { from: number; to: number; text: string }[] {
+function targetLines(view: EditorView): Line[] {
   const { state } = view
-  const out: { from: number; to: number; text: string }[] = []
+  const out: Line[] = []
   const seen = new Set<number>()
   for (const range of state.selection.ranges) {
     const first = state.doc.lineAt(range.from).number
@@ -290,6 +290,153 @@ export const deleteListMarker: Command = (view) => {
       selection: { anchor: line.from }
     })
   )
+  return true
+}
+
+/* ---------- 列表 Tab / Shift+Tab：降级 / 升级（Typora 习惯） ---------- */
+
+const LIST_LINE_RE = /^(\s*)((?:[-*+]|\d+[.)])[ \t]+)(.*)$/
+const ORDERED_RE = /^(\s*)(\d+)([.)])([ \t]+)(.*)$/
+
+/**
+ * 有序列表重排号（Tab/Shift+Tab 后随缩进变更一起做，Typora 语义）：
+ * Markdown 有序列表按字面起始号渲染——缩进合并后不重排会保留 3. 4. 这类续号，
+ * 且「非 1 开头的列表不能打断段落」会让新嵌套项被并进上一行正文（预览里合成一行）。
+ * indentOf(n)：行号 → 虚拟缩进（本次已变更行给新值，其余给当前值）。
+ * 组的边界：同缩进的连续有序项为一组；更深的子列表与空行不断组；无序项/普通文本断组。
+ */
+function renumberOrdered(
+  view: EditorView,
+  indentOf: (n: number) => number
+): { from: number; to: number; insert: string }[] {
+  const { doc } = view.state
+  const total = doc.lines
+  const changes: { from: number; to: number; insert: string }[] = []
+  const done = new Set<number>()
+  for (let n = 1; n <= total; n++) {
+    if (done.has(n)) continue
+    if (!ORDERED_RE.test(doc.line(n).text)) continue
+    const B = indentOf(n)
+    if (B < 0) continue // 虚拟缩进 <0 = 本次已移除标记（不再是列表行）
+    // 向上找组起点：更深的子列表/空行跳过，同级有序项吞并，其余停
+    let start = n
+    for (let p = n - 1; p >= 1; p--) {
+      const t = doc.line(p).text
+      if (!t.trim()) continue
+      const om = ORDERED_RE.exec(t)
+      if (om && indentOf(p) === B) {
+        start = p
+        continue
+      }
+      const lm = LIST_LINE_RE.exec(t)
+      if (lm && indentOf(p) > B) continue
+      break
+    }
+    // 向后收集同级连续有序项（穿插更深子列表/空行不断组）
+    const seq: number[] = []
+    for (let j = start; j <= total; j++) {
+      const t = doc.line(j).text
+      if (!t.trim()) {
+        if (seq.length) continue
+        break
+      }
+      const om = ORDERED_RE.exec(t)
+      if (om && indentOf(j) === B) {
+        seq.push(j)
+        continue
+      }
+      const lm = LIST_LINE_RE.exec(t)
+      if (lm && indentOf(j) > B) continue
+      break
+    }
+    for (let k = 0; k < seq.length; k++) {
+      done.add(seq[k])
+      const ln = doc.line(seq[k])
+      const m = ORDERED_RE.exec(ln.text)
+      if (m && Number(m[2]) !== k + 1) {
+        const ds = ln.from + m[1].length
+        changes.push({ from: ds, to: ds + m[2].length, insert: String(k + 1) })
+      }
+    }
+  }
+  return changes
+}
+
+/** Tab：列表项行降一级——缩进对齐到上一同级列表项的内容列（跳过更深子树；无参照 +2）。
+ *  随后重排受影响的有序组号（新嵌套组从 1 起）。非列表行不接管（交回 indentWithTab） */
+export const cmdListIndent: Command = (view) => {
+  const { state } = view
+  const changes: { from: number; to: number; insert: string }[] = []
+  const newIndent = new Map<number, number>()
+  for (const line of targetLines(view)) {
+    const m = LIST_LINE_RE.exec(line.text)
+    if (!m) continue
+    const curIndent = m[1].length
+    // 向上找同级（缩进 ≤ 当前）的最近列表项作对齐参照；更深的子列表跳过。
+    // 参照行也在本次选区里（一起移动）→ 与它保持同级，不按它的内容列再沉一级
+    let target = curIndent + 2
+    for (let n = line.number - 1; n >= 1; n--) {
+      const t = state.doc.line(n).text
+      if (!t.trim()) continue
+      const pm = LIST_LINE_RE.exec(t)
+      if (!pm) break
+      if (pm[1].length > curIndent) continue
+      target = newIndent.has(n) ? newIndent.get(n)! : pm[1].length + pm[2].length
+      break
+    }
+    newIndent.set(line.number, target)
+    if (target !== curIndent) {
+      changes.push({ from: line.from, to: line.from + curIndent, insert: ' '.repeat(target) })
+    }
+  }
+  if (newIndent.size === 0) return false
+  const curIndentOf = (n: number): number => /^(\s*)/.exec(state.doc.line(n).text)?.[1].length ?? 0
+  const renum = renumberOrdered(view, (n) => newIndent.get(n) ?? curIndentOf(n))
+  if (changes.length === 0 && renum.length === 0) return false
+  view.dispatch({ changes: [...changes, ...renum], scrollIntoView: true })
+  return true
+}
+
+/** Shift+Tab：列表项行升一级——提升为父项的兄弟（对齐父项缩进）；顶层时去掉标记
+ *  = 退出列表。不用固定 -2：有序标记宽度 3，-2 会产生不对齐任何内容列的缩进，
+ *  反而触发「非 1 开头列表不能打断段落」把项并进上一行正文。提升后重排父级组号 */
+export const cmdListOutdent: Command = (view) => {
+  const { state } = view
+  const changes: { from: number; to: number; insert: string }[] = []
+  const newIndent = new Map<number, number>()
+  for (const line of targetLines(view)) {
+    const m = LIST_LINE_RE.exec(line.text)
+    if (!m) continue
+    const cur = m[1].length
+    if (cur === 0) {
+      // 已在顶层：去掉标记退出列表
+      newIndent.set(line.number, -1)
+      changes.push({ from: line.from, to: line.from + m[2].length, insert: '' })
+      continue
+    }
+    // 找父项：向上最近的缩进 < 当前 的列表项 → 提升为它的兄弟（同缩进）
+    let parentIndent = -1
+    for (let n = line.number - 1; n >= 1; n--) {
+      const t = state.doc.line(n).text
+      if (!t.trim()) continue
+      const pm = LIST_LINE_RE.exec(t)
+      if (!pm) break
+      if (pm[1].length < cur) {
+        parentIndent = pm[1].length
+        break
+      }
+    }
+    const target = Math.max(parentIndent, 0)
+    newIndent.set(line.number, target)
+    if (target !== cur) {
+      changes.push({ from: line.from, to: line.from + cur, insert: ' '.repeat(target) })
+    }
+  }
+  if (changes.length === 0) return false
+  const curIndentOf = (n: number): number => /^(\s*)/.exec(state.doc.line(n).text)?.[1].length ?? 0
+  // 标记被移除的行给 -1：重排模型里视为非列表行（不参与分组也不产出 change）
+  const renum = renumberOrdered(view, (n) => newIndent.get(n) ?? curIndentOf(n))
+  view.dispatch({ changes: [...changes, ...renum], scrollIntoView: true })
   return true
 }
 

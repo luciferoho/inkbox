@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { useUiStore } from './ui'
+import type { EditorMode } from './ui'
 import { useWorkspaceStore } from './workspace'
 import type { DetachDoc, DraftPayload } from '@shared/types'
 import { t } from '@/i18n'
@@ -17,6 +18,8 @@ export interface DocTab {
   dirty: boolean
   /** 主页标签：不可关闭/不可拖拽/不参与保存 */
   isHome?: boolean
+  /** 本标签上次的编辑模式（即显/编辑/双栏/预览）：切标签跟随，重启经会话恢复 */
+  mode?: EditorMode
   /** 最近一次由本应用成功写盘的内容快照。外部修改检测用：磁盘内容与它一致
    *  即为自身保存的回声（自动保存后 300ms 内继续输入也不误报）。null = 从未写过 */
   savedContent?: string | null
@@ -70,7 +73,17 @@ export const useDocumentsStore = defineStore('documents', {
       const ws = useWorkspaceStore()
       const tabs = this.tabs.filter((t) => t.path).map((t) => t.path as string)
       const active = this.active?.path ?? null
-      await window.api.session.save(this.windowKey, { tabs, active, folder: ws.root })
+      // 逐标签记忆编辑模式：路径 → 模式（主页/未落盘标签不参与会话）
+      const modes: Record<string, string> = {}
+      for (const t of this.tabs) {
+        if (t.path && t.mode) modes[t.path] = t.mode
+      }
+      await window.api.session.save(this.windowKey, {
+        tabs,
+        active,
+        folder: ws.root,
+        modes
+      })
     },
 
     /**
@@ -214,13 +227,13 @@ export const useDocumentsStore = defineStore('documents', {
       }
     },
 
-    async save(saveAs = false): Promise<void> {
+    async save(saveAs = false, via: 'manual' | 'auto' = 'manual'): Promise<void> {
       const tab = this.active
-      if (tab) await this.saveTab(tab, saveAs)
+      if (tab) await this.saveTab(tab, saveAs, via)
     },
 
-    /** 保存指定标签（关窗"保存并退出"逐个保存用） */
-    async saveTab(tab: DocTab, saveAs = false): Promise<void> {
+    /** 保存指定标签（关窗"保存并退出"逐个保存用）。via=auto 且开静默时不弹已保存 toast */
+    async saveTab(tab: DocTab, saveAs = false, via: 'manual' | 'auto' = 'manual'): Promise<void> {
       let path = tab.path
       if (saveAs || path === null) {
         path = await window.api.dialog.saveFile(tab.name)
@@ -247,7 +260,9 @@ export const useDocumentsStore = defineStore('documents', {
         const ui = useUiStore()
         ui.saveState = 'saved'
         ui.savedAt = Date.now()
-        ui.showToast(t('docs.saved', { name: tab.name }))
+        if (via !== 'auto' || !ui.autosaveSilent) {
+          ui.showToast(t('docs.saved', { name: tab.name }))
+        }
         // 保存 = 最近编辑，写入最近文件（新保存的文档也能出现在列表里）
         const cfg = await window.api.app.getConfig()
         const recent = [
@@ -357,6 +372,11 @@ export const useDocumentsStore = defineStore('documents', {
       // 切换标签时同步保存状态：脏 → 未保存；否则清空（"已保存 HH:mm" 只属于刚保存的那次）
       const tab = this.tabs.find((t) => t.id === id)
       useUiStore().saveState = tab && !tab.isHome && tab.dirty ? 'dirty' : 'clean'
+      // 切标签跟随该标签上次的编辑模式（主页不记忆，保持当前模式）
+      if (tab?.mode) {
+        const ui = useUiStore()
+        if (ui.editorMode !== tab.mode) ui.setEditorMode(tab.mode)
+      }
       this.persistSession()
     },
 
@@ -510,6 +530,8 @@ export const useDocumentsStore = defineStore('documents', {
         const ordered = [...entries].sort((a, b) => a.key.localeCompare(b.key))
         const firstActive = ordered[0]?.session.active ?? null
         const folder = ordered.map((e) => e.session.folder).find((f): f is string => !!f)
+        const modes: Record<string, string> = {}
+        for (const { session } of ordered) Object.assign(modes, session.modes ?? {})
         if (restoreFolder && folder) await useWorkspaceStore().restoreFolder(folder)
         if (restoreFiles) {
           for (const { session } of ordered) {
@@ -518,6 +540,11 @@ export const useDocumentsStore = defineStore('documents', {
               if (this.tabs.some((t) => t.path === p)) continue
               await this.openPath(p)
             }
+          }
+          // 逐标签还原编辑模式（草稿先行恢复的标签同样覆盖）
+          for (const t of this.tabs) {
+            const m = t.path ? modes[t.path] : undefined
+            if (m) t.mode = m as EditorMode
           }
           const activeTab = firstActive ? this.tabs.find((t) => t.path === firstActive) : null
           if (activeTab) this.activate(activeTab.id)

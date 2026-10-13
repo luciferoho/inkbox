@@ -304,6 +304,49 @@ export function preprocessCenter(src: string): string {
   })
 }
 
+/**
+ * 相邻有序列表分隔（Typora 语义，仅渲染层，不改文档内容）：
+ * 退出列表后新开的列表（首项 1.）与上一个顶层有序列表之间只隔空行时，
+ * CommonMark/markdown-it 会把两者并成一个列表继续编号——空行再多也并。
+ * 在接缝处注入不可见 HTML 注释作列表终止符：预览/导出从 1 重新编号。
+ * 触发条件收紧：前一非空行是顶层有序项 + 空行 + 顶层 "1." 行（代码围栏内不动）。
+ */
+function splitAdjacentOrderedLists(src: string): string {
+  const lines = src.split('\n')
+  const out: string[] = []
+  let fence: string | null = null
+  let prevWasOrdered = false
+  let blankRun = 0
+  for (const line of lines) {
+    const fenceMatch = /^(```+|~~~+).*$/.exec(line)
+    if (fenceMatch) {
+      if (fence === null) fence = fenceMatch[1].slice(0, 3)
+      else if (line.startsWith(fence)) fence = null
+      out.push(line)
+      prevWasOrdered = false
+      blankRun = 0
+      continue
+    }
+    if (fence !== null) {
+      out.push(line)
+      continue
+    }
+    if (!line.trim()) {
+      blankRun++
+      out.push(line)
+      continue
+    }
+    const ordered = /^(\d+)([.)])[ \t]+\S/.exec(line)
+    if (ordered && line === line.trimStart() && blankRun > 0 && prevWasOrdered && ordered[1] === '1') {
+      out.push('<!-- -->')
+    }
+    out.push(line)
+    prevWasOrdered = Boolean(ordered) && line === line.trimStart()
+    blankRun = 0
+  }
+  return out.join('\n')
+}
+
 /** 渲染结果后处理：哨兵段落替换为真实包裹层（段落带 data-source-line 属性） */
 function applyCenter(html: string): string {
   return html
@@ -313,7 +356,7 @@ function applyCenter(html: string): string {
 
 /** 带文档目录渲染（相对图片解析用） */
 export function renderWithDir(src: string, docDir: string | null): string {
-  const html = md.render(preprocessCenter(src), docDir ? { docDir } : undefined)
+  const html = md.render(splitAdjacentOrderedLists(preprocessCenter(src)), docDir ? { docDir } : undefined)
   return applyCenter(html)
 }
 

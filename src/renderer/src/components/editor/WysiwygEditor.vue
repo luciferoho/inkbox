@@ -31,6 +31,8 @@ import { history } from '@milkdown/kit/plugin/history'
 import { replaceAll, $prose, callCommand } from '@milkdown/kit/utils'
 import { NodeSelection, TextSelection, type EditorState } from '@milkdown/kit/prose/state'
 import type { EditorView } from '@milkdown/kit/prose/view'
+import { lift } from '@milkdown/kit/prose/commands'
+import { liftListItem, sinkListItem } from '@milkdown/kit/prose/schema-list'
 import { useDocumentsStore } from '@/stores/documents'
 import { useUiStore } from '@/stores/ui'
 import {
@@ -47,6 +49,7 @@ import { createCenterPlugin } from '@/editor/pm-center'
 import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createElementToolbar, type ElToolbarState } from '@/editor/pm-element-toolbar'
 import { createCodeblockChromePlugin } from '@/editor/pm-codeblock-chrome'
+import { createQuoteEscapePlugin } from '@/editor/pm-quote-escape'
 import { parseAltMods, buildAltMods, stepWidth, luciToDisplaySrc, type ImageMods } from '@/editor/image-utils'
 import { t } from '@/i18n'
 // 图片修饰符即显渲染:extendSchema 返回新 holder,须 .use 挂载生效
@@ -122,15 +125,36 @@ function exitCodeBlock(view: EditorView, append: boolean): void {
 /**
  * 按键拦截：
  * - 代码块内 Tab / Shift+Tab → 插入/删除缩进（否则浏览器会把焦点跳到状态栏）
- * - Esc → 退出代码块编辑（光标落到块后）
+ * - 列表项 Tab / Shift+Tab → 降一级 / 升一级，顶层再升即退出列表（Typora 语义）
+ * - 普通段落 Tab → 插入/删除 2 空格（焦点留在编辑器）
+ * - Esc → 退出代码块编辑（光标落到块后）；引用块的跳出在 pm-quote-escape 插件
  * - Ctrl/Cmd+Enter → 在代码块后新建段落继续写作
  */
+function inListItem(state: EditorState): boolean {
+  const { $from } = state.selection
+  for (let d = $from.depth; d > 0; d--) {
+    const name = $from.node(d).type.name
+    if (name === 'list_item') return true
+  }
+  return false
+}
+
 function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   const { state } = view
   if (event.key === 'Tab') {
     // 始终拦截:普通段落放行 Tab 会被浏览器抢走焦点(跳到状态栏按钮)
     event.preventDefault()
     if (!inCodeBlock(state)) {
+      const itemType = state.schema.nodes.list_item
+      if (inListItem(state) && itemType) {
+        // 列表项：Tab 降一级；Shift+Tab 升一级，顶层再升 = 整项提出列表（退出序号）
+        if (!event.shiftKey && sinkListItem(itemType)(state, view.dispatch)) return true
+        if (event.shiftKey) {
+          if (liftListItem(itemType)(state, view.dispatch)) return true
+          if (lift(state, view.dispatch)) return true
+        }
+        return true // 无法升降时也不放行（保持焦点，避免浏览器跳焦点）
+      }
       // 普通段落:插入/删除 2 空格,焦点留在编辑器
       const { $from } = state.selection
       if (event.shiftKey) {
@@ -366,6 +390,8 @@ const elToolbarPlugin = $prose(() =>
 )
 // 代码块 chrome：语言标签栏 + 复制按钮（每块上方 widget 栏）
 const codeblockChromePlugin = $prose(() => createCodeblockChromePlugin())
+// Esc 跳出引用块（列表 Tab/Shift+Tab 在视图级 handleKeys，优先级更高）
+const quoteEscapePlugin = $prose(() => createQuoteEscapePlugin())
 
 /* ---------- 元素工具条:图片/表格操作 ---------- */
 
@@ -550,6 +576,7 @@ onMounted(() => {
     .use(wysiwygImagePlugin)
     .use(elToolbarPlugin)
     .use(codeblockChromePlugin)
+    .use(quoteEscapePlugin)
   void instance.create().then((e) => {
     editor = e
     // 开发期调试钩子：CDP 查 PM 文档 JSON / 序列化输出 / 内部 remark mdast

@@ -7,6 +7,11 @@
   min-height: 100%;
 }
 
+/* 悬浮即显区域显示文本光标（提示可点击聚焦）；按钮等自带 pointer 的元素自行覆盖 */
+.wysiwyg-host {
+  cursor: text;
+}
+
 .wysiwyg-host .luci-prose {
   font-family: var(--font-ui);
   font-size: var(--preview-font-size, 16px);

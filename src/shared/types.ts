@@ -16,6 +16,8 @@ export interface AppConfig {
   autosave: {
     enabled: boolean
     intervalMs: number
+    /** 静默保存：自动保存成功不弹「已保存」toast（手动保存不受影响）；默认开 */
+    silent?: boolean
   }
   /** 再次打开窗口时恢复上次打开的文件标签 */
   restoreTabs: boolean
@@ -97,7 +99,7 @@ export const defaultConfig: AppConfig = {
   theme: 'system',
   locale: 'system',
   editor: { fontSize: 16, lineHeight: 1.7 },
-  autosave: { enabled: true, intervalMs: 15000 },
+  autosave: { enabled: true, intervalMs: 15000, silent: true },
   restoreTabs: true,
   restoreFolders: true,
   openAtLogin: false,
@@ -117,6 +119,8 @@ export interface SessionPayload {
   active: string | null
   /** 本窗口打开的工作区文件夹；null = 未打开 */
   folder: string | null
+  /** 路径 → 该标签上次的编辑模式（即显/编辑/双栏/预览），恢复时逐标签还原 */
+  modes?: Record<string, string>
 }
 
 /** 主进程菜单/快捷键转发到渲染进程的命令 */

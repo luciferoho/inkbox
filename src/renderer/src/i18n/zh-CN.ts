@@ -417,6 +417,8 @@ export const zh = {
   'settings.cTray': '最小化到托盘',
   'settings.closeHint': '「最小化到托盘」时点关闭仅隐藏窗口，从托盘图标重新打开或退出。',
   'settings.autosave': '自动保存',
+  'settings.autosaveSilent': '静默保存',
+  'settings.autosaveSilentHint': '自动保存成功时不弹「已保存」提示；手动保存（Ctrl+S）始终提示',
   'settings.interval': '保存间隔',
   'settings.sec': '{n} 秒'
 } as const

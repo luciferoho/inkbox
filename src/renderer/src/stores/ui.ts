@@ -37,6 +37,8 @@ export const useUiStore = defineStore('ui', {
     _zenPrevSidebar: false as boolean,
     autosaveEnabled: true,
     autosaveIntervalMs: 15000,
+    /* 静默保存：自动保存成功不弹「已保存」toast（手动保存不受影响），默认开 */
+    autosaveSilent: true,
     /* 再次打开窗口时恢复上次打开的文件标签（默认开） */
     restoreTabs: true,
     /* 再次打开窗口时恢复上次打开的文件夹（默认开） */
@@ -125,6 +127,7 @@ export const useUiStore = defineStore('ui', {
       i18n.global.locale.value = resolveLocale(this.localePref)
       this.autosaveEnabled = cfg.autosave.enabled
       this.autosaveIntervalMs = Math.max(3000, cfg.autosave.intervalMs)
+      this.autosaveSilent = cfg.autosave.silent ?? true
       this.restoreTabs = cfg.restoreTabs ?? true
       this.restoreFolders = cfg.restoreFolders ?? true
       this.openAtLogin = cfg.openAtLogin ?? false
@@ -200,8 +203,13 @@ export const useUiStore = defineStore('ui', {
       if (patch.intervalMs !== undefined) {
         this.autosaveIntervalMs = Math.max(3000, patch.intervalMs)
       }
+      if (patch.silent !== undefined) this.autosaveSilent = patch.silent
       await window.api.app.setConfig({
-        autosave: { enabled: this.autosaveEnabled, intervalMs: this.autosaveIntervalMs }
+        autosave: {
+          enabled: this.autosaveEnabled,
+          intervalMs: this.autosaveIntervalMs,
+          silent: this.autosaveSilent
+        }
       })
     },
     async setRestoreTabs(v: boolean): Promise<void> {
@@ -385,6 +393,9 @@ export const useUiStore = defineStore('ui', {
     },
     setEditorMode(mode: EditorMode): void {
       this.editorMode = mode
+      // 模式随标签记忆：写进活动标签，切标签/重启会话时跟随恢复
+      const tab = useDocumentsStore().active
+      if (tab && !tab.isHome) tab.mode = mode
       this.applyEditorPrefs() // 双栏/单栏的纸宽策略不同
     }
   }

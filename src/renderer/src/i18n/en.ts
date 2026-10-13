@@ -419,6 +419,8 @@ export const en: MsgSchema = {
   'settings.cTray': 'Minimize to tray',
   'settings.closeHint': 'With “minimize to tray”, closing only hides the window — reopen or quit from the tray icon.',
   'settings.autosave': 'Autosave',
+  'settings.autosaveSilent': 'Silent save',
+  'settings.autosaveSilentHint': 'No "saved" toast on autosave; manual save (Ctrl+S) always notifies',
   'settings.interval': 'Interval',
   'settings.sec': '{n} s'
 }

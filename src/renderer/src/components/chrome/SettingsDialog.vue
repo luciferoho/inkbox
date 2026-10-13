@@ -360,6 +360,20 @@ function checkUpdate(): void {
               </button>
             </div>
             <div class="row">
+              <span class="label">{{ $t('settings.autosaveSilent') }}</span>
+              <button
+                class="switch"
+                role="switch"
+                :aria-checked="ui.autosaveSilent"
+                :class="{ on: ui.autosaveSilent }"
+                :disabled="!ui.autosaveEnabled"
+                @click="ui.setAutosave({ silent: !ui.autosaveSilent })"
+              >
+                <i class="knob" />
+              </button>
+            </div>
+            <p class="row-hint">{{ $t('settings.autosaveSilentHint') }}</p>
+            <div class="row">
               <span class="label">{{ $t('settings.interval') }}</span>
               <div class="segmented">
                 <button
@@ -916,6 +930,12 @@ input[type='range']::-webkit-slider-thumb {
 .switch.on {
   background: var(--accent);
   border-color: var(--accent);
+}
+
+/* 依赖项关闭时（如自动保存关 → 静默保存禁用）：视觉置灰且不可点 */
+.switch:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .switch.on .knob {

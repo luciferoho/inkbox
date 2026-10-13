@@ -21,7 +21,8 @@ const luciBase = EditorView.theme({
   '.cm-content': {
     padding: '16px 6px 40vh 6px',
     caretColor: 'var(--accent)',
-    minHeight: '100%'
+    minHeight: '100%',
+    cursor: 'text'
   },
   '.cm-cursor': {
     borderLeftColor: 'var(--accent)',

@@ -57,7 +57,9 @@ import {
   cmdHighlight,
   cmdLink,
   cmdHeadingUp,
-  cmdHeadingDown
+  cmdHeadingDown,
+  cmdListIndent,
+  cmdListOutdent
 } from '@/editor/cm-commands'
 import { luciFocusMode, luciTypewriterMode } from '@/editor/cm-focus'
 import { useUiStore } from '@/stores/ui'
@@ -87,6 +89,7 @@ import {
   type ImageMods
 } from '@/editor/image-utils'
 import { registerCmView } from '@/editor/cm-registry'
+import { fenceCompletion } from '@/editor/cm-fence-completion'
 
 const emit = defineEmits<{
   (e: 'scroll-sync', line: number, frac: number, edge: ScrollEdge): void
@@ -184,7 +187,8 @@ function makeState(content: string): EditorState {
       syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
       bracketMatching(),
       closeBrackets(),
-      autocompletion(),
+      // ``` 语言补全（Typora 效果）：候选列表 + Enter 自动收尾围栏
+      ...fenceCompletion(),
       rectangularSelection(),
       crosshairCursor(),
       highlightActiveLine(),
@@ -201,7 +205,13 @@ function makeState(content: string): EditorState {
       search({ top: true }),
       luciFindHighlight(),
       phrasesComp.of(cmPhrases()),
-      keymap.of([indentWithTab, ...formattingKeymap]),
+      keymap.of([
+        // 列表行 Tab 降级 / Shift+Tab 升级（Typora 习惯）；非列表行交回 indentWithTab
+        { key: 'Tab', run: cmdListIndent },
+        { key: 'Shift-Tab', run: cmdListOutdent },
+        indentWithTab,
+        ...formattingKeymap
+      ]),
       luciTheme,
       focusComp.of(ui.focusMode ? luciFocusMode : []),
       typewriterComp.of(ui.typewriterMode ? luciTypewriterMode : []),

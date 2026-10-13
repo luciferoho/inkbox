@@ -19,12 +19,12 @@ export function useAutosave(): void {
     if (!ui.autosaveEnabled || !tab?.dirty || !tab.path) return
     if (Date.now() - lastSavedAt < ui.autosaveIntervalMs) return
     lastSavedAt = Date.now()
-    void docs.save()
+    void docs.save(false, 'auto')
   }
 
   function onBlur(): void {
     const tab = docs.active
-    if (ui.autosaveEnabled && tab?.dirty && tab.path) void docs.save()
+    if (ui.autosaveEnabled && tab?.dirty && tab.path) void docs.save(false, 'auto')
   }
 
   onMounted(() => {
