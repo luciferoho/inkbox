@@ -1,9 +1,17 @@
 import { ipcMain } from 'electron'
-import { readFile, writeFile, readdir, mkdir, rename, rm } from 'node:fs/promises'
+import { readFile, writeFile, readdir, mkdir, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { DirEntry } from '@shared/types'
 
 export function registerFsIpc(): void {
+  // 文件修改时间（ms）：崩溃恢复时判断草稿是否已过期（磁盘文件更新过 → 丢弃草稿）
+  ipcMain.handle('fs:mtime', async (_e, path: string): Promise<number | null> => {
+    try {
+      return (await stat(path)).mtimeMs
+    } catch {
+      return null
+    }
+  })
   ipcMain.handle('fs:readFile', async (_e, path: string): Promise<string> => {
     return await readFile(path, 'utf-8')
   })

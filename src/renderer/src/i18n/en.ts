@@ -268,6 +268,7 @@ export const en: MsgSchema = {
   'find.close': 'Close (Esc)',
   'find.noMatch': 'No results',
   'find.badPattern': 'Invalid regex',
+  'find.countBasis': 'Edit/split count Markdown source; live/preview count rendered visible text — counts may differ for the same query',
 
   // Activity rail
   'rail.outline': 'Outline',

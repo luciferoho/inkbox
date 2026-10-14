@@ -48,7 +48,8 @@ export function registerDraftsIpc(): void {
       if (!f.endsWith('.json') && !isTmp) continue
       try {
         entries.push({
-          key: finalName,
+          // 去掉 .json 后缀：key 需与 drafts:clear/save 的入参往返一致（clear 内部会再补后缀）
+          key: finalName.replace(/\.json$/, ''),
           draft: JSON.parse(await readFile(join(draftsDir(), f), 'utf-8')) as DraftPayload
         })
       } catch {

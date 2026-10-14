@@ -32,7 +32,6 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
 import {
   search,
-  searchKeymap,
   highlightSelectionMatches,
   SearchQuery,
   setSearchQuery,
@@ -91,6 +90,8 @@ import {
 } from '@/editor/image-utils'
 import { registerCmView } from '@/editor/cm-registry'
 import { fenceCompletion } from '@/editor/cm-fence-completion'
+import { findState, sameQuery } from '@/editor/find-state'
+import { saveTabView, loadTabView } from '@/editor/tab-view-state'
 
 const emit = defineEmits<{
   (e: 'scroll-sync', line: number, frac: number, edge: ScrollEdge): void
@@ -198,7 +199,9 @@ function makeState(content: string): EditorState {
       keymap.of([
         ...closeBracketsKeymap,
         ...defaultKeymap,
-        ...searchKeymap,
+        // searchKeymap 不挂载：其 Mod-f 会打开 CM 内置搜索面板（与应用查找条重复，
+        // 且焦点不在编辑器时按 Ctrl+F 也会弹出）。查找/替换统一走应用查找条，
+        // findNext/replaceNext 等命令依赖的 search 状态由下方 search() 提供
         ...historyKeymap,
         ...foldKeymap,
         ...completionKeymap
@@ -598,6 +601,7 @@ onMounted(() => {
   })
   unregisterCm = registerCmView(view)
   tabId = docs.activeId
+  pullFind(docs.activeId, true) // 恢复本标签共享的查找条状态（视图刚建，无条件重亮）
   view.scrollDOM.addEventListener('scroll', onScrollDom, { passive: true })
   // 点击编辑区任意位置（含内边距/行号间隙）都要拿到焦点，避免"点了但打不了字"
   host.value.addEventListener('mousedown', onHostMousedown)
@@ -610,6 +614,7 @@ function onHostMousedown(): void {
 }
 
 onBeforeUnmount(() => {
+  pushFind() // 卸载前最后推一次（正常情况下每次变化都已实时推送，这里是兜底）
   host.value?.removeEventListener('mousedown', onHostMousedown)
   view?.scrollDOM.removeEventListener('scroll', onScrollDom)
   unregisterCm?.()
@@ -617,21 +622,94 @@ onBeforeUnmount(() => {
   view = null
 })
 
-/* 切换标签：整档替换（M1 不保留每标签 undo/滚动栈） */
+/* 切换标签：整档替换（M1 不保留每标签 undo 栈），并恢复该标签的滚动与光标 */
 watch(
   () => docs.activeId,
-  (id) => {
+  (id, old) => {
     if (!view || id === null) return
+    window.clearTimeout(renumberDebounce) // 上一标签排队的重排不在新文档上执行
+    // 旧标签的滚动/光标落袋；新标签无记录 → 默认顶部/文档开头。
+    // 隐藏窗格（预览模式下源码 v-show 隐藏）scrollTop 恒 0，跳过保存保留旧值
+    if (host.value && host.value.offsetParent !== null) {
+      saveTabView(old, 'source', { scroll: view.scrollDOM.scrollTop, cursor: view.state.selection.main.head })
+    }
     applying = true
     view.setState(makeState(docs.active?.content ?? ''))
-    view.scrollDOM.scrollTop = 0
     tabId = id
     ui.currentLine = 1
     applying = false
+    const saved = loadTabView(id, 'source')
+    if (saved?.cursor !== undefined && saved.cursor <= view.state.doc.length) {
+      view.dispatch({ selection: { anchor: saved.cursor } })
+    }
+    pullFind(id, true) // 无条件恢复（视图刚重建，高亮需要重亮）
+    // 滚动恢复放最后：查找恢复（高亮插件定位）会把视口滚到命中处，覆盖之；
+    // 恢复属程序性滚动，短暂锁联动，不把预览拖离它自己要恢复的位置
+    view.scrollDOM.scrollTop = saved ? saved.scroll : 0
+    lockUntil = Date.now() + 150
   }
 )
 
 /* ---------- 查找替换（自建停靠条驱动 CM6 SearchQuery；内置面板无计数已弃用） ---------- */
+
+/** 查找状态按「标签」共享（同一文档四模式一份）：refs 当前属于哪个标签 */
+const findTabId = ref<number | null>(null)
+/** 拉回槽位期间抑制查询/替换 watcher 的自动应用（拉回自己做显式重亮，不导航） */
+let findSyncing = false
+
+/** refs → 标签槽（每次变化即写；值相同直接跳过，天然覆盖切标签/卸载的“保存”） */
+function pushFind(): void {
+  const st = findState(findTabId.value)
+  if (
+    st.open === findBarOpen.value &&
+    sameQuery(st.query, findQuery.value) &&
+    st.replace === findReplaceText.value &&
+    st.active === findActive.value
+  ) {
+    return
+  }
+  st.open = findBarOpen.value
+  st.query = { ...findQuery.value }
+  st.replace = findReplaceText.value
+  st.active = findActive.value
+}
+
+/** 标签槽 → refs：切标签/挂载/双栏另一侧改了共享状态。force=无条件重亮（视图重建后） */
+function pullFind(id: number | null, force = false): void {
+  const wasOpen = findBarOpen.value
+  const st = findState(id)
+  if (
+    !force &&
+    st.open === findBarOpen.value &&
+    sameQuery(st.query, findQuery.value) &&
+    st.replace === findReplaceText.value &&
+    st.active === findActive.value
+  ) {
+    findTabId.value = id
+    return
+  }
+  findTabId.value = id
+  findSyncing = true
+  findBarOpen.value = st.open
+  findQuery.value = { ...st.query }
+  findReplaceText.value = st.replace
+  if (view) {
+    if (st.open) {
+      applySearchQuery(false) // 只重亮高亮+计数，不跳转导航
+      // 恢复原来的活动项（x/x 显示）：recount 按光标算的，覆盖为存的序号（钳到有效范围）
+      if (findCount.value > 0) {
+        findActive.value = Math.min(Math.max(st.active, 0), findCount.value - 1)
+      }
+    } else if (wasOpen) {
+      view.dispatch({
+        effects: [setSearchQuery.of(new SearchQuery({ search: '' })), setLuciFindQuery.of(null)]
+      })
+    }
+  }
+  void nextTick(() => {
+    findSyncing = false
+  })
+}
 
 const findBarOpen = ref(false)
 const findQuery = ref<FindQuery>({ text: '', caseSensitive: false, regexp: false, wholeWord: false })
@@ -740,12 +818,32 @@ function doFindReplaceAll(): void {
 }
 
 watch(findQuery, () => {
+  if (findSyncing) return // 拉回共享状态不是一次新查询，不导航不跳转
   if (findBarOpen.value) applySearchQuery(true)
 })
 
 watch(findReplaceText, () => {
+  if (findSyncing) return
   if (findBarOpen.value) applySearchQuery(false)
 })
+
+/* refs → 共享槽位：查找条任何状态变化即推送（双栏另一侧/其他模式同步读取） */
+watch([findBarOpen, findQuery, findReplaceText, findActive], () => {
+  if (findSyncing) return
+  pushFind()
+})
+
+/* 共享槽位 → refs：双栏另一侧（预览）或模式切换改了同一标签的查找状态 */
+watch(
+  () => {
+    const st = findState(findTabId.value)
+    return [st.open, st.query.text, st.query.caseSensitive, st.query.regexp, st.query.wholeWord, st.replace, st.active] as const
+  },
+  () => {
+    if (findSyncing) return
+    pullFind(findTabId.value)
+  }
+)
 
 /* 菜单 Ctrl+F → 打开停靠查找条（仅源码可见时；即显模式由 WysiwygEditor 处理） */
 watch(

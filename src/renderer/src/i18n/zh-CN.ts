@@ -269,6 +269,7 @@ export const zh = {
   'find.close': '关闭（Esc）',
   'find.noMatch': '无结果',
   'find.badPattern': '正则无效',
+  'find.countBasis': '编辑/双栏按 Markdown 源码统计，即显/预览按渲染后的可见文本统计——同一查询个数可能不同',
 
   // 墨脊
   'rail.outline': '大纲',

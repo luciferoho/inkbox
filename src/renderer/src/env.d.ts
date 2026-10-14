@@ -11,6 +11,8 @@ interface Window {
   api: {
     fs: {
       readFile(path: string): Promise<string>
+      /** 文件修改时间（ms）；文件不存在返回 null */
+      mtime(path: string): Promise<number | null>
       writeFile(path: string, content: string): Promise<void>
       writeFileBinary(path: string, base64: string): Promise<void>
       readBinary(path: string): Promise<string>

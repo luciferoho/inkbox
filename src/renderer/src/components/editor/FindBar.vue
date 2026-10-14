@@ -95,7 +95,7 @@ defineExpose({
     />
     <button class="find-btn" :title="$t('find.prev')" @click="emit('nav', -1)">↑</button>
     <button class="find-btn" :title="$t('find.next')" @click="emit('nav', 1)">↓</button>
-    <span class="find-count" :class="{ 'find-count-err': error }">{{ countLabel }}</span>
+    <span class="find-count" :class="{ 'find-count-err': error }" :title="$t('find.countBasis')">{{ countLabel }}</span>
     <button
       class="find-tg"
       :class="{ on: query.caseSensitive && !query.regexp }"

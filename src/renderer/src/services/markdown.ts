@@ -426,6 +426,63 @@ function applyCenter(html: string): string {
     .replace(/<p[^>]*>@@CENTER_END@@<\/p>/g, '</div>')
 }
 
+/**
+ * 内容规范化（草稿新旧比对用，纯文本变换）：与「打开归一化 + 即显序列化归一化」
+ * 同规则——编号重排、`1)`→`1.`、`*`/`+` 项→`-` 项、空白行归一、列表项行首缩进
+ * 抹平（嵌套层级的空格风格 milkdown 会重排）、段落行首最多 3 空格剥除
+ * （CommonMark 不构成缩进）、围栏标记剥缩进、围栏内容剥公共缩进（列表项内
+ * 代码块的框架缩进会被即显序列化抹平；逐行层次缩进不受影响）、列表项之前的
+ * 引导空行剥除。围栏代码块内的内容原样保留（真实编辑）。
+ * 若两版本仅在这些风格差异上不同（用户没有真实编辑，只是即显序列化回写过），
+ * 视为等价：崩溃恢复时草稿丢弃、即显回推不算脏，避免"打开即未保存"。
+ */
+export function canonicalizeContent(src: string): string {
+  const lines = normalizeOrderedNumbering(src.replace(/\r\n?/g, '\n')).split('\n')
+  const out: string[] = []
+  let inFence = false
+  let fence: string[] = []
+  const flushFence = (): void => {
+    const indents = fence.filter((l) => l.trim()).map((l) => /^[\t ]*/.exec(l)![0].length)
+    const cut = indents.length ? Math.min(...indents) : 0
+    for (const l of fence) out.push(cut ? l.slice(Math.min(cut, /^[\t ]*/.exec(l)![0].length)) : l)
+    fence = []
+  }
+  for (const l of lines) {
+    if (inFence) {
+      if (/^[\t ]*(?:```|~~~)/.test(l)) {
+        inFence = false
+        flushFence()
+        out.push(l.replace(/^[\t ]+/, ''))
+      } else {
+        fence.push(l)
+      }
+      continue
+    }
+    if (!l.trim()) {
+      out.push('')
+      continue
+    }
+    const stripped = l
+      .replace(/^([\t ]*\d+[.)])[\t ]*<br\s*\/?>[\t ]*$/i, '$1') // 列表项内空段落：`2. <br />` → `2.`
+      .replace(/^([\t ]*)[*+]([\t ])/, '$1-$2')
+      .replace(/^([\t ]*\d+)\)/, '$1.')
+    if (/^[\t ]*(?:```|~~~)/.test(stripped)) {
+      inFence = true
+      out.push(stripped.replace(/^[\t ]+/, ''))
+      continue
+    }
+    // 列表项：嵌套缩进整体抹平；普通段落：行首最多 3 空格不构成缩进
+    out.push(
+      /^[\t ]*(?:[-*+]|\d+[.)])[\t ]/.test(stripped)
+        ? stripped.replace(/^[\t ]+/, '')
+        : stripped.replace(/^[\t ]{1,3}/, '')
+    )
+  }
+  flushFence()
+  // 列表项之前的引导空行：即显序列化常省略（无序列表可打断段落）
+  return out.join('\n').replace(/\n\n+(?=(?:[-*+]|\d+[.)])[\t ])/g, '\n')
+}
+
 /** 空标题哨兵的渲染产物（splitAdjacentOrderedLists 注入，渲染后剥除） */
 const LIST_SPLIT_RE = /<h1(\s[^>]*)?>\s*<\/h1>\n?/g
 

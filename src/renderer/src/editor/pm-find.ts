@@ -165,11 +165,20 @@ export function createFindPlugin(): Plugin<FindPluginState> {
 /* ---------- 面向 UI 的操作 ---------- */
 
 /** 打开查找条：查询状态由组件持有并传入（唯一真源，重开不分叉） */
-export function findOpen(view: EditorView, query: FindQuery): void {
+export function findOpen(
+  view: EditorView,
+  query: FindQuery,
+  opts?: { scroll?: boolean; active?: number }
+): void {
   const r = computeMatches(view.state.doc, query)
-  const idx = pickFrom(r.matches, view.state.selection.from)
+  // 恢复标签状态时优先用存的活动项（越界钳回有效范围），否则就近光标挑一个
+  const idx =
+    opts?.active != null && opts.active >= 0
+      ? Math.min(opts.active, r.matches.length - 1)
+      : pickFrom(r.matches, view.state.selection.from)
   view.dispatch(withMeta(view.state.tr, { type: 'result', open: true, query, matches: r.matches, active: idx, error: r.error }))
-  if (idx >= 0) scrollPosIntoView(view, r.matches[idx].from)
+  // 恢复标签状态（切标签回来）时不动滚动位置——只是重新亮起来，不是新一次跳转
+  if (opts?.scroll !== false && idx >= 0) scrollPosIntoView(view, r.matches[idx].from)
 }
 
 export function findClose(view: EditorView): void {

@@ -5,7 +5,7 @@ import { useWorkspaceStore } from './workspace'
 import type { DetachDoc, DraftPayload } from '@shared/types'
 import { t } from '@/i18n'
 import { htmlToMarkdown } from '@/services/richPaste'
-import { normalizeOrderedNumbering } from '@/services/markdown'
+import { canonicalizeContent, normalizeOrderedNumbering } from '@/services/markdown'
 import sampleDoc from '@samples/示例.md?raw'
 
 /** 主页（欢迎页）标签的固定 id */
@@ -364,6 +364,9 @@ export const useDocumentsStore = defineStore('documents', {
       if (this.closing) return // 关闭确认后编辑器可能异步回推一次旧序列化，忽略
       const tab = this.tabs.find((t) => t.id === id)
       if (tab && !tab.isHome && tab.content !== content) {
+        // 即显挂载/切换会把 `*`→`-`、`1)`→`1.`、编号重排等序列化风格差异回推——
+        // 用户没有真实编辑，不算脏（否则恢复到即显模式的标签"打开即未保存"）
+        if (!tab.dirty && canonicalizeContent(content) === canonicalizeContent(tab.content)) return
         tab.content = content
         tab.dirty = true
         useUiStore().saveState = 'dirty'

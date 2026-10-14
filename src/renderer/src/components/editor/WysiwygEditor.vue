@@ -46,6 +46,8 @@ import {
   findReplaceAll
 } from '@/editor/pm-find'
 import { createCenterPlugin } from '@/editor/pm-center'
+import { findState, sameQuery } from '@/editor/find-state'
+import { saveTabView, loadTabView } from '@/editor/tab-view-state'
 import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createElementToolbar, type ElToolbarState } from '@/editor/pm-element-toolbar'
 import { createCodeblockChromePlugin } from '@/editor/pm-codeblock-chrome'
@@ -293,7 +295,11 @@ function fromWysiwygSource(md: string): string {
   const docDir = docDirOf()
   let out = md
     .split('\n')
-    .map((l) => (/^[ \t]*<br\s*\/?>[ \t]*$/i.test(l) ? '' : l))
+    .map((l) =>
+      /^[ \t]*<br\s*\/?>[ \t]*$/i.test(l)
+        ? ''
+        : l.replace(/^([ \t]*\d+[.)][ \t]*)<br\s*\/?>[ \t]*$/i, '$1') // 列表项内空段落：`2. <br />` → `2. `
+    )
     .join('\n')
     .replace(/^(\s*\d+)\)/gm, '$1.')
     .replace(/^([ \t]*)\*([ \t])/gm, '$1-$2')
@@ -324,6 +330,57 @@ const findCount = ref(0)
 const findActive = ref(-1)
 const findError = ref(false)
 const findBarRef = ref<InstanceType<typeof FindBar> | null>(null)
+
+/** 查找状态按「标签」共享（同一文档四模式一份）：refs 当前属于哪个标签 */
+const findTabId = ref<number | null>(null)
+/** 拉回共享槽位期间抑制 findQuery watcher 的自动应用（拉回自己做显式处理，不跳转） */
+let findSyncing = false
+
+/** refs → 标签槽（值相同直接跳过；双栏另一侧同步读取） */
+function pushFind(): void {
+  const st = findState(findTabId.value)
+  if (
+    st.open === findBarOpen.value &&
+    sameQuery(st.query, findQuery.value) &&
+    st.replace === replaceText.value &&
+    st.active === findActive.value
+  ) {
+    return
+  }
+  st.open = findBarOpen.value
+  st.query = { ...findQuery.value }
+  st.replace = replaceText.value
+  st.active = findActive.value
+}
+
+/** 标签槽 → refs：切标签/挂载/双栏另一侧改了共享状态；开着时重新亮起但不动滚动 */
+function pullFind(id: number | null, force = false): void {
+  const st = findState(id)
+  if (
+    !force &&
+    st.open === findBarOpen.value &&
+    sameQuery(st.query, findQuery.value) &&
+    st.replace === replaceText.value &&
+    st.active === findActive.value
+  ) {
+    findTabId.value = id
+    return
+  }
+  findTabId.value = id
+  findSyncing = true
+  findQuery.value = { ...st.query }
+  replaceText.value = st.replace
+  const view = getView()
+  if (view) {
+    if (st.open) pmFindOpen(view, { ...st.query }, { scroll: false, active: st.active })
+    else if (findBarOpen.value) pmFindClose(view)
+  } else {
+    findBarOpen.value = st.open // 编辑器未就绪：仅同步条开关，插件状态就绪后再补
+  }
+  void nextTick(() => {
+    findSyncing = false
+  })
+}
 
 /** 插件状态 → Vue 回显（插件经 onFindStatus 推送） */
 function syncFindStatus(s: FindStatus): void {
@@ -377,9 +434,28 @@ function doReplaceAll(): void {
 }
 
 watch(findQuery, (q) => {
+  if (findSyncing) return // 拉回共享状态不是一次新查询，不导航不跳转
   const view = getView()
   if (view && findBarOpen.value) findSetQuery(view, { ...q })
 })
+
+/* refs → 共享槽位：查找条任何状态变化即推送（双栏另一侧/其他模式同步读取） */
+watch([findBarOpen, findQuery, replaceText, findActive], () => {
+  if (findSyncing) return
+  pushFind()
+})
+
+/* 共享槽位 → refs：切进本模式/双栏另一侧改了同一标签的查找状态 */
+watch(
+  () => {
+    const st = findState(findTabId.value)
+    return [st.open, st.query.text, st.query.caseSensitive, st.query.regexp, st.query.wholeWord, st.replace, st.active] as const
+  },
+  () => {
+    if (findSyncing) return
+    pullFind(findTabId.value)
+  }
+)
 
 /* 菜单 Ctrl+F → 打开即显查找条（不再切回双栏） */
 watch(
@@ -638,10 +714,12 @@ onMounted(() => {
       pending = null
       applyReplace(md)
     }
+    pullFind(tabId, true) // 编辑器就绪后恢复当前标签共享的查找条状态
   })
 })
 
 onBeforeUnmount(() => {
+  pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   host.value?.removeEventListener('mousedown', onHostMousedown)
   host.value?.removeEventListener('mouseover', onHostOver)
   host.value?.removeEventListener('mouseout', onHostOut)
@@ -669,15 +747,20 @@ function onHostScroll(): void {
   imgTip.value = null
 }
 
-/* 切换标签：整档替换（编辑器未就绪时暂存，create 完成后应用），并回到顶部 */
+/* 切换标签：整档替换（编辑器未就绪时暂存，create 完成后应用），
+   并恢复该标签的滚动位置（新标签无记录 → 默认顶部） */
 watch(
   () => docs.activeId,
-  (id) => {
+  (id, old) => {
+    // 隐藏窗格（预览模式下即显隐藏）scrollTop 恒 0，跳过保存保留旧值
+    if (host.value && host.value.offsetParent !== null) saveTabView(old, 'wysiwyg', { scroll: host.value.scrollTop })
     tabId = id
     const markdown = docs.active?.content ?? ''
     if (editor) applyReplace(markdown)
     else pending = markdown
-    if (host.value) host.value.scrollTop = 0
+    const saved = loadTabView(id, 'wysiwyg')
+    if (host.value) host.value.scrollTop = saved ? saved.scroll : 0
+    pullFind(id, true)
   }
 )
 

@@ -22,6 +22,8 @@ import type {
 const api = {
   fs: {
     readFile: (path: string): Promise<string> => ipcRenderer.invoke('fs:readFile', path),
+    /** 文件修改时间（ms）；文件不存在返回 null */
+    mtime: (path: string): Promise<number | null> => ipcRenderer.invoke('fs:mtime', path),
     writeFile: (path: string, content: string): Promise<void> =>
       ipcRenderer.invoke('fs:writeFile', path, content),
     writeFileBinary: (path: string, base64: string): Promise<void> =>

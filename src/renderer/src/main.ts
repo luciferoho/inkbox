@@ -36,6 +36,7 @@ function installBrowserMock(): void {
   window.api = {
     fs: {
       readFile: async (path: string) => files.get(path) ?? '',
+      mtime: async () => null,
       writeFile: async (path: string, content: string) => void files.set(path, content),
       writeFileBinary: async () => undefined,
       readBinary: async () => {

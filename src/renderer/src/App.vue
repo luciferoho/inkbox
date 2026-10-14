@@ -2,6 +2,7 @@
 import { onMounted, nextTick, defineAsyncComponent } from 'vue'
 import type { MenuCommand, UpdateStatePayload } from '@shared/types'
 import { t } from '@/i18n'
+import { canonicalizeContent } from '@/services/markdown'
 import { useUiStore } from '@/stores/ui'
 import { initImageContextMenu } from '@/editor/image-context-menu'
 import { useDocumentsStore } from '@/stores/documents'
@@ -115,14 +116,36 @@ onMounted(() => {
     // 备份（未保存内容）仅在异常退出后直接应用；正常启动清空不留。
     // clearAll 只归首窗口：运行中拖出的新窗口不清别的窗口正在写的草稿
     const backupEntries = init.crashed ? await window.api.drafts.list() : []
-    if (backupEntries.length > 0) docs.restoreDrafts(backupEntries.map((e) => e.draft))
+    // 陈旧草稿过滤：
+    // 1) 草稿写入后磁盘文件又被保存过（mtime 晚于草稿时间戳）→ 用户之后已存盘，丢弃
+    // 2) 草稿与磁盘仅差序列化风格（即显回写的编号/1)/*/空段落 <br /> 等，无真实编辑）→ 丢弃
+    // 都不满足才是真的未保存内容，恢复为脏标签
+    const freshEntries = []
+    for (const entry of backupEntries) {
+      if (!entry.draft.path) {
+        freshEntries.push(entry)
+        continue
+      }
+      const mtime = await window.api.fs.mtime(entry.draft.path)
+      if (mtime !== null && mtime > entry.draft.ts) {
+        await window.api.drafts.clear(entry.key).catch(() => undefined)
+        continue
+      }
+      const disk = await window.api.fs.readFile(entry.draft.path).catch(() => null)
+      if (disk !== null && canonicalizeContent(disk) === canonicalizeContent(entry.draft.content)) {
+        await window.api.drafts.clear(entry.key).catch(() => undefined)
+        continue
+      }
+      freshEntries.push(entry)
+    }
+    if (freshEntries.length > 0) docs.restoreDrafts(freshEntries.map((e) => e.draft))
     if (init.windowKey === 'w1') await window.api.drafts.clearAll()
     await docs.restoreSession({
       restoreTabs: ui.restoreTabs,
       restoreFolders: ui.restoreFolders,
       crashed: init.crashed
     })
-    if (backupEntries.length > 0) ui.showToast(t('app.draftsRestored', { n: backupEntries.length }))
+    if (freshEntries.length > 0) ui.showToast(t('app.draftsRestored', { n: freshEntries.length }))
     // 更新重装的启动：提示已升级 + 未保存内容已恢复（draftsRestored 提示可能已同时出现）
     const restartVersion = await window.api.update.restartVersion()
     if (restartVersion) ui.showToast(t('app.updatedRestored', { v: restartVersion }))

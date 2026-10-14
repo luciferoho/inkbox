@@ -2,7 +2,10 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ensureMath, renderWithDir } from '@/services/markdown'
 import { useUiStore } from '@/stores/ui'
+import { useDocumentsStore } from '@/stores/documents'
 import { buildRegex, type FindQuery } from '@/find-shared'
+import { findState, sameQuery } from '@/editor/find-state'
+import { saveTabView, loadTabView } from '@/editor/tab-view-state'
 import FindBar from './FindBar.vue'
 import '@/assets/preview.css'
 
@@ -32,6 +35,10 @@ let blocks: Block[] = []
 let lockUntil = 0
 let renderTimer: number | undefined
 let renderSeq = 0
+/** 渲染管线是否已有排队/在跑的回合（切签滚动恢复用它决定立即落位还是等渲染） */
+let renderQueued = false
+/** 切签待恢复的滚动位置（渲染换完内容后落位；null = 无待恢复） */
+let pendingScrollRestore: number | null = null
 
 watch(
   () => props.content,
@@ -39,20 +46,32 @@ watch(
     window.clearTimeout(renderTimer)
     // 大文档全文重渲染一次要几百毫秒，防抖拉长避免连续输入时卡顿
     const delay = content.length > 200_000 ? 450 : 120
+    renderQueued = true
     renderTimer = window.setTimeout(() => void render(content), delay)
   },
   { immediate: true }
 )
 
-/** 换文档（docDir 变化）时立即重渲染并回到顶部：图片相对路径才能正确解析，
- *  滚动位置也不能沿用上一篇文档的（源码面板切标签会归零，两边口径一致） */
+/** 换文档（docDir 变化）时立即重渲染：图片相对路径才能正确解析。
+ *  滚动位置交给每标签视图状态恢复（切标签 watch），不再一律回顶 */
 watch(
   () => props.docDir,
   () => {
-    if (scroller.value) scroller.value.scrollTop = 0
+    renderQueued = true
     void render(props.content)
   }
 )
+
+/** 切签滚动恢复落位：钳到当前内容高度（图片加载前高度偏小）。
+ *  程序性滚动，短暂锁双向联动——否则恢复事件会把另一侧拖离它自己要恢复的位置 */
+function applyPendingScroll(): void {
+  if (pendingScrollRestore === null || !scroller.value) return
+  const el = scroller.value
+  const max = Math.max(0, el.scrollHeight - el.clientHeight)
+  lockUntil = Date.now() + 400
+  el.scrollTop = Math.min(pendingScrollRestore, max)
+  pendingScrollRestore = null
+}
 
 /** 主题切换 → 只重渲染 mermaid 图表：其余内容的颜色全走 CSS 变量，
  *  [data-theme] 切换即自动跟随，无需重建 DOM。图表颜色是渲染时内联的，
@@ -150,8 +169,26 @@ async function render(content: string): Promise<void> {
   if (seq !== renderSeq) return
   collectBlocks()
   applyPvFocus() // DOM 重建后重放双栏联动高亮（光标没动就不需要等下一次 emit）
+  renderQueued = false
+  applyPendingScroll() // 切签滚动恢复：内容 DOM 换完即落位（mermaid 异步只改局部高度）
   await renderMermaid()
-  if (findOpen.value) pvSearch() // 内容重渲染重置了 DOM，开着查找就重扫
+  // 内容重渲染重置了 DOM，开着查找就重扫；恢复标签状态后的首次重扫不滚动定位
+  if (findOpen.value) {
+    const prevActive = findActive.value
+    pvSearch(locateNextSearch)
+    // 恢复场景：一次性补回切签前的活动项（x/x）
+    if (restoreActiveOnce >= 0 && findHits.length > 0) {
+      findActive.value = Math.min(restoreActiveOnce, findHits.length - 1)
+      pvShowHit(findActive.value, false)
+      restoreActiveOnce = -1
+    } else if (findHits.length > 0 && prevActive >= 0) {
+      // 查询没变的重扫（输入触发的重渲染）保持原活动项而不是归零：
+      // 归零值会被推回共享槽位，把源码侧的 x/x 一起拽回 1
+      findActive.value = Math.min(prevActive, findHits.length - 1)
+      pvShowHit(findActive.value, false)
+    }
+  }
+  locateNextSearch = true
 }
 
 /* ---------- mermaid 异步渲染（带缓存） ---------- */
@@ -554,6 +591,75 @@ const findBarRef = ref<InstanceType<typeof FindBar> | null>(null)
 let findHits: HTMLElement[] = []
 let findSeq = 0
 
+/** 查找状态按「标签」共享（同一文档四模式一份）：refs 当前属于哪个标签 */
+const docs = useDocumentsStore()
+const findTabId = ref<number | null>(null)
+/** 拉回共享槽位期间抑制 findQuery watcher 的重扫（拉回自己做显式重扫） */
+let findSyncing = false
+/** 拉回/切标签后的首次重扫只重建高亮、不滚动定位（切回来不该跳走） */
+let locateNextSearch = true
+/** 恢复的活动项（0 基；-1 = 无）：渲染重扫会把活动项重置为 0，
+ *  用此标志在重扫后一次性补回原来的 x/x 显示 */
+let restoreActiveOnce = -1
+
+/** refs → 标签槽。active 归「显示查找条的一侧」所有：双栏下查找条属于源码侧，
+ *  预览只跟随（本地钳位做高亮）不回写——两种表示命中数可以不同（源码 2 处、
+ *  渲染后 1 处），回写钳位值会把源码侧的 x/x 拽小；预览模式独占条时才拥有 */
+function pushFind(): void {
+  const st = findState(findTabId.value)
+  const own = ui.editorMode === 'preview'
+  if (
+    st.open === findOpen.value &&
+    sameQuery(st.query, findQuery.value) &&
+    (!own || st.active === findActive.value)
+  ) {
+    return
+  }
+  st.open = findOpen.value
+  st.query = { ...findQuery.value }
+  if (own) st.active = findActive.value
+}
+
+/** 标签槽 → refs：切标签/挂载/双栏另一侧改了共享状态；高亮重扫不滚动 */
+function pullFind(id: number | null, force = false): void {
+  const st = findState(id)
+  if (
+    !force &&
+    st.open === findOpen.value &&
+    sameQuery(st.query, findQuery.value) &&
+    st.active === findActive.value
+  ) {
+    findTabId.value = id
+    return
+  }
+  findTabId.value = id
+  findSyncing = true
+  findOpen.value = st.open
+  findQuery.value = { ...st.query }
+  if (st.open) {
+    locateNextSearch = false // 排队中的渲染重扫不跳到第一处命中
+    // 渲染排队中 body 还是上一篇文档的内容，此时重扫只会数出错误命中并把
+    // 脏 active 推回共享槽位——跳过，等 render 完成后的重扫（带恢复标志）
+    if (!renderQueued) pvSearch(false)
+    // 恢复原来的活动项（x/x 显示）：重扫后钳到有效范围并补高亮类。
+    // 标志无条件记住——挂载时 DOM 未渲染（hits 空），渲染重扫后仍要补回
+    restoreActiveOnce = Math.max(st.active, -1)
+    if (findHits.length > 0 && restoreActiveOnce >= 0) {
+      findActive.value = Math.min(restoreActiveOnce, findHits.length - 1)
+      pvShowHit(findActive.value, false)
+    }
+  } else {
+    locateNextSearch = true
+    restoreActiveOnce = -1
+    pvClearHighlights() // 关闭状态：清掉旧标签残留在 DOM 上的高亮
+    findCount.value = 0
+    findActive.value = -1
+  }
+  void nextTick(() => {
+    findSyncing = false
+  })
+}
+
 function pvClearHighlights(): void {
   const root = body.value
   if (!root) return
@@ -564,8 +670,9 @@ function pvClearHighlights(): void {
   findHits = []
 }
 
-/** 全文收集文本节点（跳过图表/公式），命中包一层高亮 span */
-function pvSearch(): void {
+/** 全文收集文本节点（跳过图表/公式），命中包一层高亮 span。
+ *  locate=false 只重建高亮不滚动定位（恢复标签状态/渲染重扫时用） */
+function pvSearch(locate = true): void {
   const root = body.value
   if (!root) return
   const seq = ++findSeq
@@ -635,13 +742,13 @@ function pvSearch(): void {
   findHits = hits
   findCount.value = hits.length
   findActive.value = hits.length ? 0 : -1
-  if (hits.length) pvShowHit(0)
+  if (hits.length && locate) pvShowHit(0)
 }
 
-function pvShowHit(i: number): void {
+function pvShowHit(i: number, locate = true): void {
   findHits.forEach((el, k) => el.classList.toggle('pv-find-hit-active', k === i))
   // scrollIntoView 不依赖焦点，预览面板无焦点也能定位
-  findHits[i]?.scrollIntoView({ block: 'center' })
+  if (locate) findHits[i]?.scrollIntoView({ block: 'center' })
 }
 
 function pvNav(dir: 1 | -1): void {
@@ -658,8 +765,45 @@ function pvClose(): void {
 }
 
 watch(findQuery, () => {
+  if (findSyncing) return // 拉回共享状态不是一次新查询
   if (findOpen.value) pvSearch()
 })
+
+/* refs → 共享槽位：查找条开关/查询词/活动项变化即推送（双栏另一侧/其他模式同步读取） */
+watch([findOpen, findQuery, findActive], () => {
+  if (findSyncing) return
+  pushFind()
+})
+
+/* 共享槽位 → refs：切标签/挂载/双栏另一侧改了同一标签的查找状态 */
+watch(
+  () => {
+    const st = findState(findTabId.value)
+    return [st.open, st.query.text, st.query.caseSensitive, st.query.regexp, st.query.wholeWord, st.active] as const
+  },
+  () => {
+    if (findSyncing) return
+    pullFind(findTabId.value)
+  }
+)
+
+/** 切换标签：旧标签滚动位置落袋，恢复目标标签自己的滚动与查找状态（共享槽位） */
+watch(
+  () => docs.activeId,
+  (id, old) => {
+    // 直接读 DOM（docDir watch 已不抢先归零；遮挡窗口下 scroll 事件会被
+    // Chromium 节流掉，靠事件跟踪会拿到陈旧值）。
+    // 隐藏窗格（编辑模式下预览隐藏）scrollTop 恒 0，跳过保存保留旧值
+    const el = scroller.value
+    if (el && el.offsetParent !== null) saveTabView(old, 'preview', { scroll: el.scrollTop })
+    pendingScrollRestore = loadTabView(id, 'preview')?.scroll ?? 0
+    lastSyncLine = null // 清同步意图：新文档的图片加载不再按旧文档行号重对齐
+    pullFind(id, true)
+    void nextTick(() => {
+      if (!renderQueued) applyPendingScroll() // 内容相同没有重渲染排队时也要落位
+    })
+  }
+)
 
 /* 预览模式 Ctrl+F：只搜索定位，不做替换（不再切回双栏） */
 watch(
@@ -694,6 +838,7 @@ function onImgLoad(): void {
 }
 
 onMounted(() => {
+  pullFind(docs.activeId, true) // 恢复当前标签共享的查找条状态
   scroller.value?.addEventListener('scroll', onScrollDom, { passive: true })
   scroller.value?.addEventListener('click', onClickDom)
   scroller.value?.addEventListener('load', onImgLoad, { capture: true, passive: true })
@@ -704,6 +849,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   scroller.value?.removeEventListener('scroll', onScrollDom)
   scroller.value?.removeEventListener('click', onClickDom)
   scroller.value?.removeEventListener('load', onImgLoad, { capture: true })
@@ -716,9 +862,11 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="preview-wrap">
-    <!-- 查找条：停靠在预览顶部，只搜索定位（无替换区） -->
+    <!-- 查找条：停靠在预览顶部，只搜索定位（无替换区）。
+         双栏模式下不显示（源码侧已有同文档的查找条，两个口径的计数并排会互相打架），
+         但仍按共享查询在渲染结果里高亮命中 -->
     <FindBar
-      v-if="findOpen"
+      v-if="findOpen && ui.editorMode === 'preview'"
       ref="findBarRef"
       search-only
       :query="findQuery"
