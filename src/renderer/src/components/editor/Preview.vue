@@ -37,8 +37,8 @@ let renderTimer: number | undefined
 let renderSeq = 0
 /** 渲染管线是否已有排队/在跑的回合（切签滚动恢复用它决定立即落位还是等渲染） */
 let renderQueued = false
-/** 切签待恢复的滚动位置（渲染换完内容后落位；null = 无待恢复） */
-let pendingScrollRestore: number | null = null
+/** 切签待恢复的内容锚（视口顶块的行号，可带小数）；null = 无待恢复 */
+let pendingAnchorLine: number | null = null
 
 watch(
   () => props.content,
@@ -62,15 +62,13 @@ watch(
   }
 )
 
-/** 切签滚动恢复落位：钳到当前内容高度（图片加载前高度偏小）。
- *  程序性滚动，短暂锁双向联动——否则恢复事件会把另一侧拖离它自己要恢复的位置 */
+/** 切签滚动恢复落位：按内容锚（行号）对齐而非像素——图片加载会撑高上方内容，
+ *  像素恢复必然漂移；syncToLine 同时把 lastSyncLine 设为锚行，
+ *  后续图片陆续加载时 onImgLoad 会继续按它重对齐 */
 function applyPendingScroll(): void {
-  if (pendingScrollRestore === null || !scroller.value) return
-  const el = scroller.value
-  const max = Math.max(0, el.scrollHeight - el.clientHeight)
-  lockUntil = Date.now() + 400
-  el.scrollTop = Math.min(pendingScrollRestore, max)
-  pendingScrollRestore = null
+  if (pendingAnchorLine === null || !scroller.value) return
+  syncToLine(pendingAnchorLine, 0)
+  pendingAnchorLine = null
 }
 
 /** 主题切换 → 只重渲染 mermaid 图表：其余内容的颜色全走 CSS 变量，
@@ -793,11 +791,18 @@ watch(
   (id, old) => {
     // 直接读 DOM（docDir watch 已不抢先归零；遮挡窗口下 scroll 事件会被
     // Chromium 节流掉，靠事件跟踪会拿到陈旧值）。
-    // 隐藏窗格（编辑模式下预览隐藏）scrollTop 恒 0，跳过保存保留旧值
+    // 隐藏窗格（编辑模式下预览隐藏）scrollTop 恒 0，跳过保存保留旧值。
+    // 存内容锚（视口顶块行号）而非像素：图片加载撑高上方内容后像素必漂
     const el = scroller.value
-    if (el && el.offsetParent !== null) saveTabView(old, 'preview', { scroll: el.scrollTop })
-    pendingScrollRestore = loadTabView(id, 'preview')?.scroll ?? 0
-    lastSyncLine = null // 清同步意图：新文档的图片加载不再按旧文档行号重对齐
+    if (el && el.offsetParent !== null && blocks.length > 0) {
+      const { i, f } = blockAtScrollTop(el.scrollTop)
+      const cur = blocks[i]
+      const next = blocks[i + 1]
+      const lineSpan = next ? next.line - cur.line : Math.max(1, cur.end - cur.line)
+      saveTabView(old, 'preview', { anchor: cur.line + f * lineSpan })
+    }
+    pendingAnchorLine = loadTabView(id, 'preview')?.anchor ?? 0
+    lastSyncLine = pendingAnchorLine // 图片陆续加载时 onImgLoad 继续按锚行重对齐
     pullFind(id, true)
     void nextTick(() => {
       if (!renderQueued) applyPendingScroll() // 内容相同没有重渲染排队时也要落位

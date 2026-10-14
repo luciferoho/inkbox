@@ -1,12 +1,17 @@
 /**
  * 每标签×每窗格的视图状态（内存级，不持久化）：切换标签时保留上次各窗格的
- * 滚动位置（源码/即显/预览是三个独立滚动容器，双栏下同时可见、各自滚动），
- * 回到该标签时各自原样恢复；新开标签无记录，默认回到顶部/文档开头。
- * 源码窗格额外记录光标 head（查找 x/x 的活动项由它推导）。
+ * 「内容锚点」而非像素——图片加载会撑高上方内容，像素恢复必然漂移（锚点恢复
+ * 后位置随布局收敛，内容始终对得上）。回到该标签时各自恢复；新开标签无记录，
+ * 默认回到顶部/文档开头。
+ * - source：anchor = 视口顶行的文档位置（CM 高度图文本行高精确），cursor = 光标 head
+ * - preview：anchor = 视口顶块的行号（可带小数），图片加载后由 onImgLoad 按它重对齐
+ * - wysiwyg：scroll/scrollHeight 记比例（PM 无虚拟化，浏览器 scroll anchoring 兜底）
  */
 export interface PaneViewState {
-  scroll: number
+  anchor?: number
   cursor?: number
+  scroll?: number
+  scrollHeight?: number
 }
 
 export type PaneKind = 'source' | 'wysiwyg' | 'preview'

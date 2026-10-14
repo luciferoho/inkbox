@@ -748,18 +748,25 @@ function onHostScroll(): void {
 }
 
 /* 切换标签：整档替换（编辑器未就绪时暂存，create 完成后应用），
-   并恢复该标签的滚动位置（新标签无记录 → 默认顶部） */
+   并恢复该标签的滚动位置（新标签无记录 → 默认顶部）。
+   图片加载会撑高上方内容，存像素必漂——存比例，恢复按新高度换算，
+   微小偏差由浏览器 scroll anchoring 锚住视口内容兜底 */
 watch(
   () => docs.activeId,
   (id, old) => {
     // 隐藏窗格（预览模式下即显隐藏）scrollTop 恒 0，跳过保存保留旧值
-    if (host.value && host.value.offsetParent !== null) saveTabView(old, 'wysiwyg', { scroll: host.value.scrollTop })
+    if (host.value && host.value.offsetParent !== null) {
+      saveTabView(old, 'wysiwyg', { scroll: host.value.scrollTop, scrollHeight: host.value.scrollHeight })
+    }
     tabId = id
     const markdown = docs.active?.content ?? ''
     if (editor) applyReplace(markdown)
     else pending = markdown
     const saved = loadTabView(id, 'wysiwyg')
-    if (host.value) host.value.scrollTop = saved ? saved.scroll : 0
+    if (host.value) {
+      const ratio = saved?.scrollHeight ? saved.scroll! / saved.scrollHeight : 0
+      host.value.scrollTop = ratio * host.value.scrollHeight
+    }
     pullFind(id, true)
   }
 )

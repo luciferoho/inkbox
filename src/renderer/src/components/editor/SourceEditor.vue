@@ -628,10 +628,21 @@ watch(
   (id, old) => {
     if (!view || id === null) return
     window.clearTimeout(renumberDebounce) // 上一标签排队的重排不在新文档上执行
-    // 旧标签的滚动/光标落袋；新标签无记录 → 默认顶部/文档开头。
+    // 旧标签落袋：视口顶行的文档位置作内容锚（像素会被图片等后续布局变化顶跑；
+    // documentTop 是随滚动变化的动态量，坐标换算不可靠，直接 DOM 实测→posAtDOM）。
     // 隐藏窗格（预览模式下源码 v-show 隐藏）scrollTop 恒 0，跳过保存保留旧值
     if (host.value && host.value.offsetParent !== null) {
-      saveTabView(old, 'source', { scroll: view.scrollDOM.scrollTop, cursor: view.state.selection.main.head })
+      let topLinePos: number | undefined
+      const scrollerRect = view.scrollDOM.getBoundingClientRect()
+      for (const child of view.contentDOM.children) {
+        if (!child.classList.contains('cm-line')) continue
+        const r = child.getBoundingClientRect()
+        if (r.bottom > scrollerRect.top + 4) {
+          topLinePos = view.posAtDOM(child, 0)
+          break
+        }
+      }
+      saveTabView(old, 'source', { anchor: topLinePos, cursor: view.state.selection.main.head })
     }
     applying = true
     view.setState(makeState(docs.active?.content ?? ''))
@@ -639,14 +650,45 @@ watch(
     ui.currentLine = 1
     applying = false
     const saved = loadTabView(id, 'source')
-    if (saved?.cursor !== undefined && saved.cursor <= view.state.doc.length) {
-      view.dispatch({ selection: { anchor: saved.cursor } })
-    }
+    const anchor = saved?.anchor
+    const cursor = saved?.cursor
+    const len = view.state.doc.length
     pullFind(id, true) // 无条件恢复（视图刚重建，高亮需要重亮）
-    // 滚动恢复放最后：查找恢复（高亮插件定位）会把视口滚到命中处，覆盖之；
-    // 恢复属程序性滚动，短暂锁联动，不把预览拖离它自己要恢复的位置
-    view.scrollDOM.scrollTop = saved ? saved.scroll : 0
-    lockUntil = Date.now() + 150
+    if (view.hasFocus) view.contentDOM.blur() // 摘焦点，减少光标自动滚动诱因
+    if (cursor !== undefined && cursor <= len) {
+      view.dispatch({ selection: { anchor: cursor } })
+    }
+    // 锚点恢复分两拍：先按 heightMap 估算粗滚（减少视觉跳变——估算会把
+    // 未渲染的标题/代码块行按普通行估，位置偏但方向对），等 CM 渲染修正
+    // 测量后，再用 scrollIntoView effect 精确校正（CM 的 measure 循环会
+    // 消化估算误差，手写 lineBlockAt 换算只会跟着估算震荡）。
+    // 恢复属程序性滚动，短暂锁联动；用户滚轮/按下即停；新标签无记录 → 回顶
+    if (anchor === undefined) {
+      view.scrollDOM.scrollTop = 0
+      lockUntil = Date.now() + 150
+    } else {
+      const pos = Math.min(anchor, view.state.doc.length)
+      // 粗滚按比例（heightMap 估算不可靠，只求别闪太狠），精确校正交给
+      // 120ms 后的 scrollIntoView effect（CM 的 measure 循环实测落位）
+      view.scrollDOM.scrollTop = (pos / view.state.doc.length) * view.scrollDOM.scrollHeight
+      let stopped = false
+      const stop = () => {
+        stopped = true
+        view.scrollDOM.removeEventListener('wheel', stop)
+        view.scrollDOM.removeEventListener('mousedown', stop)
+      }
+      view.scrollDOM.addEventListener('wheel', stop, { passive: true, once: true })
+      view.scrollDOM.addEventListener('mousedown', stop, { once: true })
+      setTimeout(() => {
+        view.scrollDOM.removeEventListener('wheel', stop)
+        view.scrollDOM.removeEventListener('mousedown', stop)
+        if (stopped || !view || tabId !== id) return
+        view.dispatch({
+          effects: [EditorView.scrollIntoView(pos, { y: 'start', yMargin: 0 })]
+        })
+        lockUntil = Date.now() + 150
+      }, 120)
+    }
   }
 )
 
