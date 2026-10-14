@@ -50,7 +50,9 @@ import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createElementToolbar, type ElToolbarState } from '@/editor/pm-element-toolbar'
 import { createCodeblockChromePlugin } from '@/editor/pm-codeblock-chrome'
 import { createQuoteEscapePlugin } from '@/editor/pm-quote-escape'
+import { createTaskTogglePlugin } from '@/editor/pm-task-toggle'
 import { parseAltMods, buildAltMods, stepWidth, luciToDisplaySrc, type ImageMods } from '@/editor/image-utils'
+import { splitAdjacentOrderedLists } from '@/services/markdown'
 import { t } from '@/i18n'
 // 图片修饰符即显渲染:extendSchema 返回新 holder,须 .use 挂载生效
 import { styledImageSchema } from '@/editor/wysiwyg-image-style'
@@ -198,6 +200,7 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
  */
 interface MdastNode {
   type?: string
+  depth?: number
   alt?: unknown
   title?: unknown
   children?: MdastNode[]
@@ -213,6 +216,17 @@ function normalizeImageNulls() {
       n.children?.forEach((c) => walk(c))
     }
     walk(tree)
+  }
+}
+
+/** 相邻有序列表分隔的哨兵（toWysiwygSource 注入的空一级标题）：
+ *  remark 解析后移除，PM 文档与序列化输出里不留痕迹 */
+function dropSplitHeadings() {
+  return (tree: MdastNode): void => {
+    if (!tree.children) return
+    tree.children = tree.children.filter(
+      (c) => !(c.type === 'heading' && c.depth === 1 && (!c.children || c.children.length === 0))
+    )
   }
 }
 
@@ -237,11 +251,14 @@ function docDirOf(): string | null {
   return sepIdx > 0 ? p.slice(0, sepIdx).replace(/\\/g, '/') : null
 }
 
-/** 相对路径图片 → luci-img://（跳过协议/绝对/锚点与代码围栏） */
+/** 相对路径图片 → luci-img://（跳过协议/绝对/锚点与代码围栏）；
+ *  同时做相邻有序列表分隔（与 markdown-it 预览管线同一预处理，两模式渲染一致）：
+ *  注入的空标题哨兵由 remark transformer dropSplitHeadings 在解析后移除 */
 function toWysiwygSource(md: string): string {
   const docDir = docDirOf()
-  if (!docDir) return md
-  const lines = md.split('\n')
+  let src = splitAdjacentOrderedLists(md)
+  if (!docDir) return src
+  const lines = src.split('\n')
   let fence: string | null = null
   for (let i = 0; i < lines.length; i++) {
     const fm = /^(\s*)(`{3,}|~{3,})/.exec(lines[i])
@@ -268,11 +285,20 @@ function toWysiwygSource(md: string): string {
   return lines.join('\n')
 }
 
-/** luci-img:// → 原始相对路径（文档目录内的）；目录外的保留绝对路径 */
+/** luci-img:// → 原始相对路径（文档目录内的）；目录外的保留绝对路径。
+ *  顺带归一化：milkdown 把空段落序列化为 `<br />` 行，转回空行——
+ *  否则双栏源码里出现字面 `<br />`，预览因 html:false 转义后原样可见；
+ *  milkdown 对重建后的有序列表会把分隔符写成 `)`，统一归一化回 `.` */
 function fromWysiwygSource(md: string): string {
   const docDir = docDirOf()
-  if (!docDir) return md
-  return md.replace(/\]\(luci-img:\/\/([^)\s]+)\)/g, (_whole, enc: string) => {
+  let out = md
+    .split('\n')
+    .map((l) => (/^[ \t]*<br\s*\/?>[ \t]*$/i.test(l) ? '' : l))
+    .join('\n')
+    .replace(/^(\s*\d+)\)/gm, '$1.')
+    .replace(/^([ \t]*)\*([ \t])/gm, '$1-$2')
+  if (!docDir) return out
+  return out.replace(/\]\(luci-img:\/\/([^)\s]+)\)/g, (_whole, enc: string) => {
     let abs: string
     try {
       abs = decodeURIComponent(enc)
@@ -392,6 +418,8 @@ const elToolbarPlugin = $prose(() =>
 const codeblockChromePlugin = $prose(() => createCodeblockChromePlugin())
 // Esc 跳出引用块（列表 Tab/Shift+Tab 在视图级 handleKeys，优先级更高）
 const quoteEscapePlugin = $prose(() => createQuoteEscapePlugin())
+// 任务列表点击切换复选框（milkdown 无内置交互）
+const taskTogglePlugin = $prose(() => createTaskTogglePlugin())
 
 /* ---------- 元素工具条:图片/表格操作 ---------- */
 
@@ -553,7 +581,8 @@ onMounted(() => {
       // remarkPluginsCtx 元素格式为 { plugin, options }（core 按 plug.plugin 取值 use）
       ctx.update(remarkPluginsCtx, (ps) => [
         ...ps,
-        { plugin: normalizeImageNulls, options: {} } as never
+        { plugin: normalizeImageNulls, options: {} } as never,
+        { plugin: dropSplitHeadings, options: {} } as never
       ])
       ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
         if (applying || tabId === null) return
@@ -577,6 +606,7 @@ onMounted(() => {
     .use(elToolbarPlugin)
     .use(codeblockChromePlugin)
     .use(quoteEscapePlugin)
+    .use(taskTogglePlugin)
   void instance.create().then((e) => {
     editor = e
     // 开发期调试钩子：CDP 查 PM 文档 JSON / 序列化输出 / 内部 remark mdast

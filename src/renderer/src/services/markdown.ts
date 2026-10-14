@@ -100,7 +100,8 @@ import { full as emoji } from 'markdown-it-emoji'
 export const md: MarkdownIt = MarkdownItDefault({
   html: false,
   linkify: true,
-  breaks: false,
+  // 单换行渲染为 <br>（Typora 默认行为）：源码里的换行在预览保持换行观感
+  breaks: true,
   highlight(code, lang): string {
     if (lang && hljs.getLanguage(lang)) {
       try {
@@ -305,17 +306,22 @@ export function preprocessCenter(src: string): string {
 }
 
 /**
- * 相邻有序列表分隔（Typora 语义，仅渲染层，不改文档内容）：
- * 退出列表后新开的列表（首项 1.）与上一个顶层有序列表之间只隔空行时，
- * CommonMark/markdown-it 会把两者并成一个列表继续编号——空行再多也并。
- * 在接缝处注入不可见 HTML 注释作列表终止符：预览/导出从 1 重新编号。
- * 触发条件收紧：前一非空行是顶层有序项 + 空行 + 顶层 "1." 行（代码围栏内不动）。
+ * 相邻有序列表分隔（仅渲染层，不改文档内容）：
+ * 退出列表后新开的有序列表与上一个列表之间只隔空行时，CommonMark/markdown-it
+ * 会把两者并成一个列表继续编号。在接缝注入空 ATX 标题行终止上一个列表——
+ * 只分隔、不改写序号：源里是什么号预览就显示什么号（第二个 <ol> 带原字面 start）。
+ * 即显（milkdown/remark）管线经 toWysiwygSource 注入同样的哨兵，
+ * remark transformer 在解析后移除。
+ * 顺带：整行 `<br />`（即显空段落的序列化残留）在渲染层视为空行，
+ * 避免 html:false 转义后显示成字面文本。
  */
-function splitAdjacentOrderedLists(src: string): string {
+const BR_ONLY_RE = /^[ \t]*<br\s*\/?>[ \t]*$/i
+
+export function splitAdjacentOrderedLists(src: string): string {
   const lines = src.split('\n')
   const out: string[] = []
   let fence: string | null = null
-  let prevWasOrdered = false
+  let prevWasList = false // 最近一个非空行是列表项行（任意标记/缩进）
   let blankRun = 0
   for (const line of lines) {
     const fenceMatch = /^(```+|~~~+).*$/.exec(line)
@@ -323,7 +329,7 @@ function splitAdjacentOrderedLists(src: string): string {
       if (fence === null) fence = fenceMatch[1].slice(0, 3)
       else if (line.startsWith(fence)) fence = null
       out.push(line)
-      prevWasOrdered = false
+      prevWasList = false
       blankRun = 0
       continue
     }
@@ -331,20 +337,86 @@ function splitAdjacentOrderedLists(src: string): string {
       out.push(line)
       continue
     }
-    if (!line.trim()) {
+    if (!line.trim() || BR_ONLY_RE.test(line)) {
       blankRun++
-      out.push(line)
+      out.push(BR_ONLY_RE.test(line) ? '' : line)
       continue
     }
-    const ordered = /^(\d+)([.)])[ \t]+\S/.exec(line)
-    if (ordered && line === line.trimStart() && blankRun > 0 && prevWasOrdered && ordered[1] === '1') {
-      out.push('<!-- -->')
+    const isTopOrdered = /^\d+[.)][ \t]+\S/.test(line) && line === line.trimStart()
+    if (isTopOrdered && blankRun > 0 && prevWasList) {
+      // 新组从 1 重新显示：终止符 + 组首项字号重写（组内其余字面号不影响渲染，
+      // <ol> 顺序编号；即显里编辑后序列化会把重排落盘）
+      out.push('#')
+      out.push(line.replace(/^\d+/, '1'))
+      prevWasList = true
+      blankRun = 0
+      continue
     }
     out.push(line)
-    prevWasOrdered = Boolean(ordered) && line === line.trimStart()
+    prevWasList = /^\s*(?:[-*+]|\d+[.)])[ \t]/.test(line)
     blankRun = 0
   }
   return out.join('\n')
+}
+
+/**
+ * 有序列表编号归一化（文档打开时一次性整理，Typora 语义）：
+ * 空行分隔的有序列表 = 独立列表，各组成员重写为 1..n——源码与预览从打开起就一致，
+ * 不必等编辑触发。限制：仅顶层有序组；组前没有其它列表（文档开头/段落后的首个组）
+ * 保留字面起始号（「3. 1922 年」类意图）；更深的子列表不动；代码围栏内不动；
+ * 分隔符风格（. 或 )）保留原样。
+ */
+export function normalizeOrderedNumbering(src: string): string {
+  const lines = src.split('\n')
+  let fence: string | null = null
+  let prevTopList = false // 上一个顶层块是有序列表
+  let blankRun = 0
+  let groupNum = 0 // 当前组的顺序号（0 = 不在组内）
+  let groupQualified = false // 当前组前面还有另一个列表（有资格重排）
+  for (let i = 0; i < lines.length; i++) {
+    const fm = /^(```+|~~~+).*$/.exec(lines[i])
+    if (fm) {
+      if (fence === null) fence = fm[1].slice(0, 3)
+      else if (lines[i].startsWith(fm[1].slice(0, 3))) fence = null
+      prevTopList = false
+      blankRun = 0
+      groupNum = 0
+      continue
+    }
+    if (fence !== null) continue
+    if (!lines[i].trim()) {
+      blankRun++
+      continue
+    }
+    const isTopOrdered = /^\d+[.)][ \t]+\S/.test(lines[i]) && lines[i] === lines[i].trimStart()
+    if (isTopOrdered) {
+      // 分隔符风格统一为点号（源里可能混有 milkdown 序列化残留的右括号风格）
+      if (/^\d+\)/.test(lines[i])) {
+        lines[i] = lines[i].replace(/^(\d+)\)/, (_m, d: string) => `${d}.`)
+      }
+      if (groupNum === 0 || blankRun > 0) {
+        // 组首项：前一个顶层块是有序列表 → 本组有资格从 1 重新编号
+        groupQualified = prevTopList
+        groupNum = 1
+      } else {
+        groupNum++
+      }
+      if (groupQualified) {
+        const rewritten = lines[i].replace(/^\d+/, String(groupNum))
+        if (rewritten !== lines[i]) lines[i] = rewritten
+      }
+      prevTopList = true
+      blankRun = 0
+      continue
+    }
+    if (lines[i] === lines[i].trimStart()) {
+      // 顶层非列表内容行（标题/段落/无序项等）：断组
+      prevTopList = false
+      groupNum = 0
+    }
+    blankRun = 0
+  }
+  return lines.join('\n')
 }
 
 /** 渲染结果后处理：哨兵段落替换为真实包裹层（段落带 data-source-line 属性） */
@@ -354,10 +426,13 @@ function applyCenter(html: string): string {
     .replace(/<p[^>]*>@@CENTER_END@@<\/p>/g, '</div>')
 }
 
+/** 空标题哨兵的渲染产物（splitAdjacentOrderedLists 注入，渲染后剥除） */
+const LIST_SPLIT_RE = /<h1(\s[^>]*)?>\s*<\/h1>\n?/g
+
 /** 带文档目录渲染（相对图片解析用） */
 export function renderWithDir(src: string, docDir: string | null): string {
   const html = md.render(splitAdjacentOrderedLists(preprocessCenter(src)), docDir ? { docDir } : undefined)
-  return applyCenter(html)
+  return applyCenter(html).replace(LIST_SPLIT_RE, '')
 }
 
 /* ---------- 数学公式：katex 懒加载 ---------- */

@@ -295,19 +295,22 @@ export const deleteListMarker: Command = (view) => {
 
 /* ---------- 列表 Tab / Shift+Tab：降级 / 升级（Typora 习惯） ---------- */
 
-const LIST_LINE_RE = /^(\s*)((?:[-*+]|\d+[.)])[ \t]+)(.*)$/
-const ORDERED_RE = /^(\s*)(\d+)([.)])([ \t]+)(.*)$/
+const LIST_LINE_RE = /^(\s*)((?:[-*+]|\d+[.)])(?:[ \t]+|$))(.*)$/
+const ORDERED_RE = /^(\s*)(\d+)([.)])(?:[ \t]+|$)(.*)$/
 
 /**
  * 有序列表重排号（Tab/Shift+Tab 后随缩进变更一起做，Typora 语义）：
  * Markdown 有序列表按字面起始号渲染——缩进合并后不重排会保留 3. 4. 这类续号，
  * 且「非 1 开头的列表不能打断段落」会让新嵌套项被并进上一行正文（预览里合成一行）。
- * indentOf(n)：行号 → 虚拟缩进（本次已变更行给新值，其余给当前值）。
- * 组的边界：同缩进的连续有序项为一组；更深的子列表与空行不断组；无序项/普通文本断组。
+ * indentOf(n)：行号 → 虚拟缩进（本次已变更行给新值；-1 = 标记已移除，非列表行）。
+ * 组的边界（只重排包含 seeds 的组，未涉及的组一律不动）：
+ * - 空行断组：隔空行的两个有序列表是用户心智里的两个独立列表
+ * - 更深的子列表不断组；无序项/普通文本断组
  */
 function renumberOrdered(
   view: EditorView,
-  indentOf: (n: number) => number
+  indentOf: (n: number) => number,
+  seeds: Set<number>
 ): { from: number; to: number; insert: string }[] {
   const { doc } = view.state
   const total = doc.lines
@@ -318,39 +321,40 @@ function renumberOrdered(
     if (!ORDERED_RE.test(doc.line(n).text)) continue
     const B = indentOf(n)
     if (B < 0) continue // 虚拟缩进 <0 = 本次已移除标记（不再是列表行）
-    // 向上找组起点：更深的子列表/空行跳过，同级有序项吞并，其余停
+    // 向上找组起点：更深的子列表跳过，同级有序项吞并，空行/无序/普通文本断组
     let start = n
+    let hasSeed = seeds.has(n)
     for (let p = n - 1; p >= 1; p--) {
       const t = doc.line(p).text
-      if (!t.trim()) continue
+      if (!t.trim()) break
       const om = ORDERED_RE.exec(t)
       if (om && indentOf(p) === B) {
         start = p
+        if (seeds.has(p)) hasSeed = true
         continue
       }
       const lm = LIST_LINE_RE.exec(t)
       if (lm && indentOf(p) > B) continue
       break
     }
-    // 向后收集同级连续有序项（穿插更深子列表/空行不断组）
+    // 向后收集同级连续有序项
     const seq: number[] = []
     for (let j = start; j <= total; j++) {
       const t = doc.line(j).text
-      if (!t.trim()) {
-        if (seq.length) continue
-        break
-      }
+      if (!t.trim()) break
       const om = ORDERED_RE.exec(t)
       if (om && indentOf(j) === B) {
         seq.push(j)
+        if (seeds.has(j)) hasSeed = true
         continue
       }
       const lm = LIST_LINE_RE.exec(t)
       if (lm && indentOf(j) > B) continue
       break
     }
+    for (const ln of seq) done.add(ln)
+    if (!hasSeed) continue
     for (let k = 0; k < seq.length; k++) {
-      done.add(seq[k])
       const ln = doc.line(seq[k])
       const m = ORDERED_RE.exec(ln.text)
       if (m && Number(m[2]) !== k + 1) {
@@ -391,7 +395,7 @@ export const cmdListIndent: Command = (view) => {
   }
   if (newIndent.size === 0) return false
   const curIndentOf = (n: number): number => /^(\s*)/.exec(state.doc.line(n).text)?.[1].length ?? 0
-  const renum = renumberOrdered(view, (n) => newIndent.get(n) ?? curIndentOf(n))
+  const renum = renumberOrdered(view, (n) => newIndent.get(n) ?? curIndentOf(n), new Set(newIndent.keys()))
   if (changes.length === 0 && renum.length === 0) return false
   view.dispatch({ changes: [...changes, ...renum], scrollIntoView: true })
   return true
@@ -435,8 +439,90 @@ export const cmdListOutdent: Command = (view) => {
   if (changes.length === 0) return false
   const curIndentOf = (n: number): number => /^(\s*)/.exec(state.doc.line(n).text)?.[1].length ?? 0
   // 标记被移除的行给 -1：重排模型里视为非列表行（不参与分组也不产出 change）
-  const renum = renumberOrdered(view, (n) => newIndent.get(n) ?? curIndentOf(n))
+  const renum = renumberOrdered(view, (n) => newIndent.get(n) ?? curIndentOf(n), new Set(newIndent.keys()))
   view.dispatch({ changes: [...changes, ...renum], scrollIntoView: true })
+  return true
+}
+
+/**
+ * 源码模式实时重排（编辑后由 updateListener 调用）：
+ * - 光标在有序项上 → 所在组编号顺序化
+ * - 光标在空行上（回车断开列表的瞬间）→ 空行后的有序组视为新列表，从 1 重排；
+ *   反向（删除空行合并回去）→ 合并后的组顺序化接续上文
+ * 与预览渲染语义保持一致（渲染按 <ol> 顺序编号，源码字面号跟随归一）。
+ * 组的边界：连续顶层有序项；更深的子列表跳过；空行/无序顶格/普通文本断组。
+ * 起始号：隔空行跟随另一个列表 → 1；否则保留首项字面号（「3. 1922 年」类意图）。
+ * 重排派发后会再触发一次 updateListener，此时编号已顺序化，不再产出变更，自然收敛。
+ */
+export function autoRenumberFollowingList(view: EditorView, head: number): boolean {
+  const { state } = view
+  const headLine = state.doc.lineAt(head)
+  const seen = new Set<number>()
+  // 已有路径：光标在有序项上 → 所在组重排
+  if (/^\d+[.)][ \t]/.test(headLine.text)) {
+    const done = renumberGroupAt(view, headLine.number, seen)
+    if (done) return true
+  }
+  // 新路径：光标在空行上（回车断开列表）→ 空行后的有序组从 1 重排
+  if (!headLine.text.trim()) {
+    let j = headLine.number + 1
+    while (j <= state.doc.lines && !state.doc.line(j).text.trim()) j++
+    if (j <= state.doc.lines && /^\d+[.)][ \t]/.test(state.doc.line(j).text)) {
+      return renumberGroupAt(view, j, seen)
+    }
+  }
+  return false
+}
+
+/** 重排 startLine 所在的有序组：组内编号顺序化。起始号取
+ *  「隔空行跟随另一个列表 → 1（空行 = 新列表）；否则 → 首项字面号（保留
+ *  「3. 1922 年」类起始意图）」。删除空行合并回去时组内不连续的编号会被顺序化 */
+function renumberGroupAt(view: EditorView, startLine: number, seen: Set<number>): boolean {
+  const { state } = view
+  // 组起点向上：连续顶层有序项；更深缩进（子列表）跳过；空行/无序顶格/文本断组
+  let start = startLine
+  for (let p = startLine - 1; p >= 1; p--) {
+    const t = state.doc.line(p).text
+    if (/^\d+[.)][ \t]/.test(t)) {
+      start = p
+      continue
+    }
+    if (/^\s/.test(t)) continue
+    break
+  }
+  // 组向下收集
+  const seq: number[] = []
+  for (let j = start; j <= state.doc.lines; j++) {
+    const t = state.doc.line(j).text
+    if (/^\d+[.)][ \t]/.test(t)) {
+      seq.push(j)
+      seen.add(j)
+      continue
+    }
+    if (/^\s/.test(t)) continue
+    break
+  }
+  // 起始号：组前（跳过空行）还有另一个列表行 → 从 1（新列表）；否则保留首项字面号
+  let followsList = false
+  for (let p = start - 1; p >= 1; p--) {
+    const t = state.doc.line(p).text
+    if (!t.trim()) continue
+    followsList = /^(?:[-*+]|\d+[.)])[ \t]/.test(t)
+    break
+  }
+  const firstLiteral = Number(/^(\d+)/.exec(state.doc.line(start).text)?.[1] ?? 1)
+  const startNum = followsList ? 1 : firstLiteral
+  const changes: { from: number; to: number; insert: string }[] = []
+  for (let k = 0; k < seq.length; k++) {
+    const expect = startNum + k
+    const ln = state.doc.line(seq[k])
+    const m = /^(\d+)([.)])/.exec(ln.text)
+    if (m && Number(m[1]) !== expect) {
+      changes.push({ from: ln.from, to: ln.from + m[1].length, insert: String(expect) })
+    }
+  }
+  if (changes.length === 0) return false
+  view.dispatch({ changes, scrollIntoView: false })
   return true
 }
 

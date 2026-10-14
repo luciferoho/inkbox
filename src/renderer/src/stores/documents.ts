@@ -5,6 +5,7 @@ import { useWorkspaceStore } from './workspace'
 import type { DetachDoc, DraftPayload } from '@shared/types'
 import { t } from '@/i18n'
 import { htmlToMarkdown } from '@/services/richPaste'
+import { normalizeOrderedNumbering } from '@/services/markdown'
 import sampleDoc from '@samples/示例.md?raw'
 
 /** 主页（欢迎页）标签的固定 id */
@@ -174,7 +175,10 @@ export const useDocumentsStore = defineStore('documents', {
         return
       }
       try {
-        const content = await window.api.fs.readFile(path)
+        let content = await window.api.fs.readFile(path)
+        // 有序列表编号归一化（Typora 语义）：空行分隔的有序组从 1 起，
+        // 打开即与预览一致；脏标记不变，用户实际编辑保存时才会写入磁盘
+        content = normalizeOrderedNumbering(content)
         const tab: DocTab = {
           id: nextId++,
           path,

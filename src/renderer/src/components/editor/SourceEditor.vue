@@ -59,7 +59,8 @@ import {
   cmdHeadingUp,
   cmdHeadingDown,
   cmdListIndent,
-  cmdListOutdent
+  cmdListOutdent,
+  autoRenumberFollowingList
 } from '@/editor/cm-commands'
 import { luciFocusMode, luciTypewriterMode } from '@/editor/cm-focus'
 import { useUiStore } from '@/stores/ui'
@@ -105,6 +106,7 @@ const docs = useDocumentsStore()
 const host = ref<HTMLElement | null>(null)
 let view: EditorView | null = null
 let unregisterCm: (() => void) | null = null
+let renumberDebounce = -1
 let tabId: number | null = null
 /** 外部整档替换（切标签）不记 dirty、不触发同步 */
 let applying = false
@@ -231,6 +233,17 @@ function makeState(content: string): EditorState {
         if (applying) return
         if (u.docChanged && tabId !== null) {
           docs.updateContent(tabId, u.state.doc.toString())
+        }
+        // 源码实时重排：空行分隔的后续有序组从 1 起（与预览渲染语义一致）；
+        // 组合输入（IME）期间立即重排会打断输入，推迟到防抖窗口收敛
+        if (u.docChanged && !u.view.composing) {
+          autoRenumberFollowingList(u.view, u.state.selection.main.head)
+        }
+        if (u.docChanged) {
+          window.clearTimeout(renumberDebounce)
+          renumberDebounce = window.setTimeout(() => {
+            if (view && !view.composing) autoRenumberFollowingList(view, view.state.selection.main.head)
+          }, 350)
         }
         if (u.docChanged || u.selectionSet) {
           ui.currentLine = u.state.doc.lineAt(u.state.selection.main.head).number

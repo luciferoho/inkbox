@@ -286,3 +286,21 @@
     transform: rotate(360deg);
   }
 }
+
+/* ---------- 任务列表：原生 checkbox（与预览 .task-item-checkbox 同款样式） ---------- */
+
+.wysiwyg-host li[data-item-type='task'] {
+  list-style: none;
+  margin-left: -1.4em;
+}
+
+.wysiwyg-host .task-item-checkbox {
+  accent-color: var(--accent);
+  margin-right: 7px;
+  vertical-align: -1.5px;
+  cursor: pointer;
+}
+
+.wysiwyg-host li[data-item-type='task'][data-checked='true'] p {
+  color: var(--text-2);
+}
