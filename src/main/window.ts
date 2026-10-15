@@ -42,7 +42,10 @@ export function createAppWindow(doc?: DetachDoc): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
-      spellcheck: false
+      spellcheck: false,
+      // 关掉后台节流：窗口被遮挡时 Chromium 会把渲染进程的 rAF/scroll 事件
+      // 冻到 1Hz，编辑器的草稿防抖、滚动恢复落位、双栏联动全部依赖这些时序
+      backgroundThrottling: false
     }
   })
 

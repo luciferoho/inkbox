@@ -40,6 +40,32 @@ let renderQueued = false
 /** 切签待恢复的内容锚（视口顶块的行号，可带小数）；null = 无待恢复 */
 let pendingAnchorLine: number | null = null
 
+/* ---------- 图片尺寸缓存 ----------
+ * 图片加载前没有高度，整页布局在加载窗口期不断被撑高：既让切签锚点落位失准，
+ * 也让双栏联动滚动每帧踩到新布局而闪动。把每张图的固有尺寸记下来（按解析后
+ * 的 src 稳定复现），重渲染时立刻写回 aspect-ratio/width 占位——第二次及以后
+ * 的渲染（切签回来、输入触发的重排）布局从第一帧起就与加载完成后一致 */
+const imgSizeCache = new Map<string, [number, number]>()
+
+function rememberImgSize(src: string, w: number, h: number): void {
+  if (imgSizeCache.size >= 2000) {
+    const oldest = imgSizeCache.keys().next().value
+    if (oldest !== undefined) imgSizeCache.delete(oldest)
+  }
+  imgSizeCache.set(src, [w, h])
+}
+
+/** 渲染后、收集块映射前调用：给有尺寸记录的图补占位尺寸（已带内联宽度的
+ *  修饰图只补 aspect-ratio；未修饰图补 width+natural 上限由 max-width:100% 兜住） */
+function applyCachedImageSizes(): void {
+  body.value?.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
+    const hit = imgSizeCache.get(img.src)
+    if (!hit || hit[0] < 1 || hit[1] < 1) return
+    if (!img.style.aspectRatio) img.style.aspectRatio = `${hit[0]} / ${hit[1]}`
+    if (!img.style.width) img.style.width = `${hit[0]}px`
+  })
+}
+
 watch(
   () => props.content,
   (content) => {
@@ -165,6 +191,7 @@ async function render(content: string): Promise<void> {
   // 关闸：等待期间若又开始了新渲染，本轮作废——否则陈旧回合会在
   // 新一轮已渲染完的 DOM 上重跑 mermaid（把 SVG 内的 <style> 文本当源码）
   if (seq !== renderSeq) return
+  applyCachedImageSizes() // 图片占位尺寸先落位，块映射与切签锚点才不会按塌缩布局算
   collectBlocks()
   applyPvFocus() // DOM 重建后重放双栏联动高亮（光标没动就不需要等下一次 emit）
   renderQueued = false
@@ -461,14 +488,23 @@ function collectBlocks(): void {
   if (!body.value) return
   /* top 用 rect 差值而非 offsetTop：offsetTop 相对最近的定位祖先，块内一旦
      出现 relative 容器（如曾经的 .md-code）就会退化为局部坐标，滚动映射
-     整段跳变；rect 差值对任何中间定位祖先免疫 */
+     整段跳变；rect 差值对任何中间定位祖先免疫。
+     img 也带 data-source-line（双栏联动高亮用），但它总在带标记的段内，
+     收进来只会产生同顶重复块，且 img 无 data-source-line-end 会算出 NaN
+     的 end——这里跳过所有 img，联动高亮走自己的 img[data-source-line] 查询 */
   const bodyTop = body.value.getBoundingClientRect().top
-  blocks = [...body.value.querySelectorAll<HTMLElement>('[data-source-line]')].map((el) => ({
-    line: Number(el.dataset.sourceLine) + 1,
-    end: Math.max(Number(el.dataset.sourceLine) + 1, Number(el.dataset.sourceLineEnd)),
-    top: el.getBoundingClientRect().top - bodyTop,
-    height: el.offsetHeight
-  }))
+  blocks = [...body.value.querySelectorAll<HTMLElement>('[data-source-line]')]
+    .filter((el) => el.tagName !== 'IMG')
+    .map((el) => {
+      const line = Number(el.dataset.sourceLine) + 1
+      const endAttr = Number(el.dataset.sourceLineEnd)
+      return {
+        line,
+        end: Number.isFinite(endAttr) ? Math.max(line, endAttr) : line,
+        top: el.getBoundingClientRect().top - bodyTop,
+        height: el.offsetHeight
+      }
+    })
   // 脚注区补锚：markdown-it-footnote 的 section 没有 data-source-line
   // （脚注定义在源码文末），不补的话源码滚到脚注定义区时预览停在最后
   // 一个正文块，两边失同步。锚到文档总行数：源码滚到底 ↔ 预览滚到脚注区
@@ -508,6 +544,9 @@ function edgeOf(el: HTMLElement): ScrollEdge {
 
 function onScrollDom(): void {
   if (Date.now() < lockUntil) return
+  // 能过锁的都是用户直接滚动（程序滚动的回声被 lockUntil 挡住）：
+  // 接管后作废旧锚，图片加载不再把预览拽回旧位置
+  lastSyncLine = null
   const el = scroller.value
   if (!el || blocks.length === 0) return
   const edge = edgeOf(el)
@@ -525,13 +564,18 @@ function onScrollDom(): void {
 /* 编辑器滚动 → 同步预览：目标行落在哪个块内，块内按高度比例插值；
    顶/底边缘信号直接对齐端点（编辑器底部有 40vh 内边距，插值模型
    两侧「滚到底」的最大滚动量不一致，必须显式对齐） */
-/** 最近一次源码侧同步的目标行：图片加载撑高预览后，按它把预览重新对齐 */
+/** 最近一次源码侧同步的目标行：图片加载撑高预览后，按它把预览重新对齐。
+ *  用户直接滚动预览即接管（置 null），此后图片加载不再往旧锚上拽 */
 let lastSyncLine: number | null = null
 
-function syncToLine(line: number, _frac: number, edge: ScrollEdge = null): void {
+function syncToLine(line: number, frac: number, edge: ScrollEdge = null): void {
   const el = scroller.value
   if (!el || blocks.length === 0) return
-  lastSyncLine = edge ? null : line
+  // frac 是源码侧视口顶行内的像素比例（0 基小数）：并入目标行做亚行插值。
+  // 图片密集区左右行高差异巨大（左 20px/行、右一整张图），只按整数行对齐
+  // 会让预览一格格跳图片；带上亚行偏移才跟得上左边的连续滚动
+  const target = edge ? line : line + Math.min(1, Math.max(0, frac))
+  lastSyncLine = edge ? null : target
   lockUntil = Date.now() + 120
   if (edge === 'bottom') {
     el.scrollTop = el.scrollHeight
@@ -543,13 +587,13 @@ function syncToLine(line: number, _frac: number, edge: ScrollEdge = null): void 
   }
   let i = 0
   for (let k = 0; k < blocks.length; k++) {
-    if (blocks[k].line <= line) i = k
+    if (blocks[k].line <= target) i = k
     else break
   }
   const cur = blocks[i]
   const next = blocks[i + 1]
   const lineSpan = next ? next.line - cur.line : Math.max(1, cur.end - cur.line)
-  const f = Math.min(1, Math.max(0, (line - cur.line) / lineSpan))
+  const f = Math.min(1, Math.max(0, (target - cur.line) / lineSpan))
   const topSpan = next ? next.top - cur.top : Math.max(1, cur.height)
   el.scrollTop = Math.max(0, cur.top + f * topSpan - 6)
 }
@@ -835,11 +879,23 @@ let resizeObserver: ResizeObserver | undefined
 
 /** 图片加载完成会撑高预览（加载前 img 无高度，映射表按占位高度收集）：
     load 不冒泡，捕获委托重收集锚点，并按源码侧最近目标行把预览重新对齐，
-    否则图片多的文档在加载窗口期滚动后，两侧会停留在错位状态 */
-function onImgLoad(): void {
-  collectBlocks()
-  const line = lastSyncLine
-  if (line !== null) syncToLine(line, 0)
+    否则图片多的文档在加载窗口期滚动后，两侧会停留在错位状态。
+    多张图接连加载合并到每帧一次重收集+重对齐：逐张处理既造成布局抖动，
+    又在连续联动滚动时与滚动流互相踩（来回拽 = 闪动） */
+let imgAlignScheduled = false
+function onImgLoad(e: Event): void {
+  const img = e.target as HTMLImageElement | null
+  if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+    rememberImgSize(img.src, img.naturalWidth, img.naturalHeight)
+  }
+  if (imgAlignScheduled) return
+  imgAlignScheduled = true
+  requestAnimationFrame(() => {
+    imgAlignScheduled = false
+    if (!body.value) return
+    collectBlocks()
+    if (lastSyncLine !== null) syncToLine(lastSyncLine, 0)
+  })
 }
 
 onMounted(() => {
@@ -902,6 +958,10 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
   position: relative; /* 作为 offsetTop 参照 */
+  /* 关掉浏览器滚动锚定：视口上方图片加载时 Chromium 会自行挪 scrollTop，
+     与本组件「按内容锚显式对齐」的模型互相打架（一帧两次落位 = 闪动），
+     统一只由 syncToLine/onImgLoad 决定落点 */
+  overflow-anchor: none;
 }
 
 .preview-empty {
