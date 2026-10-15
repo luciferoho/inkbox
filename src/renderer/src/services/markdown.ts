@@ -79,6 +79,8 @@ for (const [name, lang] of Object.entries({
 })) {
   hljs.registerLanguage(name, lang)
 }
+// 供预览/即显两条管线共用同一份 hljs 语言注册表（即显代码高亮见 pm-code-highlight.ts）
+export { hljs }
 // 扩展语法（1.12）：==高亮== / 上下标 / 脚注；[TOC] 由下方自写规则实现
 import mark from 'markdown-it-mark'
 import sub from 'markdown-it-sub'

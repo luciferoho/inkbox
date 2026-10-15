@@ -51,6 +51,7 @@ import { saveTabView, loadTabView } from '@/editor/tab-view-state'
 import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createElementToolbar, type ElToolbarState } from '@/editor/pm-element-toolbar'
 import { createCodeblockChromePlugin } from '@/editor/pm-codeblock-chrome'
+import { createCodeHighlightPlugin } from '@/editor/pm-code-highlight'
 import { createQuoteEscapePlugin } from '@/editor/pm-quote-escape'
 import { createTaskTogglePlugin } from '@/editor/pm-task-toggle'
 import { parseAltMods, buildAltMods, stepWidth, luciToDisplaySrc, type ImageMods } from '@/editor/image-utils'
@@ -133,6 +134,7 @@ function exitCodeBlock(view: EditorView, append: boolean): void {
  * - 普通段落 Tab → 插入/删除 2 空格（焦点留在编辑器）
  * - Esc → 退出代码块编辑（光标落到块后）；引用块的跳出在 pm-quote-escape 插件
  * - Ctrl/Cmd+Enter → 在代码块后新建段落继续写作
+ * - 代码块内 Ctrl/Cmd+A → 只选块内内容，再按一次才全选整档
  */
 function inListItem(state: EditorState): boolean {
   const { $from } = state.selection
@@ -183,6 +185,30 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   }
   if (event.key === 'Escape' && inCodeBlock(state)) {
     exitCodeBlock(view, false)
+    return true
+  }
+  // 代码块内 Ctrl/Cmd+A → 只选块内内容（VS Code 语义）；已全选块时放行给
+  // 默认行为（再按一次升级为全选整档）
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key.toLowerCase() === 'a' &&
+    inCodeBlock(state)
+  ) {
+    const sel = state.selection as typeof state.selection & MaybeNodeSelection
+    // 点选整块（节点选区）：转成块内文本全选
+    if (sel.node?.type.spec.code) {
+      view.dispatch(
+        state.tr.setSelection(TextSelection.create(state.doc, sel.from + 1, sel.to - 1))
+      )
+      return true
+    }
+    const { $from } = state.selection
+    const start = $from.start()
+    const end = start + $from.parent.content.size
+    if (state.selection.from <= start && state.selection.to >= end) return false
+    view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, start, end)))
     return true
   }
   if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && inCodeBlock(state)) {
@@ -492,6 +518,8 @@ const elToolbarPlugin = $prose(() =>
 )
 // 代码块 chrome：语言标签栏 + 复制按钮（每块上方 widget 栏）
 const codeblockChromePlugin = $prose(() => createCodeblockChromePlugin())
+// 代码块语法高亮（hljs，与预览同一语言注册表与配色令牌）
+const codeHighlightPlugin = $prose(() => createCodeHighlightPlugin())
 // Esc 跳出引用块（列表 Tab/Shift+Tab 在视图级 handleKeys，优先级更高）
 const quoteEscapePlugin = $prose(() => createQuoteEscapePlugin())
 // 任务列表点击切换复选框（milkdown 无内置交互）
@@ -681,6 +709,7 @@ onMounted(() => {
     .use(wysiwygImagePlugin)
     .use(elToolbarPlugin)
     .use(codeblockChromePlugin)
+    .use(codeHighlightPlugin)
     .use(quoteEscapePlugin)
     .use(taskTogglePlugin)
   void instance.create().then((e) => {
