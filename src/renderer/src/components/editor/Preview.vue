@@ -115,28 +115,43 @@ function blockLineRange(el: HTMLElement): [number, number] | null {
 }
 
 /** 连续空行可视间距：markdown 规范会把多个空行塌缩成一个段落间隙，
- *  但纸面观感要求「源里空几行，页面上就空几行」——按顶层块之间的源码空行数，
- *  把超出一行的部分插成定高占位（首行空隙仍由段落自带的 margin 承担）。
+ *  但纸面观感要求「源里空几行，页面上就空几行」——统计两块之间源码里
+ *  真正空白的行数（脚注定义这类被渲染管线挪走的行不是空行，不算），
+ *  把超出一行的部分插成定高占位（首行空隙仍由段落 margin 承担）。
  *  必须在 collectBlocks 之前调用，块映射与切签锚点才拿得到最终布局 */
 function applyBlankGaps(): void {
   const root = body.value
   if (!root) return
   root.querySelectorAll('.blank-gap').forEach((el) => el.remove())
+  const rawLines = props.content.split('\n')
   let prevEnd: number | null = null
   for (const el of Array.from(root.children) as HTMLElement[]) {
     const range = blockLineRange(el)
     if (!range) continue // 无行信息的区块（脚注区等）：跳过且不更新边界
     const [start, end] = range
-    if (prevEnd !== null && start - prevEnd > 1) {
-      const blanks = start - prevEnd
-      const style = getComputedStyle(el)
-      const lh = parseFloat(style.lineHeight)
-      const lineH = Number.isFinite(lh) && lh > 0 ? lh : parseFloat(style.fontSize) * 1.6
-      const gap = document.createElement('div')
-      gap.className = 'blank-gap'
-      gap.setAttribute('aria-hidden', 'true')
-      gap.style.height = `${(blanks - 1) * lineH}px`
-      el.parentNode?.insertBefore(gap, el)
+    if (prevEnd !== null && start > prevEnd) {
+      // 只统计连续空行的最大段：空行被非空行（脚注定义等渲染时挪走的行）
+      // 隔开时是两个独立的单空行，不叠加
+      let maxRun = 0
+      let run = 0
+      for (let i = prevEnd; i < start && i < rawLines.length; i++) {
+        if (rawLines[i].trim()) {
+          run = 0
+        } else {
+          run++
+          if (run > maxRun) maxRun = run
+        }
+      }
+      if (maxRun > 1) {
+        const style = getComputedStyle(el)
+        const lh = parseFloat(style.lineHeight)
+        const lineH = Number.isFinite(lh) && lh > 0 ? lh : parseFloat(style.fontSize) * 1.6
+        const gap = document.createElement('div')
+        gap.className = 'blank-gap'
+        gap.setAttribute('aria-hidden', 'true')
+        gap.style.height = `${(maxRun - 1) * lineH}px`
+        el.parentNode?.insertBefore(gap, el)
+      }
     }
     prevEnd = end
   }

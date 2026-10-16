@@ -123,19 +123,28 @@ export const md: MarkdownIt = MarkdownItDefault({
 
 /* 顶层块附源码行号（token.map 为 0 基，[start, end)）：供双栏同步滚动插值；
  * 图片 token 另打所在精确行（段内按软/硬换行累计）——供双栏「光标在图片语法上 →
- * 预览对应图高亮」按行定位（同段多图按 DOM 顺序区分） */
+ * 预览对应图高亮」按行定位（同段多图按 DOM 顺序区分）。
+ * 渲染源码经过 splitAdjacentOrderedLists 注入过哨兵行，token.map 是「处理后」
+ * 行号；编辑器/序列化用的是原始行号——这里统一回映射成原始行号（env.shifts
+ * 记录了每个注入点在处理后源码中的行位置），双栏两侧的行号体系才一致 */
 md.core.ruler.push('luci_source_line', (state: StateCore) => {
+  const shifts: number[] = (state.env as { shifts?: number[] } | undefined)?.shifts ?? []
+  const toRaw = (processed: number): number => {
+    let raw = processed
+    for (const s of shifts) if (s <= raw) raw--
+    return raw
+  }
   for (const tok of state.tokens) {
     if (tok.map && tok.level === 0 && tok.nesting !== -1) {
-      tok.attrSet('data-source-line', String(tok.map[0]))
-      tok.attrSet('data-source-line-end', String(tok.map[1]))
+      tok.attrSet('data-source-line', String(toRaw(tok.map[0])))
+      tok.attrSet('data-source-line-end', String(toRaw(tok.map[1])))
     }
     if (tok.type === 'inline' && tok.map && tok.children) {
       let line = tok.map[0]
       for (const child of tok.children) {
         if (child.type === 'softbreak' || child.type === 'hardbreak') line++
         else if (child.type === 'image') {
-          child.attrSet('data-source-line', String(line))
+          child.attrSet('data-source-line', String(toRaw(line)))
         }
       }
     }
@@ -191,7 +200,17 @@ function buildTocHtml(headings: { level: number; text: string; id: string }[]): 
   return `<nav class="md-toc"><p class="md-toc-title">目录</p>${buildLevel(headings[0].level)}</nav>`
 }
 
-md.renderer.rules.luci_toc_block = (tokens, idx) => tokens[idx].content
+md.renderer.rules.luci_toc_block = (tokens, idx) => {
+  const tok = tokens[idx]
+  // 行号属性一并输出：目录块参与双栏滚动锚定与空行占位统计
+  const attrs = ['data-source-line', 'data-source-line-end']
+    .map((n) => {
+      const v = tok.attrGet(n)
+      return v !== null && v !== undefined ? ` ${n}="${escapeHtml(String(v))}"` : ''
+    })
+    .join('')
+  return tok.content.replace('<nav class="md-toc">', `<nav class="md-toc"${attrs}>`)
+}
 
 /* 任务列表：把行首 [ ] / [x] / [X] 变成禁用复选框（预览只读） */
 md.core.ruler.push('luci_task_lists', (state: StateCore) => {
@@ -314,12 +333,14 @@ export function preprocessCenter(src: string): string {
  * 只分隔、不改写序号：源里是什么号预览就显示什么号（第二个 <ol> 带原字面 start）。
  * 即显（milkdown/remark）管线经 toWysiwygSource 注入同样的哨兵，
  * remark transformer 在解析后移除。
+ * shifts（可选）：收集每个哨兵行注入后在输出中的行位置——预览的行号标记
+ * 需要凭它把「处理后行号」映射回原始行号（见 luci_source_line 规则）。
  * 顺带：整行 `<br />`（即显空段落的序列化残留）在渲染层视为空行，
  * 避免 html:false 转义后显示成字面文本。
  */
 const BR_ONLY_RE = /^[ \t]*<br\s*\/?>[ \t]*$/i
 
-export function splitAdjacentOrderedLists(src: string): string {
+export function splitAdjacentOrderedLists(src: string, shifts?: number[]): string {
   const lines = src.split('\n')
   const out: string[] = []
   let fence: string | null = null
@@ -349,6 +370,7 @@ export function splitAdjacentOrderedLists(src: string): string {
       // 新组从 1 重新显示：终止符 + 组首项字号重写（组内其余字面号不影响渲染，
       // <ol> 顺序编号；即显里编辑后序列化会把重排落盘）
       out.push('#')
+      if (shifts) shifts.push(out.length - 1)
       out.push(line.replace(/^\d+/, '1'))
       prevWasList = true
       blankRun = 0
@@ -490,7 +512,11 @@ const LIST_SPLIT_RE = /<h1(\s[^>]*)?>\s*<\/h1>\n?/g
 
 /** 带文档目录渲染（相对图片解析用） */
 export function renderWithDir(src: string, docDir: string | null): string {
-  const html = md.render(splitAdjacentOrderedLists(preprocessCenter(src)), docDir ? { docDir } : undefined)
+  const shifts: number[] = []
+  const preprocessed = splitAdjacentOrderedLists(preprocessCenter(src), shifts)
+  const env: { docDir?: string; shifts?: number[] } = { shifts }
+  if (docDir) env.docDir = docDir
+  const html = md.render(preprocessed, env)
   return applyCenter(html).replace(LIST_SPLIT_RE, '')
 }
 
