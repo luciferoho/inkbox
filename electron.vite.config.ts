@@ -32,6 +32,11 @@ export default defineConfig({
         '@samples': resolve(__dirname, 'samples')
       }
     },
+    // Windows 上本机文件监听偶发失效（改动不触发 HMR，页面跑旧代码），
+    // 改用轮询保证热更新可靠
+    server: {
+      watch: { usePolling: true, interval: 300 }
+    },
     plugins: [vue()]
   }
 })

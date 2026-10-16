@@ -5,7 +5,8 @@ import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
 import { buildRegex, type FindQuery } from '@/find-shared'
 import { findState, sameQuery } from '@/editor/find-state'
-import { saveTabView, loadTabView } from '@/editor/tab-view-state'
+import { saveViewProgress, loadView } from '@/editor/tab-view-state'
+import { applyCachedImageSizes, rememberImgSize } from '@/editor/img-size-cache'
 import FindBar from './FindBar.vue'
 import '@/assets/preview.css'
 
@@ -37,34 +38,10 @@ let renderTimer: number | undefined
 let renderSeq = 0
 /** 渲染管线是否已有排队/在跑的回合（切签滚动恢复用它决定立即落位还是等渲染） */
 let renderQueued = false
-/** 切签待恢复的内容锚（视口顶块的行号，可带小数）；null = 无待恢复 */
-let pendingAnchorLine: number | null = null
+/** 待恢复的共享浏览进度（0..1）；null = 无待恢复。同一文档所有模式共用一份进度 */
+let pendingFrac: number | null = null
 
-/* ---------- 图片尺寸缓存 ----------
- * 图片加载前没有高度，整页布局在加载窗口期不断被撑高：既让切签锚点落位失准，
- * 也让双栏联动滚动每帧踩到新布局而闪动。把每张图的固有尺寸记下来（按解析后
- * 的 src 稳定复现），重渲染时立刻写回 aspect-ratio/width 占位——第二次及以后
- * 的渲染（切签回来、输入触发的重排）布局从第一帧起就与加载完成后一致 */
-const imgSizeCache = new Map<string, [number, number]>()
-
-function rememberImgSize(src: string, w: number, h: number): void {
-  if (imgSizeCache.size >= 2000) {
-    const oldest = imgSizeCache.keys().next().value
-    if (oldest !== undefined) imgSizeCache.delete(oldest)
-  }
-  imgSizeCache.set(src, [w, h])
-}
-
-/** 渲染后、收集块映射前调用：给有尺寸记录的图补占位尺寸（已带内联宽度的
- *  修饰图只补 aspect-ratio；未修饰图补 width+natural 上限由 max-width:100% 兜住） */
-function applyCachedImageSizes(): void {
-  body.value?.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
-    const hit = imgSizeCache.get(img.src)
-    if (!hit || hit[0] < 1 || hit[1] < 1) return
-    if (!img.style.aspectRatio) img.style.aspectRatio = `${hit[0]} / ${hit[1]}`
-    if (!img.style.width) img.style.width = `${hit[0]}px`
-  })
-}
+/* ---------- 图片尺寸缓存：共享实现见 editor/img-size-cache.ts ---------- */
 
 watch(
   () => props.content,
@@ -88,13 +65,11 @@ watch(
   }
 )
 
-/** 切签滚动恢复落位：按内容锚（行号）对齐而非像素——图片加载会撑高上方内容，
- *  像素恢复必然漂移；syncToLine 同时把 lastSyncLine 设为锚行，
- *  后续图片陆续加载时 onImgLoad 会继续按它重对齐 */
+/** 恢复共享浏览进度落位（切签/模式进入/图片加载后反复调用直至收敛） */
 function applyPendingScroll(): void {
-  if (pendingAnchorLine === null || !scroller.value) return
-  syncToLine(pendingAnchorLine, 0)
-  pendingAnchorLine = null
+  const el = scroller.value
+  if (pendingFrac === null || !el) return
+  el.scrollTop = pendingFrac * Math.max(0, el.scrollHeight - el.clientHeight)
 }
 
 /** 顶层块的源码行范围：行号标记多数直接在块上；代码块在 .md-code 容器内
@@ -252,7 +227,7 @@ async function render(content: string): Promise<void> {
   // 新一轮已渲染完的 DOM 上重跑 mermaid（把 SVG 内的 <style> 文本当源码）
   if (seq !== renderSeq) return
   applyBlankGaps() // 空行占位先插入，块映射与切签锚点才拿得到最终布局
-  applyCachedImageSizes() // 图片占位尺寸先落位，块映射与切签锚点才不会按塌缩布局算
+  if (body.value) applyCachedImageSizes(body.value) // 图片占位尺寸先落位，块映射与切签锚点才不会按塌缩布局算
   collectBlocks()
   applyPvFocus() // DOM 重建后重放双栏联动高亮（光标没动就不需要等下一次 emit）
   renderQueued = false
@@ -606,10 +581,15 @@ function edgeOf(el: HTMLElement): ScrollEdge {
 function onScrollDom(): void {
   if (Date.now() < lockUntil) return
   // 能过锁的都是用户直接滚动（程序滚动的回声被 lockUntil 挡住）：
-  // 接管后作废旧锚，图片加载不再把预览拽回旧位置
+  // 接管后作废旧锚，图片加载不再把预览拽回旧位置；浏览进度持续写入
   lastSyncLine = null
   const el = scroller.value
-  if (!el || blocks.length === 0) return
+  if (!el) return
+  saveViewProgress(
+    docs.activeId,
+    el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight)
+  )
+  if (blocks.length === 0) return
   const edge = edgeOf(el)
   if (edge) {
     emit('scroll-sync', edge === 'bottom' ? Number.MAX_SAFE_INTEGER : 0, 0, edge)
@@ -890,27 +870,51 @@ watch(
   }
 )
 
-/** 切换标签：旧标签滚动位置落袋，恢复目标标签自己的滚动与查找状态（共享槽位） */
+/** 切换标签：旧标签滚动进度落袋，恢复目标标签自己的进度与查找状态（共享槽位） */
 watch(
   () => docs.activeId,
   (id, old) => {
     // 直接读 DOM（docDir watch 已不抢先归零；遮挡窗口下 scroll 事件会被
     // Chromium 节流掉，靠事件跟踪会拿到陈旧值）。
-    // 隐藏窗格（编辑模式下预览隐藏）scrollTop 恒 0，跳过保存保留旧值。
-    // 存内容锚（视口顶块行号）而非像素：图片加载撑高上方内容后像素必漂
+    // 隐藏窗格（编辑模式下预览隐藏）scrollTop 恒 0，跳过保存保留旧值
     const el = scroller.value
-    if (el && el.offsetParent !== null && blocks.length > 0) {
-      const { i, f } = blockAtScrollTop(el.scrollTop)
-      const cur = blocks[i]
-      const next = blocks[i + 1]
-      const lineSpan = next ? next.line - cur.line : Math.max(1, cur.end - cur.line)
-      saveTabView(old, 'preview', { anchor: cur.line + f * lineSpan })
+    if (el && el.offsetParent !== null) {
+      saveViewProgress(old, el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight))
     }
-    pendingAnchorLine = loadTabView(id, 'preview')?.anchor ?? 0
-    lastSyncLine = pendingAnchorLine // 图片陆续加载时 onImgLoad 继续按锚行重对齐
+    pendingFrac = loadView(id)?.frac ?? null
+    lastSyncLine = null
     pullFind(id, true)
     void nextTick(() => {
       if (!renderQueued) applyPendingScroll() // 内容相同没有重渲染排队时也要落位
+    })
+  }
+)
+
+/* 进入预览可见模式（预览/双栏）：对齐共享浏览进度——其它模式滚过的位置
+   就是预览的位置；进度渲染期间由 applyPendingScroll 在渲染/图片加载后钉住。
+   落位多阶段补拍（nextTick/60ms/250ms）：面板刚转可见与测量的时序有竞态 */
+watch(
+  () => ui.editorMode,
+  (m) => {
+    if (m !== 'preview' && m !== 'split') return
+    // 读进度必须延迟到 nextTick：同一 flush 里「离开中的窗格」的落袋保存
+    // 发生在父组件渲染期间（v-if 卸载的 beforeUnmount），watcher 触发时它
+    // 还没执行——此刻读会拿到上一次的旧值甚至空值
+    void nextTick(() => {
+      pendingFrac = loadView(docs.activeId)?.frac ?? null
+      const apply = (): void => {
+        applyPendingScroll()
+        const el = scroller.value
+        if (el) lockUntil = Date.now() + 150
+      }
+      void nextTick(apply)
+      window.setTimeout(apply, 60)
+      window.setTimeout(() => {
+        apply()
+        // 进入 split 后进度由编辑器（联动主导方）持续写入，对齐完成即清空；
+        // 进入 preview 模式则保留 pendingFrac，图片加载期间继续按它钉住
+        if (m === 'split') pendingFrac = null
+      }, 250)
     })
   }
 )
@@ -955,7 +959,9 @@ function onImgLoad(e: Event): void {
     imgAlignScheduled = false
     if (!body.value) return
     collectBlocks()
-    if (lastSyncLine !== null) syncToLine(lastSyncLine, 0)
+    // 有待恢复进度（切签/模式进入未收敛）优先按进度钉住；否则按双栏联动锚行
+    if (pendingFrac !== null) applyPendingScroll()
+    else if (lastSyncLine !== null) syncToLine(lastSyncLine, 0)
   })
 }
 

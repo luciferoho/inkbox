@@ -91,7 +91,7 @@ import {
 import { registerCmView } from '@/editor/cm-registry'
 import { fenceCompletion } from '@/editor/cm-fence-completion'
 import { findState, sameQuery } from '@/editor/find-state'
-import { saveTabView, loadTabView } from '@/editor/tab-view-state'
+import { saveViewProgress, saveViewCursor, loadView } from '@/editor/tab-view-state'
 
 const emit = defineEmits<{
   (e: 'scroll-sync', line: number, frac: number, edge: ScrollEdge): void
@@ -569,6 +569,13 @@ function onScrollDom(): void {
     const blockTop = block.top + (content?.offsetTop ?? 0)
     const frac =
       block.height > 0 ? Math.min(0.999, Math.max(0, (sd.scrollTop - blockTop) / block.height)) : 0
+    // 浏览进度（全模式共享）：滚动即写入
+    if (tabId !== null) {
+      saveViewProgress(
+        tabId,
+        sd.scrollTop / Math.max(1, sd.scrollHeight - sd.clientHeight)
+      )
+    }
     emit('scroll-sync', lineObj.number + frac, 0, null)
   }, 16)
 }
@@ -629,79 +636,37 @@ onBeforeUnmount(() => {
   view = null
 })
 
-/* 切换标签：整档替换（M1 不保留每标签 undo 栈），并恢复该标签的滚动与光标 */
+/* 切换标签：整档替换（M1 不保留每标签 undo 栈），并恢复该标签的浏览进度与光标 */
 watch(
   () => docs.activeId,
   (id, old) => {
     if (!view || id === null) return
     const cm = view // 闭包用局部常量：定时器回调解耦可空的外部 let
     window.clearTimeout(renumberDebounce) // 上一标签排队的重排不在新文档上执行
-    // 旧标签落袋：视口顶行的文档位置作内容锚（像素会被图片等后续布局变化顶跑；
-    // documentTop 是随滚动变化的动态量，坐标换算不可靠，直接 DOM 实测→posAtDOM）。
-    // 隐藏窗格（预览模式下源码 v-show 隐藏）scrollTop 恒 0，跳过保存保留旧值
+    // 旧标签落袋：滚动进度 + 光标。隐藏窗格（预览模式下源码 v-show 隐藏）
+    // scrollTop 恒 0，进度跳过保存保留旧值；光标仍要落袋
     if (host.value && host.value.offsetParent !== null) {
-      let topLinePos: number | undefined
-      const scrollerRect = cm.scrollDOM.getBoundingClientRect()
-      for (const child of cm.contentDOM.children) {
-        if (!child.classList.contains('cm-line')) continue
-        const r = child.getBoundingClientRect()
-        if (r.bottom > scrollerRect.top + 4) {
-          topLinePos = cm.posAtDOM(child, 0)
-          break
-        }
-      }
-      saveTabView(old, 'source', { anchor: topLinePos, cursor: cm.state.selection.main.head })
+      const sd = cm.scrollDOM
+      saveViewProgress(old, sd.scrollTop / Math.max(1, sd.scrollHeight - sd.clientHeight))
     }
+    saveViewCursor(old, cm.state.selection.main.head)
     applying = true
     cm.setState(makeState(docs.active?.content ?? ''))
     tabId = id
     ui.currentLine = 1
     applying = false
-    const saved = loadTabView(id, 'source')
-    const anchor = saved?.anchor
+    const saved = loadView(id)
     const cursor = saved?.cursor
     const len = cm.state.doc.length
     pullFind(id, true) // 无条件恢复（视图刚重建，高亮需要重亮）
     if (cm.hasFocus) cm.contentDOM.blur() // 摘焦点，减少光标自动滚动诱因
+    // 浏览进度恢复：按垂直滚动比例落位（CM 的 heightMap 高度是全量稳定的，
+    // 比例一次落位即准，无需旧方案的两拍校正）。无记录 → 回顶
+    const sd = cm.scrollDOM
+    sd.scrollTop = saved ? saved.frac * Math.max(0, sd.scrollHeight - sd.clientHeight) : 0
+    lockUntil = Date.now() + 150
     if (cursor !== undefined && cursor <= len) {
-      cm.dispatch({ selection: { anchor: cursor } })
-    }
-    // 锚点恢复分两拍：先按 heightMap 落位（比字符比例估算准得多），等 CM
-    // 渲染修正测量后，再用 scrollIntoView effect 精确校正（CM 的 measure
-    // 循环会消化估算误差，手写换算只会跟着估算震荡）。
-    // 整个恢复窗口内锁住滚动外发：粗滚期间的错位行号若流到预览，会把预览
-    // 自己的锚点恢复冲掉（切回来「编辑器对了、预览停在别处」的根因）。
-    // 用户滚轮/按下即停；新标签无记录 → 回顶
-    if (anchor === undefined) {
-      cm.scrollDOM.scrollTop = 0
-      lockUntil = Date.now() + 150
-      emit('scroll-sync', 0, 0, 'top')
-    } else {
-      const pos = Math.min(anchor, cm.state.doc.length)
-      const block = cm.lineBlockAt(pos)
-      const content = cm.scrollDOM.querySelector<HTMLElement>('.cm-content')
-      cm.scrollDOM.scrollTop = Math.max(0, block.top + (content?.offsetTop ?? 0) - 6)
-      lockUntil = Date.now() + 280
-      let stopped = false
-      const stop = (): void => {
-        stopped = true
-        cm.scrollDOM.removeEventListener('wheel', stop)
-        cm.scrollDOM.removeEventListener('mousedown', stop)
-      }
-      cm.scrollDOM.addEventListener('wheel', stop, { passive: true, once: true })
-      cm.scrollDOM.addEventListener('mousedown', stop, { once: true })
-      setTimeout(() => {
-        cm.scrollDOM.removeEventListener('wheel', stop)
-        cm.scrollDOM.removeEventListener('mousedown', stop)
-        if (stopped || tabId !== id || cm !== view) return // 卸载置空 view / 视图已换
-        cm.dispatch({
-          effects: [EditorView.scrollIntoView(pos, { y: 'start', yMargin: 0 })]
-        })
-        lockUntil = Date.now() + 150
-        // 恢复落定后把最终顶行推给预览：双栏对齐到同一锚，图片陆续加载时
-        // 预览也按这行重对齐（否则它还拿着粗滚期间的陈旧行号）
-        emit('scroll-sync', cm.state.doc.lineAt(pos).number, 0, null)
-      }, 120)
+      cm.dispatch({ selection: { anchor: cursor } }) // 不带 scrollIntoView，不打扰落位
     }
   }
 )
@@ -936,7 +901,8 @@ watch(
   }
 )
 
-/* 模式切换后重新测量；从即显模式回到源码时，重同步 store 里的最新内容 */
+/* 模式切换后重新测量；从即显模式回到源码时，重同步 store 里的最新内容。
+   进入源码可见模式时对齐共享浏览进度——即显/预览滚过的位置就是源码的位置 */
 watch(
   () => ui.editorMode,
   (mode) => {
@@ -949,6 +915,20 @@ watch(
         view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: target } })
         applying = false
       }
+      // 面板可见后再落位（pre-flush 时机上 CM 还被 v-show 隐藏，scrollHeight=0，
+      // 比例会写 0）；进度读取同样延迟——离开中的窗格（如即显卸载）的落袋
+      // 保存发生在父组件渲染期间，watcher 触发时还没落袋。多阶段补拍覆盖竞态
+      const applyFrac = (): void => {
+        if (!view) return
+        const saved = loadView(docs.activeId)
+        if (!saved) return
+        const sd = view.scrollDOM
+        sd.scrollTop = saved.frac * Math.max(0, sd.scrollHeight - sd.clientHeight)
+        lockUntil = Date.now() + 150
+      }
+      void nextTick(applyFrac)
+      window.setTimeout(applyFrac, 60)
+      window.setTimeout(applyFrac, 250)
     }
   }
 )

@@ -48,7 +48,8 @@ import {
 } from '@/editor/pm-find'
 import { createCenterPlugin } from '@/editor/pm-center'
 import { findState, sameQuery } from '@/editor/find-state'
-import { saveTabView, loadTabView } from '@/editor/tab-view-state'
+import { saveViewProgress, loadView } from '@/editor/tab-view-state'
+import { applyCachedImageSizes, rememberImgSize } from '@/editor/img-size-cache'
 import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createElementToolbar, type ElToolbarState } from '@/editor/pm-element-toolbar'
 import { createCodeblockChromePlugin } from '@/editor/pm-codeblock-chrome'
@@ -559,10 +560,10 @@ const elToolbarPlugin = $prose(() =>
     elToolbar.value = state
   })
 )
-// 代码块 chrome：语言标签栏 + 复制按钮（每块上方 widget 栏）
-const codeblockChromePlugin = $prose(() => createCodeblockChromePlugin())
-// 代码块语法高亮（hljs，与预览同一语言注册表与配色令牌）
-const codeHighlightPlugin = $prose(() => createCodeHighlightPlugin())
+  // 代码块 chrome：语言标签栏 + 复制按钮（每块上方 widget 栏）
+  const codeblockChromePlugin = $prose(() => createCodeblockChromePlugin())
+  // 代码块语法高亮（hljs，与预览同一语言注册表与配色令牌）
+  const codeHighlightPlugin = $prose(() => createCodeHighlightPlugin())
 // Esc 跳出引用块（列表 Tab/Shift+Tab 在视图级 handleKeys，优先级更高）
 const quoteEscapePlugin = $prose(() => createQuoteEscapePlugin())
 // 任务列表点击切换复选框（milkdown 无内置交互）
@@ -643,6 +644,61 @@ watch(elToolbar, (t) => {
   if (t) imgTip.value = null
 })
 
+/* ---------- 切签/切模式滚动恢复（共享浏览进度） ----------
+ * 进度 = 垂直滚动比例（scrollTop / 可滚动高度），同一文档所有模式共享一份：
+ * 模式互切保持同一位置，切签恢复该文档的进度。图片加载改变高度的窗口期，
+ * onHostImgLoad 反复按进度重新落位钉住；用户滚轮即接管停用 */
+let pendingFrac: number | null = null
+let wysiwygAlignScheduled = false
+let wysiwygAlignTimer: number | undefined
+
+/** 按共享进度落位 */
+function applyWysiwygProgress(): void {
+  const hostEl = host.value
+  if (!hostEl || pendingFrac === null) return
+  hostEl.scrollTop = pendingFrac * Math.max(0, hostEl.scrollHeight - hostEl.clientHeight)
+}
+
+/** 图片加载：记录固有尺寸（供重进首帧占位）+ 批量按进度重新落位；
+ *  最后一次加载 200ms 后再补一次（布局完全收敛后的终落位） */
+function onHostImgLoad(e: Event): void {
+  const img = e.target as HTMLImageElement | null
+  if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+    rememberImgSize(img.src, img.naturalWidth, img.naturalHeight)
+  }
+  if (wysiwygAlignScheduled) return
+  wysiwygAlignScheduled = true
+  requestAnimationFrame(() => {
+    wysiwygAlignScheduled = false
+    if (!host.value) return
+    applyCachedImageSizes(host.value)
+    applyWysiwygProgress()
+    window.clearTimeout(wysiwygAlignTimer)
+    wysiwygAlignTimer = window.setTimeout(applyWysiwygProgress, 200)
+  })
+}
+
+/** 保存当前浏览进度（切签与切模式离开时共用） */
+function saveWysiwygProgress(id: number | null): void {
+  if (id === null || !host.value || host.value.offsetParent === null) return
+  const hostEl = host.value
+  saveViewProgress(id, hostEl.scrollTop / Math.max(1, hostEl.scrollHeight - hostEl.clientHeight))
+}
+
+/** 恢复浏览进度（切签与重挂载共用）。多阶段补拍（nextTick/60ms/250ms）
+ *  覆盖面板可见性与 PM 渲染的时序竞态；图片加载期间另有逐张重钉 */
+function restoreWysiwygScroll(): void {
+  pendingFrac = loadView(tabId)?.frac ?? null
+  const apply = (): void => {
+    if (!host.value) return
+    applyCachedImageSizes(host.value)
+    applyWysiwygProgress()
+  }
+  void nextTick(apply)
+  window.setTimeout(apply, 60)
+  window.setTimeout(apply, 250)
+}
+
 /** 图片:改 alt 修饰符(setNodeMarkup 单事务,可撤销) */
 function elImageMods(next: ImageMods | ((cur: ImageMods) => ImageMods)): void {
   const t = elToolbar.value
@@ -719,8 +775,21 @@ onMounted(() => {
   host.value.addEventListener('mouseover', onHostOver)
   host.value.addEventListener('mouseout', onHostOut)
   host.value.addEventListener('scroll', onHostScroll, { passive: true })
+  // 图片加载：记录尺寸 + 切签锚点重对齐（load 不冒泡，捕获委托）
+  host.value.addEventListener('load', onHostImgLoad, { capture: true, passive: true })
+  // 用户滚轮即接管：停用切签锚点的自动重对齐
+  host.value.addEventListener(
+    'wheel',
+    () => {
+      pendingFrac = null
+    },
+    { passive: true, capture: true }
+  )
   window.addEventListener('keydown', onWinKeydown)
   onFindStatus(syncFindStatus)
+  // 重挂载（从其它模式切回）恢复：锚先置 pending（初始图片加载期间即可钉住），
+  // create 完成后精确对齐
+  restoreWysiwygScroll()
   const instance = Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, host.value!)
@@ -785,6 +854,28 @@ onMounted(() => {
                 ? { type: n.type, alt: n.alt, title: n.title }
                 : { type: n.type, kids: (n.children ?? []).map(walk) }
             return JSON.stringify(walk(tree))
+          }),
+        contentInfo: () =>
+          editor?.action((ctx) => {
+            const v = ctx.get(editorViewCtx)
+            const hostEl = host.value
+            if (!hostEl) return null
+            const hostRect = hostEl.getBoundingClientRect()
+            const scan: { tag: string; top: number; pos: number }[] = []
+            let anchor: number | undefined
+            for (const child of v.dom.children) {
+              const r = child.getBoundingClientRect()
+              scan.push({ tag: child.tagName, top: Math.round(r.top), pos: v.posAtDOM(child, 0) })
+              if (anchor === undefined && r.bottom > hostRect.top + 4) anchor = v.posAtDOM(child, 0)
+            }
+            return {
+              anchor,
+              scrollTop: Math.round(hostEl.scrollTop),
+              scrollHeight: Math.round(hostEl.scrollHeight),
+              domTop: Math.round(v.dom.getBoundingClientRect().top),
+              first3: scan.slice(0, 3),
+              around: scan.filter((s) => s.top > -100 && s.top < 200)
+            }
           })
       }
     }
@@ -793,17 +884,43 @@ onMounted(() => {
       pending = null
       applyReplace(md)
     }
+    // 重挂载恢复的精确落位：PM DOM 就绪后按锚对齐（图片加载期间仍由
+    // onHostImgLoad 持续钉住）
+    void nextTick(() => {
+      const hostEl = host.value
+      if (!hostEl) return
+      applyCachedImageSizes(hostEl)
+      applyWysiwygProgress()
+    })
     pullFind(tabId, true) // 编辑器就绪后恢复当前标签共享的查找条状态
   })
 })
 
 onBeforeUnmount(() => {
+  // 滚动锚落袋必须在这里：模式切换/跨模式切签都会 v-if 卸载本组件，
+  // 卸载会跳过排队的 pre-watcher（切签的保存已由 activeId watch 完成，
+  // 这里 tabId 与视图内容恒一致，重复保存无害）
+  saveWysiwygProgress(tabId)
+  ;(window as unknown as Record<string, unknown>).__vpUnmount = {
+    tabId,
+    scrollTop: host.value?.scrollTop,
+    scrollHeight: host.value?.scrollHeight
+  }
   pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   host.value?.removeEventListener('mousedown', onHostMousedown)
   host.value?.removeEventListener('mouseover', onHostOver)
   host.value?.removeEventListener('mouseout', onHostOut)
   host.value?.removeEventListener('scroll', onHostScroll)
+  host.value?.removeEventListener('load', onHostImgLoad, { capture: true })
+  host.value?.removeEventListener(
+    'wheel',
+    () => {
+      pendingFrac = null
+    },
+    { capture: true }
+  )
   window.removeEventListener('keydown', onWinKeydown)
+  window.clearTimeout(wysiwygAlignTimer)
   onFindStatus(null)
   try {
     editor?.destroy()
@@ -824,31 +941,30 @@ function onHostMousedown(): void {
 
 function onHostScroll(): void {
   imgTip.value = null
+  saveWysiwygProgress(tabId) // 浏览进度随滚动持续写入（切模式/切签用它恢复）
 }
 
 /* 切换标签：整档替换（编辑器未就绪时暂存，create 完成后应用），
    并恢复该标签的滚动位置（新标签无记录 → 默认顶部）。
-   图片加载会撑高上方内容，存像素必漂——存比例，恢复按新高度换算，
-   微小偏差由浏览器 scroll anchoring 锚住视口内容兜底 */
+   恢复用内容锚（视口顶的文档位置）而非 scroll 比例：图片加载会持续
+   改变 scrollHeight，比例落位后随加载漂移；锚点在图片加载期间被
+   onHostImgLoad 反复钉住，落位稳定。旧版比例字段保留作兜底 */
 watch(
   () => docs.activeId,
   (id, old) => {
-    // 隐藏窗格（预览模式下即显隐藏）scrollTop 恒 0，跳过保存保留旧值
-    if (host.value && host.value.offsetParent !== null) {
-      saveTabView(old, 'wysiwyg', { scroll: host.value.scrollTop, scrollHeight: host.value.scrollHeight })
-    }
+    saveWysiwygProgress(old)
     tabId = id
     const markdown = docs.active?.content ?? ''
     if (editor) applyReplace(markdown)
     else pending = markdown
-    const saved = loadTabView(id, 'wysiwyg')
-    if (host.value) {
-      const ratio = saved?.scrollHeight ? saved.scroll! / saved.scrollHeight : 0
-      host.value.scrollTop = ratio * host.value.scrollHeight
-    }
+    restoreWysiwygScroll()
     pullFind(id, true)
   }
 )
+
+/* 切走即显模式（组件将随 v-if 卸载）：滚动锚的落袋放在 onBeforeUnmount——
+   Vue 调度中父组件（EditorArea）的重渲染先于子组件的 pre-watcher 执行，
+   v-if 卸载会把子组件排队的 watcher 一并移除，watcher 里保存不可靠 */
 
 /* 外部修改重载：store 内容已被写回，即显面板整档替换 */
 watch(
