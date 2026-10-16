@@ -693,21 +693,67 @@ export interface OutlineItem {
   line: number
 }
 
-/** 解析标题树（跳过围栏代码块内的 #） */
+/** 解析标题树，支持各类合法写法：
+ *  - ATX（`## 标题`，允许≤3空格缩进；`## 标题 ##` 闭合式剥尾巴）
+ *  - Setext 下划线式（`标题` + `===`/`---`；列表/引用/缩进代码行不参与，
+ *    纯 `---` 行（分隔线）本身不作标题文本）
+ *  - 引用块 / 列表项内的标题（剥容器前缀后识别）
+ *  - YAML frontmatter（文档首 `---` 包裹区）整体跳过
+ *  - 围栏代码块（``` / ~~~）与缩进代码块内的 # 一律不识别 */
 export function parseOutline(src: string): OutlineItem[] {
   const items: OutlineItem[] = []
+  const lines = src.split(/\r?\n/)
   let fence: string | null = null
-  for (const [i, raw] of src.split(/\r?\n/).entries()) {
+  /** 上一行可作 Setext 文本时的原文（保留行内标记供大纲渲染样式）；null = 不可 */
+  let prevText: string | null = null
+  /** 文档首行是 --- 时进入 frontmatter 区，遇到下一个 --- / ... 结束 */
+  let inFrontmatter = /^---[ \t]*$/.test(lines[0] ?? '')
+  const UNDERLINE_RE = /^[ \t]{0,3}(=+|-+)[ \t]*$/
+  const THEMATIC_RE = /^[ \t]{0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/
+  const CONTAINER_RE = /^(?:[ \t]{0,3}(?:>[ \t]?|(?:[-*+]|\d+[.)])[ \t]+))+/
+  for (const [i, raw] of lines.entries()) {
     const line = raw.replace(/\s+$/, '')
-    const fenceMatch = /^(```+|~~~+).*$/.exec(line)
+    if (inFrontmatter) {
+      if (i > 0 && /^(---|\.\.\.)[ \t]*$/.test(line)) inFrontmatter = false
+      continue
+    }
+    const fenceMatch = /^[ \t]{0,3}(```+|~~~+)/.exec(line)
     if (fenceMatch) {
       if (fence === null) fence = fenceMatch[1].slice(0, 3)
-      else if (line.startsWith(fence)) fence = null
+      else if (line.trimStart().startsWith(fence)) fence = null
+      prevText = null
       continue
     }
     if (fence !== null) continue
-    const m = /^(#{1,6})[ \t]+(.*)$/.exec(line)
-    if (m) items.push({ level: m[1].length, text: m[2].trim(), line: i + 1 })
+
+    // Setext：上一行是普通文本行，本行是 === / --- 下划线
+    if (prevText !== null && UNDERLINE_RE.test(line)) {
+      items.push({ level: line.trimStart()[0] === '=' ? 1 : 2, text: prevText, line: i })
+      prevText = null
+      continue
+    }
+
+    // 剥容器前缀（可叠加的引用/列表标记）后识别 ATX（允许≤3空格缩进）
+    const stripped = line.replace(CONTAINER_RE, '')
+    const m = /^[ \t]{0,3}(#{1,6})[ \t]+(.*)$/.exec(stripped)
+    if (m) {
+      // 闭合 ATX：行尾 ` #+`（前置空白）视为闭合序列剥除；`C#` 不受影响
+      const text = m[2].replace(/[ \t]+#{1,6}[ \t]*$/, '').trim()
+      items.push({ level: m[1].length, text, line: i + 1 })
+      prevText = null
+      continue
+    }
+
+    if (!line.trim()) {
+      prevText = null
+      continue
+    }
+    // 可作 Setext 文本的条件：非空、非容器行、非缩进代码、非分隔线/下划线本身
+    const isContainer = stripped !== line.trim() && CONTAINER_RE.test(line)
+    prevText =
+      !isContainer && !/^[ \t]{4,}/.test(line) && !THEMATIC_RE.test(line) && !UNDERLINE_RE.test(line)
+        ? stripped.trim()
+        : null
   }
   return items
 }
