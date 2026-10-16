@@ -97,6 +97,51 @@ function applyPendingScroll(): void {
   pendingAnchorLine = null
 }
 
+/** 顶层块的源码行范围：行号标记多数直接在块上；代码块在 .md-code 容器内
+ *  （标记在内层 <code> 上）、居中块在 .md-center 内——从后代取，取不到
+ *  （如脚注区）返回 null。start/end 为 0 基，end 为排他边界 */
+function blockLineRange(el: HTMLElement): [number, number] | null {
+  const self = el.dataset.sourceLine
+  if (self !== undefined) {
+    const end = Number(el.dataset.sourceLineEnd)
+    return [Number(self), Number.isFinite(end) ? end : Number(self)]
+  }
+  const inners = el.querySelectorAll<HTMLElement>('[data-source-line]')
+  if (inners.length === 0) return null
+  const first = inners[0]
+  const last = inners[inners.length - 1]
+  const end = Number(last.dataset.sourceLineEnd)
+  return [Number(first.dataset.sourceLine), Number.isFinite(end) ? end : Number(last.dataset.sourceLine)]
+}
+
+/** 连续空行可视间距：markdown 规范会把多个空行塌缩成一个段落间隙，
+ *  但纸面观感要求「源里空几行，页面上就空几行」——按顶层块之间的源码空行数，
+ *  把超出一行的部分插成定高占位（首行空隙仍由段落自带的 margin 承担）。
+ *  必须在 collectBlocks 之前调用，块映射与切签锚点才拿得到最终布局 */
+function applyBlankGaps(): void {
+  const root = body.value
+  if (!root) return
+  root.querySelectorAll('.blank-gap').forEach((el) => el.remove())
+  let prevEnd: number | null = null
+  for (const el of Array.from(root.children) as HTMLElement[]) {
+    const range = blockLineRange(el)
+    if (!range) continue // 无行信息的区块（脚注区等）：跳过且不更新边界
+    const [start, end] = range
+    if (prevEnd !== null && start - prevEnd > 1) {
+      const blanks = start - prevEnd
+      const style = getComputedStyle(el)
+      const lh = parseFloat(style.lineHeight)
+      const lineH = Number.isFinite(lh) && lh > 0 ? lh : parseFloat(style.fontSize) * 1.6
+      const gap = document.createElement('div')
+      gap.className = 'blank-gap'
+      gap.setAttribute('aria-hidden', 'true')
+      gap.style.height = `${(blanks - 1) * lineH}px`
+      el.parentNode?.insertBefore(gap, el)
+    }
+    prevEnd = end
+  }
+}
+
 /** 主题切换 → 只重渲染 mermaid 图表：其余内容的颜色全走 CSS 变量，
  *  [data-theme] 切换即自动跟随，无需重建 DOM。图表颜色是渲染时内联的，
  *  在离屏节点按新主题画好再原地替换——无占位塌陷、无闪烁、滚动不丢。
@@ -191,6 +236,7 @@ async function render(content: string): Promise<void> {
   // 关闸：等待期间若又开始了新渲染，本轮作废——否则陈旧回合会在
   // 新一轮已渲染完的 DOM 上重跑 mermaid（把 SVG 内的 <style> 文本当源码）
   if (seq !== renderSeq) return
+  applyBlankGaps() // 空行占位先插入，块映射与切签锚点才拿得到最终布局
   applyCachedImageSizes() // 图片占位尺寸先落位，块映射与切签锚点才不会按塌缩布局算
   collectBlocks()
   applyPvFocus() // DOM 重建后重放双栏联动高亮（光标没动就不需要等下一次 emit）

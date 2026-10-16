@@ -208,6 +208,10 @@
   margin: 2em auto;
   width: 62%;
 }
+/* 连续空行占位（高度 = 源码里超出一行的空行数 × 行高，由 Preview 插入） */
+.md-preview .blank-gap {
+  pointer-events: none;
+}
 .md-preview img {
   max-width: 100%;
   border-radius: 8px;

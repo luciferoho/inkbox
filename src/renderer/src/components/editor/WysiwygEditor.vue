@@ -8,7 +8,8 @@ import {
   editorViewCtx,
   serializerCtx,
   remarkCtx,
-  remarkPluginsCtx
+  remarkPluginsCtx,
+  remarkStringifyOptionsCtx
 } from '@milkdown/kit/core'
 import {
   commonmark,
@@ -56,6 +57,9 @@ import { createQuoteEscapePlugin } from '@/editor/pm-quote-escape'
 import { createTaskTogglePlugin } from '@/editor/pm-task-toggle'
 import { parseAltMods, buildAltMods, stepWidth, luciToDisplaySrc, type ImageMods } from '@/editor/image-utils'
 import { splitAdjacentOrderedLists } from '@/services/markdown'
+// 单换行 → 硬换行：与预览管线 markdown-it 的 breaks:true 对齐（否则即显把
+// 段内单换行折叠成空格，同一文档两种模式显示不一致）
+import remarkBreaks from 'remark-breaks'
 import { t } from '@/i18n'
 // 图片修饰符即显渲染:extendSchema 返回新 holder,须 .use 挂载生效
 import { styledImageSchema } from '@/editor/wysiwyg-image-style'
@@ -135,6 +139,7 @@ function exitCodeBlock(view: EditorView, append: boolean): void {
  * - Esc → 退出代码块编辑（光标落到块后）；引用块的跳出在 pm-quote-escape 插件
  * - Ctrl/Cmd+Enter → 在代码块后新建段落继续写作
  * - 代码块内 Ctrl/Cmd+A → 只选块内内容，再按一次才全选整档
+ * - 普通段落回车 → 软换行（对齐双栏源码的回车语义）；紧贴换行再回车 = 分段
  */
 function inListItem(state: EditorState): boolean {
   const { $from } = state.selection
@@ -143,6 +148,25 @@ function inListItem(state: EditorState): boolean {
     if (name === 'list_item') return true
   }
   return false
+}
+
+function inTable(state: EditorState): boolean {
+  const { $from } = state.selection
+  for (let d = $from.depth; d > 0; d--) {
+    if ($from.node(d).type.name.startsWith('table')) return true
+  }
+  return false
+}
+
+/** 光标前一个内联节点是否为硬换行（连续回车升级为真实分段的判据） */
+function afterHardbreak(state: EditorState): boolean {
+  const { $from } = state.selection
+  if ($from.parentOffset === 0) return false
+  let found: string | null = null
+  $from.parent.forEach((child, offset) => {
+    if (offset + child.nodeSize === $from.parentOffset) found = child.type.name
+  })
+  return found === 'hardbreak'
 }
 
 function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
@@ -214,6 +238,25 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && inCodeBlock(state)) {
     exitCodeBlock(view, true)
     return true
+  }
+  // 回车 = 软换行（与双栏源码「回车只换一行」一致）；光标紧贴换行后再按回车
+  // 升级为真实分段（对应双栏的「空行分段」）。列表/表格/标题/代码块保持默认
+  if (
+    event.key === 'Enter' &&
+    !event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !inCodeBlock(state) &&
+    !inListItem(state) &&
+    !inTable(state)
+  ) {
+    const { $from } = state.selection
+    if ($from.parent.type.name === 'paragraph' && $from.parent.content.size > 0 && !afterHardbreak(state)) {
+      event.preventDefault()
+      view.dispatch(state.tr.replaceSelectionWith(state.schema.nodes.hardbreak.create()))
+      return true
+    }
   }
   return false
 }
@@ -686,8 +729,15 @@ onMounted(() => {
       ctx.update(remarkPluginsCtx, (ps) => [
         ...ps,
         { plugin: normalizeImageNulls, options: {} } as never,
-        { plugin: dropSplitHeadings, options: {} } as never
+        { plugin: dropSplitHeadings, options: {} } as never,
+        { plugin: remarkBreaks, options: {} } as never
       ])
+      // 段内换行序列化为纯换行（remark-stringify 默认输出 `\`+换行 的显式硬换行，
+      // 会把反斜杠污染进用户文件；本应用两条管线都把裸换行当硬换行，等价且无损）
+      ctx.update(remarkStringifyOptionsCtx, (prev) => ({
+        ...prev,
+        handlers: { ...prev.handlers, break: () => '\n' }
+      }))
       ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
         if (applying || tabId === null) return
         docs.updateContent(tabId, fromWysiwygSource(markdown))
