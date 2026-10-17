@@ -64,6 +64,17 @@ import remarkBreaks from 'remark-breaks'
 import { t } from '@/i18n'
 // 图片修饰符即显渲染:extendSchema 返回新 holder,须 .use 挂载生效
 import { styledImageSchema } from '@/editor/wysiwyg-image-style'
+// KaTeX 数学（ROADMAP 1.1）：remark-math 解析 + atom 节点嵌套视图编辑
+import remarkMath from 'remark-math'
+import {
+  mathInlineSchema,
+  mathBlockSchema,
+  mathInlineView,
+  mathBlockView,
+  inlineMathInputRule,
+  blockMathInputRule,
+  guardMathText
+} from '@/editor/wysiwyg-math'
 import type { FindQuery, FindStatus } from '@/find-shared'
 import FindBar from './FindBar.vue'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
@@ -99,12 +110,13 @@ function applyReplace(markdown: string): void {
 
 /* ---------- 代码块编辑体验 ---------- */
 
-type MaybeNodeSelection = { node?: { type: { spec: { code?: boolean } } } }
+type MaybeNodeSelection = { node?: { type: { name: string; spec: { code?: boolean } } } }
 
 function inCodeBlock(state: EditorState): boolean {
   const sel = state.selection as typeof state.selection & MaybeNodeSelection
-  // 文本光标在代码块内，或整个代码块节点被选中（点击 pre 即节点选区）
-  return !!sel.$from.parent.type.spec.code || !!sel.node?.type.spec.code
+  // 文本光标在代码块内，或整个代码块节点被选中（点击 pre 即节点选区）。
+  // 按名判断而非 code 标记：math_block 也带 code:true（嵌套视图换行用），但非代码块语义
+  return sel.$from.parent.type.name === 'code_block' || sel.node?.type.name === 'code_block'
 }
 
 /** 节点选区时先把文本光标放进代码块首行 */
@@ -240,6 +252,25 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     exitCodeBlock(view, true)
     return true
   }
+  // 空段落输入 `$$` 后回车 → 空数学块（Typora 语义）；替换后即选中进入源码编辑
+  if (
+    event.key === 'Enter' &&
+    !event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    state.schema.nodes.math_block
+  ) {
+    const { $from } = state.selection
+    if ($from.parent.type.name === 'paragraph' && $from.parent.textContent.trim() === '$$') {
+      const blockType = state.schema.nodes.math_block
+      const from = $from.before()
+      const tr = state.tr.replaceWith(from, $from.after(), blockType.create())
+      tr.setSelection(NodeSelection.create(tr.doc, from))
+      view.dispatch(tr)
+      return true
+    }
+  }
   // 回车 = 软换行（与双栏源码「回车只换一行」一致）；光标紧贴换行后再按回车
   // 升级为真实分段（对应双栏的「空行分段」）。列表/表格/标题/代码块保持默认
   if (
@@ -360,19 +391,48 @@ function toWysiwygSource(md: string): string {
 /** luci-img:// → 原始相对路径（文档目录内的）；目录外的保留绝对路径。
  *  顺带归一化：milkdown 把空段落序列化为 `<br />` 行，转回空行——
  *  否则双栏源码里出现字面 `<br />`，预览因 html:false 转义后原样可见；
- *  milkdown 对重建后的有序列表会把分隔符写成 `)`，统一归一化回 `.` */
+ *  milkdown 对重建后的有序列表会把分隔符写成 `)`，统一归一化回 `.`；
+ *  remark-stringify 还会把正文 `$` 保守转义成 `\$`——误判护栏已保证裸 `$`
+ *  不会再被配成公式，这里围栏/行内码感知地还原字面 `$`，不让文件积累反斜杠 */
 function fromWysiwygSource(md: string): string {
   const docDir = docDirOf()
-  let out = md
+  const lines = md
     .split('\n')
     .map((l) =>
       /^[ \t]*<br\s*\/?>[ \t]*$/i.test(l)
         ? ''
         : l.replace(/^([ \t]*\d+[.)][ \t]*)<br\s*\/?>[ \t]*$/i, '$1') // 列表项内空段落：`2. <br />` → `2. `
-    )
+        )
     .join('\n')
     .replace(/^(\s*\d+)\)/gm, '$1.')
     .replace(/^([ \t]*)\*([ \t])/gm, '$1-$2')
+    .split('\n')
+  // \$ → $（跳过代码围栏、数学块与行内码段）
+  let fence: string | null = null
+  let inMath = false
+  for (let i = 0; i < lines.length; i++) {
+    const fm = /^(\s*)(`{3,}|~{3,})/.exec(lines[i])
+    if (fm) {
+      if (fence === null) fence = fm[2].slice(0, 1).repeat(3)
+      else if (lines[i].trimStart().startsWith(fence)) fence = null
+      continue
+    }
+    if (fence !== null) continue
+    const t = lines[i].trim()
+    if (!inMath && t.startsWith('$$')) {
+      inMath = true
+      continue
+    }
+    if (inMath) {
+      if (t.includes('$$')) inMath = false
+      continue
+    }
+    lines[i] = lines[i]
+      .split(/(`[^`]*`)/)
+      .map((seg) => (seg.startsWith('`') ? seg : seg.replace(/\\\$/g, '$')))
+      .join('')
+  }
+  let out = lines.join('\n')
   if (!docDir) return out
   return out.replace(/\]\(luci-img:\/\/([^)\s]+)\)/g, (_whole, enc: string) => {
     let abs: string
@@ -799,7 +859,11 @@ onMounted(() => {
         ...ps,
         { plugin: normalizeImageNulls, options: {} } as never,
         { plugin: dropSplitHeadings, options: {} } as never,
-        { plugin: remarkBreaks, options: {} } as never
+        { plugin: remarkBreaks, options: {} } as never,
+        // $...$ / $$...$$ → mdast inlineMath/math，由 wysiwyg-math 的 schema 接住
+        { plugin: remarkMath, options: {} } as never,
+        // 误判护栏：货币/含空格的 $ 对还原为字面文本（与预览管线对齐，roundtrip 无损）
+        { plugin: guardMathText, options: {} } as never
       ])
       // 段内换行序列化为纯换行（remark-stringify 默认输出 `\`+换行 的显式硬换行，
       // 会把反斜杠污染进用户文件；本应用两条管线都把裸换行当硬换行，等价且无损）
@@ -820,6 +884,13 @@ onMounted(() => {
     .use(commonmark)
     .use(styledImageSchema)
     .use(gfm)
+    // KaTeX 数学：schema → 视图 → 输入规则（顺序无强约束，均需 .use 挂载）
+    .use(mathInlineSchema)
+    .use(mathBlockSchema)
+    .use(mathInlineView)
+    .use(mathBlockView)
+    .use(inlineMathInputRule)
+    .use(blockMathInputRule)
     .use(listener)
     // 撤销/重做（1.7 P0）：commonmark 预设不含 history，不挂载即显模式 Ctrl+Z 完全失效
     .use(history)
