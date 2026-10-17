@@ -10,6 +10,7 @@ import { useUiStore } from '@/stores/ui'
 import {
   configMermaidFor,
   getMermaidCache,
+  isHealthyMermaidSvg,
   loadMermaid,
   mermaidCacheKey,
   rethemeMermaid,
@@ -213,22 +214,24 @@ class MermaidCodeView implements NodeView {
     configMermaidFor(dark)
 
     const html = await withMermaidLock(async () => {
-      // 离屏挂载（mermaid 测量需要布局）：同宽度，脱离文档流
-      const holder = document.createElement('div')
-      holder.style.cssText = `position:absolute;left:-9999px;top:0;width:${Math.max(this.dom.clientWidth, 320)}px`
-      holder.textContent = code
-      document.body.appendChild(holder)
-      try {
-        await m.run({ nodes: [holder] })
-      } catch {
-        /* 失败在下方统一降级 */
+      // 健康校验 + 失败重试一次（挂载/主题竞态下 mermaid 可能画出 0×0 退化图）
+      let out: string | null = null
+      for (let attempt = 0; attempt < 2 && out === null; attempt++) {
+        const holder = document.createElement('div')
+        // 离屏挂载（mermaid 测量需要布局）：同宽度，脱离文档流
+        holder.style.cssText = `position:absolute;left:-9999px;top:0;width:${Math.max(this.dom.clientWidth, 320)}px`
+        holder.textContent = code
+        document.body.appendChild(holder)
+        try {
+          await m.run({ nodes: [holder] })
+        } catch {
+          /* 失败在下方统一降级 */
+        }
+        // mermaid v12 的 run 吞掉语法错误改画错误图（aria-roledescription="error"），
+        // 有 svg ≠ 成功——错误图/退化图同样走源码降级
+        if (isHealthyMermaidSvg(holder.querySelector('svg'))) out = holder.innerHTML
+        holder.remove()
       }
-      // mermaid v12 的 run 吞掉语法错误改画错误图（aria-roledescription="error"），
-      // 有 svg ≠ 成功——错误图同样走源码降级
-      const svg = holder.querySelector('svg')
-      const ok = svg !== null && svg.getAttribute('aria-roledescription') !== 'error'
-      const out = ok ? holder.innerHTML : null
-      holder.remove()
       return out
     })
 

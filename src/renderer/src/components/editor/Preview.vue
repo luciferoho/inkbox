@@ -4,6 +4,7 @@ import { ensureMath, renderWithDir } from '@/services/markdown'
 import {
   configMermaidFor,
   getMermaidCache,
+  isHealthyMermaidSvg,
   loadMermaid,
   mermaidCacheKey,
   rethemeMermaid as rethemeMermaidConfig,
@@ -201,20 +202,27 @@ async function rethemeMermaid(): Promise<void> {
     }
   }
   if (offs.length > 0) {
+    let requeued = 0
     try {
       await withMermaidLock(() => m.run({ nodes: offs.map((o) => o.off), suppressErrors: true }))
     } catch (err) {
       console.error('[preview] mermaid retheme failed:', err)
     }
     for (const { node, off, key } of offs) {
-      // 渲染失败的节点无 svg：保持原样（占位交给常规流程），不标 processed
-      if (off.querySelector('svg') && off.isConnected) {
+      // 健康校验：退化/错误图不落位不缓存（占位回队列重试），不标 processed
+      if (isHealthyMermaidSvg(off.querySelector('svg')) && off.isConnected) {
         node.innerHTML = off.innerHTML
         node.setAttribute('data-processed', 'true')
         setMermaidCache(key, off.innerHTML)
+      } else if (node.isConnected) {
+        node.removeAttribute('data-processed')
+        node.textContent = node.dataset.mermaidSrc ?? ''
+        mermaidQueue.push(node)
+        requeued++
       }
       off.remove()
     }
+    if (requeued > 0) void pumpMermaidQueue(m)
   }
   if (seq !== rethemeSeq) return
   for (const node of later) {
@@ -287,7 +295,36 @@ function disconnectMermaidObserver(): void {
   mermaidObserver = null
 }
 
-/** 渲染单个占位节点：缓存命中同步替换，否则 mermaid 渲染 + 归档/降级 */
+/** 离屏渲染一段 mermaid 源码为 svg HTML（body 直挂 + 显式宽度）。
+ *  不在预览面板内就地渲染：模式切换/挂载窗口内面板宽度会瞬时塌缩为 0，
+ *  flowchart-v2 依赖容器宽度测量，就地渲染会得到 0×0 退化空图（序列图
+ *  不依赖容器宽度，幸免——这正是"流程图空白、序列图正常"的由来）。
+ *  离屏渲染与面板布局状态完全解耦（即显 nodeView 同款方案，全天零失败）；
+ *  useMaxWidth 的 svg 注入面板后自适应实际宽度。
+ *  健康校验（退化/错误图=失败）+ 失败重试一次。 */
+async function renderMermaidOffscreen(
+  m: MermaidInstance,
+  code: string,
+  width: number
+): Promise<string | null> {
+  let out: string | null = null
+  for (let attempt = 0; attempt < 2 && out === null; attempt++) {
+    const holder = document.createElement('div')
+    holder.style.cssText = `position:absolute;left:-9999px;top:0;width:${width}px`
+    holder.textContent = code
+    document.body.appendChild(holder)
+    try {
+      await withMermaidLock(() => m.run({ nodes: [holder], suppressErrors: true }))
+    } catch {
+      /* 失败在下方统一降级 */
+    }
+    if (isHealthyMermaidSvg(holder.querySelector('svg'))) out = holder.innerHTML
+    holder.remove()
+  }
+  return out
+}
+
+/** 渲染单个占位节点：缓存命中同步替换，否则离屏渲染 + 归档/降级 */
 async function renderMermaidNode(m: MermaidInstance, node: HTMLElement): Promise<void> {
   if (!node.isConnected || node.getAttribute('data-processed') === 'true') return
   const code = node.textContent ?? ''
@@ -301,18 +338,16 @@ async function renderMermaidNode(m: MermaidInstance, node: HTMLElement): Promise
     scheduleCollect()
     return
   }
-  try {
-    await withMermaidLock(() => m.run({ nodes: [node], suppressErrors: true }))
-  } catch {
-    /* 失败节点在下方统一降级 */
-  }
+  const paneW = node.closest('.md-preview')?.clientWidth ?? 0
+  const html = await renderMermaidOffscreen(m, code, Math.max(paneW, node.clientWidth, 320))
   if (!node.isConnected) return
-  if (node.querySelector('svg')) {
+  if (html !== null) {
+    node.innerHTML = html
     node.setAttribute('data-processed', 'true')
     node.setAttribute('data-mermaid-src', code)
-    setMermaidCache(key, node.innerHTML)
+    setMermaidCache(key, html)
   } else {
-    // 渲染失败的节点：mermaid 已写回错误文本，还原源码展示
+    // 渲染失败的节点：还原源码展示
     node.classList.add('mermaid-error')
     node.setAttribute('data-mermaid-src', code)
     node.textContent = code

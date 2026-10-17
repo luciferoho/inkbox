@@ -150,15 +150,28 @@ export function loadMermaid(dark: boolean): Promise<MermaidInstance | null> {
 }
 
 /** 已加载的前提下重应用当前主题配置（initialize 只是设配置对象，开销可忽略；
- *  组件 HMR 重挂载不触发主题 watch，渲染轮次前显式调用防旧配置渲染） */
+ *  组件 HMR 重挂载不触发主题 watch，渲染轮次前显式调用防旧配置渲染）。
+ *  经串行链排队：并发 initialize 会清掉 flowchart-v2 布局中间态（实测把
+ *  排队中的流程图渲染成 0×0 空图），绝不能与 run 交错 */
 export function configMermaidFor(dark: boolean): void {
-  if (mermaidMod) configMermaid(mermaidMod, dark)
+  if (!mermaidMod) return
+  const inst = mermaidMod
+  mermaidChain = mermaidChain.then(
+    () => configMermaid(inst, dark),
+    () => configMermaid(inst, dark)
+  )
 }
 
-/** 主题切换：清缓存 + 重配置（两侧渲染方各自随后重画自己的图） */
+/** 主题切换：清缓存 + 重配置（两侧渲染方各自随后重画自己的图）。
+ *  initialize 排串行链（理由同 configMermaidFor） */
 export function rethemeMermaid(dark: boolean): void {
   mermaidCache.clear()
-  if (mermaidMod) configMermaid(mermaidMod, dark)
+  if (!mermaidMod) return
+  const inst = mermaidMod
+  mermaidChain = mermaidChain.then(
+    () => configMermaid(inst, dark),
+    () => configMermaid(inst, dark)
+  )
 }
 
 /** 缓存 key（主题版本 | 亮暗 | 源码） */
@@ -179,4 +192,17 @@ export function withMermaidLock<T>(fn: () => Promise<T>): Promise<T> {
   const next = mermaidChain.then(fn, fn)
   mermaidChain = next.catch(() => undefined)
   return next
+}
+
+/** 渲染结果健康校验：无 svg、mermaid 错误图（aria-roledescription="error"）、
+ *  退化空图（viewBox 内容尺寸≈0，实测 16×16 = 布局竞态下的空图）都算失败。
+ *  失败结果绝不能进缓存/标 processed，否则坏图会被后续所有挂载回放 */
+export function isHealthyMermaidSvg(svg: Element | null | undefined): boolean {
+  if (!svg) return false
+  if (svg.getAttribute('aria-roledescription') === 'error') return false
+  const nums = (svg.getAttribute('viewBox') ?? '').split(/[\s,]+/).map(Number)
+  if (nums.length === 4 && nums.every((n) => Number.isFinite(n))) {
+    if (nums[2] <= 20 && nums[3] <= 20) return false
+  }
+  return true
 }
