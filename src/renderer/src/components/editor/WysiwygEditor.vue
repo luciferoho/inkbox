@@ -77,6 +77,22 @@ import {
 } from '@/editor/wysiwyg-math'
 // Mermaid 图表（ROADMAP 1.2）：code_block 双模 nodeView（mermaid 渲染/其他语言原样）
 import { mermaidCodeView, mermaidFocusPlugin, rethemeMermaidViews } from '@/editor/wysiwyg-mermaid'
+// 扩展语法（ROADMAP 1.3/1.4/1.5）：==高亮== ^上标^ ~下标~、脚注、emoji 短代码
+import {
+  highlightSchema,
+  superscriptSchema,
+  subscriptSchema,
+  highlightInputRule,
+  superscriptInputRule,
+  subscriptInputRule,
+  inlineMarkStringifyHandlers,
+  splitInlineMarks,
+  footnoteReferenceSchema,
+  footnoteDefinitionSchema,
+  footnoteReferenceInputRule
+} from '@/editor/wysiwyg-extensions'
+import remarkGemoji from 'remark-gemoji'
+import remarkFootnotes from 'remark-footnotes'
 import type { FindQuery, FindStatus } from '@/find-shared'
 import FindBar from './FindBar.vue'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
@@ -394,8 +410,8 @@ function toWysiwygSource(md: string): string {
  *  顺带归一化：milkdown 把空段落序列化为 `<br />` 行，转回空行——
  *  否则双栏源码里出现字面 `<br />`，预览因 html:false 转义后原样可见；
  *  milkdown 对重建后的有序列表会把分隔符写成 `)`，统一归一化回 `.`；
- *  remark-stringify 还会把正文 `$` 保守转义成 `\$`——误判护栏已保证裸 `$`
- *  不会再被配成公式，这里围栏/行内码感知地还原字面 `$`，不让文件积累反斜杠 */
+ *  remark-stringify 还会把正文 `$`/`~` 保守转义成 `\$`/`\~`——护栏与切分已保证
+ *  裸字符不会再被配对成公式/下标，这里围栏/行内码感知地还原字面，不让文件积累反斜杠 */
 function fromWysiwygSource(md: string): string {
   const docDir = docDirOf()
   const lines = md
@@ -431,7 +447,7 @@ function fromWysiwygSource(md: string): string {
     }
     lines[i] = lines[i]
       .split(/(`[^`]*`)/)
-      .map((seg) => (seg.startsWith('`') ? seg : seg.replace(/\\\$/g, '$')))
+      .map((seg) => (seg.startsWith('`') ? seg : seg.replace(/\\([$~])/g, '$1')))
       .join('')
   }
   let out = lines.join('\n')
@@ -865,8 +881,19 @@ onMounted(() => {
         // $...$ / $$...$$ → mdast inlineMath/math，由 wysiwyg-math 的 schema 接住
         { plugin: remarkMath, options: {} } as never,
         // 误判护栏：货币/含空格的 $ 对还原为字面文本（与预览管线对齐，roundtrip 无损）
-        { plugin: guardMathText, options: {} } as never
+        { plugin: guardMathText, options: {} } as never,
+        // emoji 短代码 → 字符（纯文本替换，与预览 markdown-it-emoji 一致）
+        { plugin: remarkGemoji, options: {} } as never,
+        // 脚注 [^1] + 定义 → footnoteReference/footnoteDefinition
+        { plugin: remarkFootnotes, options: {} } as never,
+        // ==高亮== ^上标^ ~下标~ 文本切分 → 自定义 mdast 节点（mark schema 接住）
+        { plugin: splitInlineMarks, options: {} } as never
       ])
+      // 序列化：mark 系列自定义节点还原为 ==/^/~ 语法
+      ctx.update(remarkStringifyOptionsCtx, (prev) => ({
+        ...prev,
+        handlers: { ...prev.handlers, ...inlineMarkStringifyHandlers }
+      }))
       // 段内换行序列化为纯换行（remark-stringify 默认输出 `\`+换行 的显式硬换行，
       // 会把反斜杠污染进用户文件；本应用两条管线都把裸换行当硬换行，等价且无损）
       ctx.update(remarkStringifyOptionsCtx, (prev) => ({
@@ -896,6 +923,16 @@ onMounted(() => {
     // Mermaid：code_block nodeView + 焦点追踪（收起源码态）
     .use(mermaidCodeView)
     .use(mermaidFocusPlugin)
+    // 高亮/上下标 marks + 脚注节点 + 各输入规则
+    .use(highlightSchema)
+    .use(superscriptSchema)
+    .use(subscriptSchema)
+    .use(highlightInputRule)
+    .use(superscriptInputRule)
+    .use(subscriptInputRule)
+    .use(footnoteReferenceSchema)
+    .use(footnoteDefinitionSchema)
+    .use(footnoteReferenceInputRule)
     .use(listener)
     // 撤销/重做（1.7 P0）：commonmark 预设不含 history，不挂载即显模式 Ctrl+Z 完全失效
     .use(history)

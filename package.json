@@ -50,6 +50,8 @@
     "pdfjs-dist": "^6.3.289",
     "pinia": "^4.0.3",
     "remark-breaks": "^4.0.0",
+    "remark-footnotes": "^4.0.1",
+    "remark-gemoji": "^8.0.0",
     "remark-math": "^6.0.0",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",

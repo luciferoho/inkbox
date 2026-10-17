@@ -434,3 +434,32 @@
 .wysiwyg-host .luci-prose pre.md-mermaid.md-mermaid--editing .md-mermaid-render {
   display: none;
 }
+
+/* ---------- 高亮/上下标/脚注（ROADMAP 1.3/1.4）---------- */
+.wysiwyg-host .luci-prose mark {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  color: var(--text);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.wysiwyg-host .luci-prose sup,
+.wysiwyg-host .luci-prose sub {
+  font-size: 0.72em;
+  line-height: 1;
+}
+
+.wysiwyg-host .luci-prose sup.footnote-ref {
+  margin: 0 2px;
+  cursor: default;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.wysiwyg-host .luci-prose .footnote-def {
+  margin: 0.5em 0;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--border);
+  color: var(--text-2);
+  font-size: 0.92em;
+}
