@@ -43,7 +43,11 @@ function buildDecorations(state: EditorState): DecorationSet {
     btn.addEventListener('mousedown', (e) => e.preventDefault())
     btn.addEventListener('click', () => {
       const pre = bar.nextElementSibling
-      const text = pre instanceof HTMLPreElement ? (pre.textContent ?? '') : ''
+      // 取 code 源码而非 pre.textContent：mermaid 块的 pre 里混着渲染出的 SVG 文本
+      const text =
+        pre instanceof HTMLPreElement
+          ? (pre.querySelector('code')?.textContent ?? pre.textContent ?? '')
+          : ''
       if (!text) return
       void writeClipboard(text).then((ok) => {
         if (ok) applyCopiedFeedback(btn, t('code.copied'), t('code.copy'))

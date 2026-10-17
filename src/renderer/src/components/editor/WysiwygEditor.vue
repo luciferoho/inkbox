@@ -75,6 +75,8 @@ import {
   blockMathInputRule,
   guardMathText
 } from '@/editor/wysiwyg-math'
+// Mermaid 图表（ROADMAP 1.2）：code_block 双模 nodeView（mermaid 渲染/其他语言原样）
+import { mermaidCodeView, mermaidFocusPlugin, rethemeMermaidViews } from '@/editor/wysiwyg-mermaid'
 import type { FindQuery, FindStatus } from '@/find-shared'
 import FindBar from './FindBar.vue'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
@@ -891,6 +893,9 @@ onMounted(() => {
     .use(mathBlockView)
     .use(inlineMathInputRule)
     .use(blockMathInputRule)
+    // Mermaid：code_block nodeView + 焦点追踪（收起源码态）
+    .use(mermaidCodeView)
+    .use(mermaidFocusPlugin)
     .use(listener)
     // 撤销/重做（1.7 P0）：commonmark 预设不含 history，不挂载即显模式 Ctrl+Z 完全失效
     .use(history)
@@ -1045,6 +1050,12 @@ watch(
     if (editor) applyReplace(markdown)
     else pending = markdown
   }
+)
+
+/* 主题切换 → 重配置 mermaid 并重画图表（图表色是渲染时内联的，CSS 变量跟不了） */
+watch(
+  () => ui.effectiveTheme,
+  (t) => rethemeMermaidViews(t === 'dark')
 )
 </script>
 

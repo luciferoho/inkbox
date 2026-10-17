@@ -387,3 +387,50 @@
 .wysiwyg-host .luci-prose .luci-math--editing .luci-math-src:focus {
   border-color: var(--accent);
 }
+
+/* ---------- Mermaid 图表（ROADMAP 1.2）----------
+   code_block 双模 nodeView：mermaid 块渲染图表，点击进源码编辑态；
+   pre 外壳与语言标签栏/复制按钮（pm-codeblock-chrome）完全兼容 */
+.wysiwyg-host .luci-prose pre.md-mermaid {
+  position: relative;
+}
+
+.wysiwyg-host .luci-prose .md-mermaid-render {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 56px;
+  padding: 12px 16px;
+  margin-top: 26px; /* 给 chrome 语言标签栏留位（widget 插在 pre 之前，占位行高对齐） */
+  border-radius: 8px;
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.wysiwyg-host .luci-prose .md-mermaid-render:hover {
+  outline: 1px solid var(--border);
+}
+
+.wysiwyg-host .luci-prose .md-mermaid-render svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 渲染中占位 */
+.wysiwyg-host .luci-prose .md-mermaid--loading {
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+/* 编辑态：显示源码（code 元素），隐藏图表 */
+.wysiwyg-host .luci-prose pre.md-mermaid > code {
+  display: none;
+}
+
+.wysiwyg-host .luci-prose pre.md-mermaid.md-mermaid--editing > code {
+  display: block;
+}
+
+.wysiwyg-host .luci-prose pre.md-mermaid.md-mermaid--editing .md-mermaid-render {
+  display: none;
+}
