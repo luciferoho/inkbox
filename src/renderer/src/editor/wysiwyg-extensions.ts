@@ -416,10 +416,15 @@ class TocNodeView implements NodeView {
     if (!Number.isFinite(pos) || pos >= doc.content.size) return
     const view = this.view
     view.dispatch(view.state.tr.setSelection(TextSelection.near(doc.resolve(pos))))
-    // domAtPos 返回容器+偏移（容器是 PM 根，直接滚会滚错目标），取偏移处的标题元素
+    // domAtPos 返回容器+偏移（可能是文本节点），收敛到最近的元素再滚
     const at = view.domAtPos(pos)
-    const child = at.node instanceof Element ? (at.node.childNodes[at.offset] as Element | undefined) : null
-    const el = child ?? (at.node instanceof Element ? at.node : at.node.parentElement)
+    const coerceEl = (n: Node | null | undefined): Element | null => {
+      let cur: Node | null = n ?? null
+      while (cur && !(cur instanceof Element)) cur = cur.parentNode
+      return cur instanceof Element ? cur : null
+    }
+    const child = at.node instanceof Element ? ((at.node.childNodes[at.offset] as Node | undefined) ?? null) : null
+    const el = coerceEl(child ?? at.node)
     ;(el ?? view.dom).scrollIntoView({ block: 'start', behavior: 'smooth' })
   }
 

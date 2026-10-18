@@ -57,7 +57,7 @@ import { createCodeHighlightPlugin } from '@/editor/pm-code-highlight'
 import { createQuoteEscapePlugin } from '@/editor/pm-quote-escape'
 import { createTaskTogglePlugin } from '@/editor/pm-task-toggle'
 import { parseAltMods, buildAltMods, stepWidth, luciToDisplaySrc, type ImageMods } from '@/editor/image-utils'
-import { splitAdjacentOrderedLists } from '@/services/markdown'
+import { splitAdjacentOrderedLists, parseOutline } from '@/services/markdown'
 // 单换行 → 硬换行：与预览管线 markdown-it 的 breaks:true 对齐（否则即显把
 // 段内单换行折叠成空格，同一文档两种模式显示不一致）
 import remarkBreaks from 'remark-breaks'
@@ -1108,6 +1108,60 @@ watch(
 watch(
   () => ui.effectiveTheme,
   (t) => rethemeMermaidViews(t === 'dark')
+)
+
+/* 大纲/搜索跳转：源码行号 → PM 文档定位。
+   标题行精确跳转（parseOutline 第 N 个标题 = PM 第 N 个 heading，同序）；
+   非标题行（搜索结果命中）按所在标题区段的源码行数比例映射到 PM 位置 */
+watch(
+  () => ui.jumpLine,
+  (j) => {
+    if (!j) return
+    withView((view) => {
+      const pmHeadings: { pos: number }[] = []
+      view.state.doc.descendants((node, pos) => {
+        if (node.type.name === 'heading') {
+          pmHeadings.push({ pos })
+          return false
+        }
+        return true
+      })
+      const content = docs.active?.content ?? ''
+      const outline = parseOutline(content)
+      const totalLines = content.split('\n').length
+      let targetPos: number | null = null
+      const idx = outline.findIndex((it) => it.line === j.line)
+      if (idx >= 0) {
+        // 标题行：按序对应，越界夹取（front matter 等源码有而 PM 无标题的容差）
+        if (pmHeadings.length > 0) targetPos = pmHeadings[Math.min(idx, pmHeadings.length - 1)].pos
+      } else if (pmHeadings.length > 0) {
+        let seg = -1
+        for (let i = 0; i < outline.length; i++) if (outline[i].line <= j.line) seg = i
+        const srcStart = seg >= 0 ? outline[seg].line : 1
+        const srcEnd = seg >= 0 && seg + 1 < outline.length ? outline[seg + 1].line : totalLines + 1
+        const pmStart = seg >= 0 ? pmHeadings[Math.min(seg, pmHeadings.length - 1)].pos : 0
+        const pmEnd = seg >= 0 && seg + 1 < pmHeadings.length ? pmHeadings[seg + 1].pos : view.state.doc.content.size
+        const ratio = srcEnd > srcStart ? (j.line - srcStart) / (srcEnd - srcStart) : 0
+        targetPos = Math.round(pmStart + (pmEnd - pmStart) * Math.min(1, Math.max(0, ratio)))
+      }
+      if (targetPos === null) return
+      view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(targetPos))))
+      // domAtPos 返回容器+偏移（可能是文本节点），收敛到最近的元素再滚
+      const at = view.domAtPos(targetPos)
+      const coerceEl = (n: Node | null | undefined): Element | null => {
+        let cur: Node | null = n ?? null
+        while (cur && !(cur instanceof Element)) cur = cur.parentNode
+        return cur instanceof Element ? cur : null
+      }
+      const child = at.node instanceof Element ? ((at.node.childNodes[at.offset] as Node | undefined) ?? null) : null
+      const el = coerceEl(child ?? at.node)
+      const hostEl = host.value
+      if (el && hostEl) {
+        const top = el.getBoundingClientRect().top - hostEl.getBoundingClientRect().top + hostEl.scrollTop - 80
+        hostEl.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+      }
+    })
+  }
 )
 </script>
 
