@@ -234,15 +234,54 @@ async function rethemeMermaid(): Promise<void> {
   collectBlocks()
 }
 
+/** 就地修补预览容器：解析新 HTML，把其中 img / mermaid 占位用旧树里渲染完成的
+ *  同源节点顶替（key：img→src、mermaid→data-mermaid-src），再一次性替换子树。
+ *  全量 v-html 重建会让图片重新解码、图表回退占位——双栏打字时表现为预览频繁闪动 */
+function swapPreviewHtml(container: HTMLElement, nextHtml: string): void {
+  const tpl = document.createElement('template')
+  tpl.innerHTML = nextHtml
+  const keyOf = (el: Element): string | null => {
+    if (el.tagName === 'IMG') {
+      const src = el.getAttribute('src')
+      return src ? `img:${src}` : null
+    }
+    if (el.classList.contains('mermaid')) {
+      // 旧节点读渲染时存档的源码；新占位符没有该属性，其文本就是源码——两者同源
+      const code = el.getAttribute('data-mermaid-src') ?? (el as HTMLElement).dataset.mermaidSrc ?? el.textContent ?? ''
+      return code ? `mm:${code}` : null
+    }
+    return null
+  }
+  const keep = new Map<string, Element>()
+  container.querySelectorAll('img, .mermaid').forEach((el) => {
+    const k = keyOf(el)
+    if (k && !keep.has(k)) keep.set(k, el)
+  })
+  if (keep.size > 0) {
+    tpl.content.querySelectorAll('img, .mermaid').forEach((el) => {
+      const k = keyOf(el)
+      const old = k ? keep.get(k) : undefined
+      if (k && old) {
+        el.replaceWith(old)
+        keep.delete(k)
+      }
+    })
+  }
+  container.replaceChildren(tpl.content)
+}
+
 async function render(content: string): Promise<void> {
   const seq = ++renderSeq
   await ensureMath(content)
   if (seq !== renderSeq) return
-  html.value = content.trim() ? renderWithDir(content, props.docDir) : ''
+  const nextHtml = content.trim() ? renderWithDir(content, props.docDir) : ''
+  html.value = nextHtml
   await nextTick()
   // 关闸：等待期间若又开始了新渲染，本轮作废——否则陈旧回合会在
   // 新一轮已渲染完的 DOM 上重跑 mermaid（把 SVG 内的 <style> 文本当源码）
   if (seq !== renderSeq) return
+  // v-html 已移除：容器由 v-if 创建但内容走就地修补（图片/图表不重建不闪动）
+  if (nextHtml && body.value) swapPreviewHtml(body.value, nextHtml)
   applyBlankGaps() // 空行占位先插入，块映射与切签锚点才拿得到最终布局
   if (body.value) applyCachedImageSizes(body.value) // 图片占位尺寸先落位，块映射与切签锚点才不会按塌缩布局算
   collectBlocks()
@@ -918,7 +957,7 @@ onBeforeUnmount(() => {
       @close="pvClose"
     />
     <div ref="scroller" class="preview-scroll">
-      <div v-if="html" ref="body" class="md-preview" v-html="html" />
+      <div v-if="html" ref="body" class="md-preview" />
       <div v-else class="preview-empty">{{ $t('preview.empty') }}</div>
     </div>
   </div>
