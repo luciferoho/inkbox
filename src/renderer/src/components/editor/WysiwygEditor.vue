@@ -94,7 +94,9 @@ import {
   tocBlock,
   tocSchema,
   tocView,
-  tocUpdatePlugin
+  tocUpdatePlugin,
+  htmlSpanSchema,
+  mergeHtmlSpans
 } from '@/editor/wysiwyg-extensions'
 import remarkGemoji from 'remark-gemoji'
 import remarkFootnotes from 'remark-footnotes'
@@ -902,7 +904,9 @@ onMounted(() => {
         // YAML front matter → yaml 节点（yamlSchema 接住，序列化还原围栏）
         { plugin: remarkFrontmatter, options: 'yaml' } as never,
         // 独占一段的 [TOC] → toc 块节点（tocView 实时渲染可点击目录）
-        { plugin: tocBlock, options: {} } as never
+        { plugin: tocBlock, options: {} } as never,
+        // 行内 HTML 白名单：<u>/<mark>/<kbd> 等配对标签 → htmlSpan mark
+        { plugin: mergeHtmlSpans, options: {} } as never
       ])
       // 序列化：mark 系列自定义节点还原为 ==/^/~ 语法
       ctx.update(remarkStringifyOptionsCtx, (prev) => ({
@@ -953,6 +957,8 @@ onMounted(() => {
     .use(tocSchema)
     .use(tocView)
     .use(tocUpdatePlugin)
+    // 行内 HTML 白名单 mark
+    .use(htmlSpanSchema)
     .use(listener)
     // 撤销/重做（1.7 P0）：commonmark 预设不含 history，不挂载即显模式 Ctrl+Z 完全失效
     .use(history)

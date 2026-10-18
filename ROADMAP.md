@@ -28,8 +28,8 @@ Inkbox 已覆盖 Typora 主干：四模式编辑（即显/源码/双栏/预览�
 - [x] **1.5 即显 emoji 短代码**（S）remark-gemoji 解析期替换为字符（与预览 markdown-it-emoji 行为一致）✓
 - [x] **1.6 `[TOC]` 全管线**（M）即显渲染可点击目录（nodeview 实时收集标题，点击跳转+滚动，doc 变化自动重投影）✓
 - [x] **1.7 Front matter 正确渲染**（M，缺陷先修）预览渲染为元信息块（自写 core rule 按行区间替换 token，不再撕成 hr/标题碎片）；即显渲染为可编辑 yaml 块（remark-frontmatter + yaml schema）；导出正确跳过；序列化往返逐字节无损 ✓
-- [ ] **1.8 专注/打字机覆盖即显侧**（M）淡化非当前段落 / 当前行居中
-- [ ] **1.9 行内 HTML 白名单渲染**（M）白名单子集：`<u> <br> <mark> <sub> <sup> <details>/<summary> <center>` 等；坚持不开放任意 HTML
+- [x] **1.8 专注/打字机覆盖即显侧**（M）专注：装饰器淡显当前顶层块之外内容（F8/状态栏共用开关）；打字机：光标行钉在面板垂直中部 ✓
+- [x] **1.9 行内 HTML 白名单渲染**（M）预览/即显同一份白名单（u mark sub sup kbd b strong i em s del br）；配对标签即显渲染真实元素（支持嵌套），非白名单/未配对照旧转义；序列化原样保留标签 ✓（details/summary 块级与 center 延后）
 
 ## 三、M2 · 编辑体验补齐
 

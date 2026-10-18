@@ -121,6 +121,21 @@ export const md: MarkdownIt = MarkdownItDefault({
   .use(footnote)
   .use(emoji)
 
+/* 行内 HTML 白名单（ROADMAP 1.9）：html:false 下原文一律转义，仅白名单内的
+   标签放行为真实元素（与即显侧 wysiwyg-extensions 的白名单一致），其余照旧转义。
+   不做配对校验：未闭合标签由浏览器就近闭合，行为与 Typora 一致 */
+const HTML_WL_RE = /^<(\/?)(u|mark|sub|sup|kbd|b|strong|i|em|s|del|br)(\s[^>]*)?\/?>/i
+md.inline.ruler.after('escape', 'luci_html_whitelist', (state, silent) => {
+  const m = HTML_WL_RE.exec(state.src.slice(state.pos))
+  if (!m) return false
+  if (!silent) {
+    const tok = state.push('html_inline', '', 0)
+    tok.content = m[0]
+  }
+  state.pos += m[0].length
+  return true
+})
+
 /* YAML front matter（ROADMAP 1.7）：文档开头的 `---` 块是元信息不是正文，
    默认解析会把它撕成 hr/标题/hr 的碎片——这里按原文行扫描识别出 fm 范围，
    把覆盖到的顶层 token 整体替换为元信息块（带源码行号，参与双栏同步） */

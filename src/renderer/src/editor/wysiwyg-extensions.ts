@@ -29,6 +29,7 @@ import remarkFrontmatter from 'remark-frontmatter'
 interface MdastInlineNode {
   type?: string
   value?: unknown
+  tag?: unknown
   position?: { start?: { offset?: number }; end?: { offset?: number } }
   children?: MdastInlineNode[]
 }
@@ -154,11 +155,26 @@ export const superscriptSchema = makeInlineMarkSchema({ name: 'superscript', mda
 export const subscriptSchema = makeInlineMarkSchema({ name: 'subscript', mdastType: 'markSubscript', tag: 'sub' })
 
 /** 序列化 handlers：withMark 产出的自定义 mdast 节点还原为 ==/^/~ 语法；
- *  yaml 节点还原为 --- 围栏（挂到 WysiwygEditor 的 remarkStringifyOptionsCtx） */
+ *  htmlSpan 还原为白名单标签对；yaml 节点还原为 --- 围栏
+ *  （挂到 WysiwygEditor 的 remarkStringifyOptionsCtx） */
+function mdastTextOf(node: unknown): string {
+  const walk = (n: unknown): string => {
+    if (typeof n !== 'object' || n === null) return ''
+    const o = n as { type?: string; value?: unknown; children?: unknown[] }
+    if (o.type === 'text') return String(o.value ?? '')
+    return (o.children ?? []).map(walk).join('')
+  }
+  return walk(node)
+}
+
 export const inlineMarkStringifyHandlers = {
   markHighlight: (node: { value?: unknown }) => `==${String(node.value ?? '')}==`,
   markSuperscript: (node: { value?: unknown }) => `^${String(node.value ?? '')}^`,
   markSubscript: (node: { value?: unknown }) => `~${String(node.value ?? '')}~`,
+  htmlSpan: (node: { tag?: unknown; children?: unknown[] }) => {
+    const tag = String(node.tag ?? 'span')
+    return `<${tag}>${mdastTextOf(node)}</${tag}>`
+  },
   yaml: (node: { value?: unknown }) => `---\n${String(node.value ?? '')}\n---`
 }
 
@@ -266,6 +282,94 @@ export const footnoteReferenceInputRule = $inputRule((ctx: Ctx) => {
     )
   })
 })
+
+/* ---------- 1.9 行内 HTML 白名单 ---------- */
+
+const HTML_WL_TAGS = new Set(['u', 'mark', 'sub', 'sup', 'kbd', 'b', 'strong', 'i', 'em', 's', 'del'])
+const HTML_OPEN_RE = /^<([a-z]+)(?:\s[^>]*)?\/?>$/i
+const HTML_CLOSE_RE = /^<\/([a-z]+)\s*>$/i
+const HTML_BR_RE = /^<br\s*\/?>$/i
+
+function whitelistOpenTag(value: string): string | null {
+  const m = HTML_OPEN_RE.exec(value)
+  const tag = m?.[1]?.toLowerCase() ?? null
+  return tag && HTML_WL_TAGS.has(tag) ? tag : null
+}
+
+function whitelistCloseTag(value: string): string | null {
+  const m = HTML_CLOSE_RE.exec(value)
+  const tag = m?.[1]?.toLowerCase() ?? null
+  return tag && HTML_WL_TAGS.has(tag) ? tag : null
+}
+
+/** 同层配对：<tag>...</tag> 的 html 节点序列 → htmlSpan 节点（children 递归处理，
+ *  支持嵌套不同标签）；<br> → break；未配对/非白名单保持 html 原子（字面展示） */
+function processHtmlInlineList(children: MdastInlineNode[]): MdastInlineNode[] {
+  const out: MdastInlineNode[] = []
+  for (let i = 0; i < children.length; i++) {
+    const c = children[i]
+    if (c.type === 'html' && HTML_BR_RE.test(String(c.value ?? ''))) {
+      out.push({ type: 'break' })
+      continue
+    }
+    const openTag = c.type === 'html' ? whitelistOpenTag(String(c.value ?? '')) : null
+    if (openTag) {
+      let close = -1
+      for (let k = i + 1; k < children.length; k++) {
+        const n = children[k]
+        if (n.type !== 'html') continue
+        const v = String(n.value ?? '')
+        if (whitelistCloseTag(v) === openTag) {
+          close = k
+          break
+        }
+        if (whitelistOpenTag(v)) break // 出现新的同层开放标签：保守放弃配对
+      }
+      if (close > i) {
+        out.push({ type: 'htmlSpan', tag: openTag, children: processHtmlInlineList(children.slice(i + 1, close)) })
+        i = close
+        continue
+      }
+    }
+    if (c.children) {
+      c.children = processHtmlInlineList(c.children)
+      out.push(c)
+      continue
+    }
+    out.push(c)
+  }
+  return out
+}
+
+export function mergeHtmlSpans(): (tree: MdastInlineNode) => void {
+  const walk = (node: MdastInlineNode): void => {
+    if (!node.children) return
+    node.children = processHtmlInlineList(node.children)
+    node.children.forEach((c) => walk(c))
+  }
+  return (tree) => walk(tree)
+}
+
+/** 白名单标签的通用 mark：attrs.tag 决定渲染标签（u/mark/kbd/...） */
+export const htmlSpanSchema = $markSchema('html_span', () => ({
+  attrs: { tag: { default: 'span', validate: 'string' } },
+  parseDOM: [{ tag: 'span[data-html-tag]', getAttrs: (dom) => ({ tag: dom instanceof HTMLElement ? dom.dataset.htmlTag ?? 'span' : 'span' }) }],
+  toDOM: (mark) => [String(mark.attrs.tag ?? 'span'), { 'data-html-tag': String(mark.attrs.tag ?? '') }],
+  parseMarkdown: {
+    match: ({ type }) => type === 'htmlSpan',
+    runner: (state, node, markType) => {
+      state.openMark(markType, { tag: String(node.tag ?? 'span') })
+      state.next(node.children)
+      state.closeMark(markType)
+    }
+  },
+  toMarkdown: {
+    match: (mark) => mark.type.name === 'html_span',
+    runner: (state, mark) => {
+      state.withMark(mark, 'htmlSpan', void 0, { tag: String(mark.attrs.tag ?? 'span') })
+    }
+  }
+}))
 
 /* ---------- 1.7 YAML front matter ---------- */
 
