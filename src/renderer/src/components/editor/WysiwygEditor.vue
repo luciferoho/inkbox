@@ -99,6 +99,8 @@ import {
 import remarkGemoji from 'remark-gemoji'
 import remarkFootnotes from 'remark-footnotes'
 import remarkFrontmatter from 'remark-frontmatter'
+// 专注/打字机（ROADMAP 1.8）：与源码侧共用 ui 开关
+import { createWysiwygFocusPlugin, createWysiwygTypewriterPlugin } from '@/editor/pm-focus'
 import type { FindQuery, FindStatus } from '@/find-shared'
 import FindBar from './FindBar.vue'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
@@ -652,6 +654,9 @@ const elToolbarPlugin = $prose(() =>
 const quoteEscapePlugin = $prose(() => createQuoteEscapePlugin())
 // 任务列表点击切换复选框（milkdown 无内置交互）
 const taskTogglePlugin = $prose(() => createTaskTogglePlugin())
+// 专注/打字机（F8/F9 与状态栏按钮，开关经 watch 派发空事务驱动重算）
+const wysiwygFocusPlugin = $prose(() => createWysiwygFocusPlugin())
+const wysiwygTypewriterPlugin = $prose(() => createWysiwygTypewriterPlugin())
 
 /* ---------- 元素工具条:图片/表格操作 ---------- */
 
@@ -959,6 +964,8 @@ onMounted(() => {
     .use(codeHighlightPlugin)
     .use(quoteEscapePlugin)
     .use(taskTogglePlugin)
+    .use(wysiwygFocusPlugin)
+    .use(wysiwygTypewriterPlugin)
   void instance.create().then((e) => {
     editor = e
     // 开发期调试钩子：CDP 查 PM 文档 JSON / 序列化输出 / 内部 remark mdast
@@ -1109,6 +1116,13 @@ watch(
   () => ui.effectiveTheme,
   (t) => rethemeMermaidViews(t === 'dark')
 )
+
+/* 专注/打字机开关 → 派发空事务，驱动装饰器重算（开关本身不产生事务） */
+watch([() => ui.focusMode, () => ui.typewriterMode], () => {
+  withView((view) => {
+    view.dispatch(view.state.tr)
+  })
+})
 
 /* 大纲/搜索跳转：源码行号 → PM 文档定位。
    标题行精确跳转（parseOutline 第 N 个标题 = PM 第 N 个 heading，同序）；
