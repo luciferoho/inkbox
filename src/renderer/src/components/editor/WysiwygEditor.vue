@@ -89,10 +89,16 @@ import {
   splitInlineMarks,
   footnoteReferenceSchema,
   footnoteDefinitionSchema,
-  footnoteReferenceInputRule
+  footnoteReferenceInputRule,
+  yamlSchema,
+  tocBlock,
+  tocSchema,
+  tocView,
+  tocUpdatePlugin
 } from '@/editor/wysiwyg-extensions'
 import remarkGemoji from 'remark-gemoji'
 import remarkFootnotes from 'remark-footnotes'
+import remarkFrontmatter from 'remark-frontmatter'
 import type { FindQuery, FindStatus } from '@/find-shared'
 import FindBar from './FindBar.vue'
 import '@milkdown/kit/prose/view/style/prosemirror.css'
@@ -887,7 +893,11 @@ onMounted(() => {
         // 脚注 [^1] + 定义 → footnoteReference/footnoteDefinition
         { plugin: remarkFootnotes, options: {} } as never,
         // ==高亮== ^上标^ ~下标~ 文本切分 → 自定义 mdast 节点（mark schema 接住）
-        { plugin: splitInlineMarks, options: {} } as never
+        { plugin: splitInlineMarks, options: {} } as never,
+        // YAML front matter → yaml 节点（yamlSchema 接住，序列化还原围栏）
+        { plugin: remarkFrontmatter, options: 'yaml' } as never,
+        // 独占一段的 [TOC] → toc 块节点（tocView 实时渲染可点击目录）
+        { plugin: tocBlock, options: {} } as never
       ])
       // 序列化：mark 系列自定义节点还原为 ==/^/~ 语法
       ctx.update(remarkStringifyOptionsCtx, (prev) => ({
@@ -933,6 +943,11 @@ onMounted(() => {
     .use(footnoteReferenceSchema)
     .use(footnoteDefinitionSchema)
     .use(footnoteReferenceInputRule)
+    // front matter + [TOC]
+    .use(yamlSchema)
+    .use(tocSchema)
+    .use(tocView)
+    .use(tocUpdatePlugin)
     .use(listener)
     // 撤销/重做（1.7 P0）：commonmark 预设不含 history，不挂载即显模式 Ctrl+Z 完全失效
     .use(history)

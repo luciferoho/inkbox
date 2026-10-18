@@ -121,6 +121,47 @@ export const md: MarkdownIt = MarkdownItDefault({
   .use(footnote)
   .use(emoji)
 
+/* YAML front matter（ROADMAP 1.7）：文档开头的 `---` 块是元信息不是正文，
+   默认解析会把它撕成 hr/标题/hr 的碎片——这里按原文行扫描识别出 fm 范围，
+   把覆盖到的顶层 token 整体替换为元信息块（带源码行号，参与双栏同步） */
+md.core.ruler.push('luci_front_matter', (state: StateCore) => {
+  const shifts: number[] = (state.env as { shifts?: number[] } | undefined)?.shifts ?? []
+  const toRaw = (processed: number): number => {
+    let raw = processed
+    for (const s of shifts) if (s <= raw) raw--
+    return raw
+  }
+  const lines = state.src.split('\n')
+  if ((lines[0] ?? '').trim() !== '---') return
+  let end = -1
+  for (let i = 1; i < lines.length; i++) {
+    const t = (lines[i] ?? '').trimEnd()
+    if (t === '---' || t === '...') {
+      end = i
+      break
+    }
+  }
+  if (end < 1) return
+  const tok = new state.Token('luci_front_matter_block', '', 0)
+  tok.content = lines.slice(1, end).join('\n')
+  tok.attrSet('data-source-line', '0')
+  tok.attrSet('data-source-line-end', String(toRaw(end)))
+  // 凡起点落在 fm 行区间内的顶层 token 一律替换（不依赖 token 数组的连续前缀：
+  // 集合列表/setext 等结构的 token map 顺序不能想当然）
+  state.tokens = [tok, ...state.tokens.filter((t) => !(t.map && t.map[0] <= end))]
+})
+
+md.renderer.rules.luci_front_matter_block = (tokens, idx) => {
+  const tok = tokens[idx]
+  const attrs = ['data-source-line', 'data-source-line-end']
+    .map((n) => {
+      const v = tok.attrGet(n)
+      return v !== null && v !== undefined ? ` ${n}="${escapeHtml(String(v))}"` : ''
+    })
+    .join('')
+  return `<section class="md-front-matter"${attrs}><pre class="md-fm-pre">${escapeHtml(tok.content)}</pre></section>\n`
+}
+
 /* 顶层块附源码行号（token.map 为 0 基，[start, end)）：供双栏同步滚动插值；
  * 图片 token 另打所在精确行（段内按软/硬换行累计）——供双栏「光标在图片语法上 →
  * 预览对应图高亮」按行定位（同段多图按 DOM 顺序区分）。

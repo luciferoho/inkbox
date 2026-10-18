@@ -406,3 +406,25 @@
 .md-preview .md-center img {
   display: inline-block;
 }
+
+/* ---------- YAML front matter 元信息块（ROADMAP 1.7）---------- */
+.md-preview .md-front-matter {
+  margin: 1em 0;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.md-preview .md-fm-pre {
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace;
+  font-size: 0.86em;
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: pre-wrap;
+}

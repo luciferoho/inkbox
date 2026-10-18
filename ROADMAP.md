@@ -26,8 +26,8 @@ Inkbox 已覆盖 Typora 主干：四模式编辑（即显/源码/双栏/预览�
 - [x] **1.3 即显 `==高亮==` `^上标^` `~下标~`**（M）自写 transformer 切分文本 + mark schema + 输入规则；`~x~` 与 GFM 单波浪删除线的语义冲突按原文切片判定归为下标（与预览一致）✓
 - [x] **1.4 即显脚注 `[^1]`**（M）remark-footnotes + 引用/定义双 schema，`[^x]` 输入规则；序列化由 footnotes 的 toMarkdown 原生处理 ✓
 - [x] **1.5 即显 emoji 短代码**（S）remark-gemoji 解析期替换为字符（与预览 markdown-it-emoji 行为一致）✓
-- [ ] **1.6 `[TOC]` 全管线**（M）即显渲染可点击目录
-- [ ] **1.7 Front matter 正确渲染**（M，缺陷先修）预览把头部当正文渲染；改为预览渲染为元信息块、即显渲染为折叠块、导出正确跳过
+- [x] **1.6 `[TOC]` 全管线**（M）即显渲染可点击目录（nodeview 实时收集标题，点击跳转+滚动，doc 变化自动重投影）✓
+- [x] **1.7 Front matter 正确渲染**（M，缺陷先修）预览渲染为元信息块（自写 core rule 按行区间替换 token，不再撕成 hr/标题碎片）；即显渲染为可编辑 yaml 块（remark-frontmatter + yaml schema）；导出正确跳过；序列化往返逐字节无损 ✓
 - [ ] **1.8 专注/打字机覆盖即显侧**（M）淡化非当前段落 / 当前行居中
 - [ ] **1.9 行内 HTML 白名单渲染**（M）白名单子集：`<u> <br> <mark> <sub> <sup> <details>/<summary> <center>` 等；坚持不开放任意 HTML
 

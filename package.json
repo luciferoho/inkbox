@@ -51,6 +51,7 @@
     "pinia": "^4.0.3",
     "remark-breaks": "^4.0.0",
     "remark-footnotes": "^4.0.1",
+    "remark-frontmatter": "^5.0.0",
     "remark-gemoji": "^8.0.0",
     "remark-math": "^6.0.0",
     "turndown": "^7.2.4",

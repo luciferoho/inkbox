@@ -1,10 +1,13 @@
-import { $inputRule, $markSchema, $nodeSchema } from '@milkdown/kit/utils'
+import { $inputRule, $markSchema, $nodeSchema, $prose, $view } from '@milkdown/kit/utils'
 import { markRule } from '@milkdown/kit/prose'
 import type { Ctx } from '@milkdown/kit/ctx'
 import { InputRule } from '@milkdown/kit/prose/inputrules'
+import { EditorState, Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state'
+import type { EditorView, NodeView, ViewMutationRecord } from '@milkdown/kit/prose/view'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import remarkGemoji from 'remark-gemoji'
 import remarkFootnotes from 'remark-footnotes'
+import remarkFrontmatter from 'remark-frontmatter'
 
 /**
  * 即显扩展语法（ROADMAP 1.3/1.4/1.5）：==高亮==、^上标^、~下标~、脚注、emoji。
@@ -150,12 +153,13 @@ export const highlightSchema = makeInlineMarkSchema({ name: 'mark', mdastType: '
 export const superscriptSchema = makeInlineMarkSchema({ name: 'superscript', mdastType: 'markSuperscript', tag: 'sup' })
 export const subscriptSchema = makeInlineMarkSchema({ name: 'subscript', mdastType: 'markSubscript', tag: 'sub' })
 
-/** 序列化 handlers：withMark 产出的自定义 mdast 节点还原为 ==/^/~ 语法
- *  （挂到 WysiwygEditor 的 remarkStringifyOptionsCtx） */
+/** 序列化 handlers：withMark 产出的自定义 mdast 节点还原为 ==/^/~ 语法；
+ *  yaml 节点还原为 --- 围栏（挂到 WysiwygEditor 的 remarkStringifyOptionsCtx） */
 export const inlineMarkStringifyHandlers = {
   markHighlight: (node: { value?: unknown }) => `==${String(node.value ?? '')}==`,
   markSuperscript: (node: { value?: unknown }) => `^${String(node.value ?? '')}^`,
-  markSubscript: (node: { value?: unknown }) => `~${String(node.value ?? '')}~`
+  markSubscript: (node: { value?: unknown }) => `~${String(node.value ?? '')}~`,
+  yaml: (node: { value?: unknown }) => `---\n${String(node.value ?? '')}\n---`
 }
 
 /** 输入规则：==x== / ^x^ / ~x~ 打完闭合符即变格式 */
@@ -262,3 +266,197 @@ export const footnoteReferenceInputRule = $inputRule((ctx: Ctx) => {
     )
   })
 })
+
+/* ---------- 1.7 YAML front matter ---------- */
+
+export const yamlSchema = $nodeSchema('yaml', () => ({
+  content: 'text*',
+  group: 'block',
+  code: true,
+  defining: true,
+  toDOM: () => ['div', { class: 'fm-block' }, 0],
+  parseDOM: [{ tag: 'div.fm-block', preserveWhitespace: 'full' }],
+  parseMarkdown: {
+    match: ({ type }) => type === 'yaml',
+    runner: (state, node, type) => {
+      state.openNode(type)
+      if (node.value) state.addText(String(node.value))
+      state.closeNode()
+    }
+  },
+  toMarkdown: {
+    match: (node) => node.type.name === 'yaml',
+    runner: (state, node) => {
+      state.addNode('yaml', undefined, node.textContent)
+    }
+  }
+}))
+
+/* ---------- 1.6 [TOC] ---------- */
+
+/** 独占一段的 [TOC]（大小写不限）→ toc 块节点（transformer 改写，避免与
+ *  内置 paragraph schema 竞争匹配） */
+export function tocBlock(): (tree: MdastInlineNode) => void {
+  const walk = (node: MdastInlineNode): void => {
+    if (!node.children) return
+    for (let i = 0; i < node.children.length; i++) {
+      const c = node.children[i]
+      if (
+        c.type === 'paragraph' &&
+        c.children?.length === 1 &&
+        c.children[0].type === 'text' &&
+        /^\s*\[TOC\]\s*$/i.test(String(c.children[0].value ?? ''))
+      ) {
+        node.children[i] = { type: 'toc' }
+        continue
+      }
+      walk(c)
+    }
+  }
+  return (tree) => walk(tree)
+}
+
+export const tocSchema = $nodeSchema('toc', () => ({
+  group: 'block',
+  atom: true,
+  defining: true,
+  toDOM: () => ['nav', { class: 'luci-toc' }, 0],
+  parseDOM: [{ tag: 'nav.luci-toc' }],
+  parseMarkdown: {
+    match: ({ type }) => type === 'toc',
+    runner: (state, _node, type) => {
+      state.openNode(type)
+      state.closeNode()
+    }
+  },
+  toMarkdown: {
+    match: (node) => node.type.name === 'toc',
+    runner: (state) => {
+      // 走 inline html 节点输出裸文本：remark-stringify 对 text 里的 `[` 会转义成
+      // `\[TOC]`（下次保存源码就被污染），html 节点原样通过
+      state.openNode('paragraph')
+      state.addNode('html', undefined, '[TOC]')
+      state.closeNode()
+    }
+  }
+}))
+
+/** [TOC] 视图：从当前文档实时收集标题（1-3 级）渲染嵌套目录，点击跳转对应标题 */
+const liveTocViews = new Set<TocNodeView>()
+
+class TocNodeView implements NodeView {
+  dom: HTMLElement
+  private view: EditorView
+  private lastDoc: PMNode | null = null
+
+  constructor(view: EditorView) {
+    this.view = view
+    this.dom = document.createElement('nav')
+    this.dom.className = 'luci-toc'
+    this.dom.addEventListener('click', this.onClick)
+    liveTocViews.add(this)
+    this.render()
+  }
+
+  private collect(): { level: number; text: string; pos: number }[] {
+    const out: { level: number; text: string; pos: number }[] = []
+    this.view.state.doc.descendants((node, pos) => {
+      if (node.type.name === 'heading') {
+        const level = Number(node.attrs.level ?? 1)
+        if (level <= 3) out.push({ level, text: node.textContent, pos })
+      }
+      return true
+    })
+    return out
+  }
+
+  private render(): void {
+    const headings = this.collect()
+    this.dom.textContent = ''
+    const title = document.createElement('p')
+    title.className = 'luci-toc-title'
+    title.textContent = '目录'
+    this.dom.appendChild(title)
+    if (headings.length === 0) {
+      const empty = document.createElement('p')
+      empty.className = 'luci-toc-empty'
+      empty.textContent = '（暂无标题）'
+      this.dom.appendChild(empty)
+      return
+    }
+    let i = 0
+    const buildLevel = (level: number): HTMLUListElement => {
+      const ul = document.createElement('ul')
+      while (i < headings.length && headings[i].level >= level) {
+        if (headings[i].level === level) {
+          const h = headings[i++]
+          const li = document.createElement('li')
+          const a = document.createElement('a')
+          a.href = 'javascript:'
+          a.textContent = h.text || '（空标题）'
+          a.dataset.pos = String(h.pos)
+          li.appendChild(a)
+          if (i < headings.length && headings[i].level > level) li.appendChild(buildLevel(level + 1))
+          ul.appendChild(li)
+        } else {
+          ul.appendChild(buildLevel(level + 1)) // 跳级标题归入更深层
+        }
+      }
+      return ul
+    }
+    this.dom.appendChild(buildLevel(headings[0].level))
+  }
+
+  private onClick = (e: MouseEvent): void => {
+    const a = (e.target as HTMLElement | null)?.closest('a[data-pos]')
+    if (!(a instanceof HTMLAnchorElement)) return
+    e.preventDefault()
+    const pos = Number(a.dataset.pos)
+    const doc = this.view.state.doc
+    if (!Number.isFinite(pos) || pos >= doc.content.size) return
+    const view = this.view
+    view.dispatch(view.state.tr.setSelection(TextSelection.near(doc.resolve(pos))))
+    // domAtPos 返回容器+偏移（容器是 PM 根，直接滚会滚错目标），取偏移处的标题元素
+    const at = view.domAtPos(pos)
+    const child = at.node instanceof Element ? (at.node.childNodes[at.offset] as Element | undefined) : null
+    const el = child ?? (at.node instanceof Element ? at.node : at.node.parentElement)
+    ;(el ?? view.dom).scrollIntoView({ block: 'start', behavior: 'smooth' })
+  }
+
+  update(_node: PMNode): boolean {
+    this.refresh()
+    return true
+  }
+
+  /** doc 任意变化都重投影（标题增删改不影响 toc 节点自身，靠插件驱动） */
+  refresh(): void {
+    if (this.lastDoc !== this.view.state.doc) {
+      this.lastDoc = this.view.state.doc
+      this.render()
+    }
+  }
+
+  ignoreMutation(_m: ViewMutationRecord): boolean {
+    return true // 目录是纯投影，突变一律忽略（重渲染由 update 驱动）
+  }
+
+  destroy(): void {
+    liveTocViews.delete(this)
+    this.dom.removeEventListener('click', this.onClick)
+  }
+}
+
+export const tocView = $view(tocSchema.node, () => (node, view) => new TocNodeView(view))
+
+/** doc 变化 → 所有 [TOC] 视图重投影 */
+export const tocUpdatePlugin = $prose(() =>
+  new Plugin({
+    key: new PluginKey<unknown>('luci-toc-sync'),
+    view: (view) => ({
+      update: (v: EditorView, prevState: EditorState) => {
+        if (v.state.doc === prevState.doc) return
+        for (const t of liveTocViews) t.refresh()
+      }
+    })
+  })
+)
