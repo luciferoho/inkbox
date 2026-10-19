@@ -1,9 +1,14 @@
 /// <reference types="vite/client" />
 
-declare module '*.vue' {
-  import type { DefineComponent } from 'vue'
+declare module '*.vue' {  import type { DefineComponent } from 'vue'
   const component: DefineComponent<object, object, unknown>
   export default component
+}
+
+/** markdown-it-emoji 词表子路径（包主入口导出的是插件函数，类型未覆盖子路径） */
+declare module 'markdown-it-emoji/lib/data/full.mjs' {
+  const defs: Record<string, string>
+  export default defs
 }
 
 // 与 src/preload/index.ts 暴露的 window.api 保持同步（M1 抽到 @shared 统一）
@@ -101,6 +106,8 @@ interface Window {
       takeInitialDoc(): Promise<import('@shared/types').InitialDoc>
       closeConfirmed(): Promise<void>
       onRequestClose(cb: () => void): () => void
+      /** 拖入窗口的文件 → 绝对路径（Electron ≥32 移除 File.path） */
+      pathsForFiles(files: File[]): string[]
     }
     update: {
       check(): Promise<void>

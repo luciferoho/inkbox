@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { onMounted, nextTick, defineAsyncComponent } from 'vue'
+import { onMounted, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'
 import type { MenuCommand, UpdateStatePayload } from '@shared/types'
 import { t } from '@/i18n'
 import { canonicalizeContent } from '@/services/markdown'
 import { useUiStore } from '@/stores/ui'
 import { initImageContextMenu } from '@/editor/image-context-menu'
+import { initTableContextMenu } from '@/editor/table-context-menu'
+import { insertImageFromDisk, uploadAllLocalImages } from '@/editor/insert-image'
 import { useDocumentsStore } from '@/stores/documents'
 import { useWorkspaceStore } from '@/stores/workspace'
 import TitleBar from '@/components/chrome/TitleBar.vue'
@@ -16,8 +18,10 @@ import EditorArea from '@/components/editor/EditorArea.vue'
 import StatusBar from '@/components/chrome/StatusBar.vue'
 import ImageViewer from '@/components/chrome/ImageViewer.vue'
 import ImageContextMenu from '@/components/chrome/ImageContextMenu.vue'
+import TableContextMenu from '@/components/chrome/TableContextMenu.vue'
 import ConfirmDialog from '@/components/chrome/ConfirmDialog.vue'
 import Toast from '@/components/chrome/Toast.vue'
+import QuickOpen from '@/components/chrome/QuickOpen.vue'
 // 弹窗类按需加载（exporter 连带 pdf/字体资源链，设置页打开频率低）
 const SettingsDialog = defineAsyncComponent(() => import('@/components/chrome/SettingsDialog.vue'))
 const UpdateDialog = defineAsyncComponent(() => import('@/components/chrome/UpdateDialog.vue'))
@@ -52,6 +56,15 @@ function dispatch(cmd: MenuCommand): void {
       } else {
         ui.openExport()
       }
+      break
+    case 'file:insertImage':
+      void insertImageFromDisk()
+      break
+    case 'file:uploadImages':
+      void uploadAllLocalImages()
+      break
+    case 'file:quickOpen':
+      ui.toggleQuickOpen()
       break
     case 'file:closeTab':
       docs.closeActive()
@@ -103,6 +116,8 @@ useDrafts()
 onMounted(() => {
   // 图片右键菜单「转 PicGo 上传」的渲染层执行端（主进程菜单发 image:picgo-upload）
   initImageContextMenu()
+  // 表格右键菜单的全局识别（即显 table 元素 / 源码坐标处表格语法）
+  initTableContextMenu()
   // 开屏兜底：恢复流程万一卡住，8 秒后强制进入应用
   window.setTimeout(dismissSplash, 8000)
   // 启动编排：偏好 → 初始载荷（窗口键/拖出文档/崩溃标志）→ 备份恢复 → 会话恢复
@@ -193,6 +208,15 @@ onMounted(() => {
   window.api.watch.onWsChanged(({ root }) => void ws.handleWsChanged(root))
   // 禅模式 Esc 退出（弹层/查看器打开时让位给它们的 Esc 处理）
   window.addEventListener('keydown', onZenEsc)
+  // 拖文档文件进窗口打开（capture 先于编辑器的图片 drop 处理）
+  window.addEventListener('dragover', onWindowDragOver, true)
+  window.addEventListener('drop', onWindowDrop, true)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onZenEsc)
+  window.removeEventListener('dragover', onWindowDragOver, true)
+  window.removeEventListener('drop', onWindowDrop, true)
 })
 
 /** 禅模式下的 Esc：无任何弹层时退出禅模式 */
@@ -200,6 +224,37 @@ function onZenEsc(e: KeyboardEvent): void {
   if (!ui.zenMode || e.key !== 'Escape') return
   if (ui.confirm || ui.choice || ui.viewerImage || ui.settingsOpen || ui.exportOpen) return
   ui.toggleZen()
+}
+
+/* ---------- 拖 .md/.html 文件进窗口打开（支持多文件） ----------
+   capture 阶段拦在编辑器 drop 处理之前：编辑器只接管图片文件，文档文件归这里。
+   窗口内标签拖拽带的是自定义 MIME 载荷而非 Files，不会误入此路径。 */
+const OPENABLE_EXTS = ['.md', '.markdown', '.html', '.htm']
+
+function isDocPath(p: string): boolean {
+  const lower = p.toLowerCase()
+  return OPENABLE_EXTS.some((ext) => lower.endsWith(ext))
+}
+
+function onWindowDragOver(e: DragEvent): void {
+  if (!e.dataTransfer?.types.includes('Files')) return
+  // 允许 drop（否则 Chromium 判定不可放置）；dropEffect 不影响编辑器各自的处理
+  e.preventDefault()
+}
+
+function onWindowDrop(e: DragEvent): void {
+  if (!e.dataTransfer?.types.includes('Files')) return
+  e.preventDefault() // 恒阻止默认导航（拖入任意文件都不应让窗口跳到 file:// 页）
+  const files = [...e.dataTransfer.files]
+  if (files.length === 0) return
+  const docPaths = window.api.win
+    .pathsForFiles(files)
+    .filter((p) => p && isDocPath(p))
+  if (docPaths.length === 0) return // 非文档文件（图片等）放行给编辑器的 drop 处理
+  e.stopPropagation()
+  void (async () => {
+    for (const p of docPaths) await docs.openPath(p)
+  })()
 }
 
 /** 关窗流程进行中护栏：托盘退出会给每个窗口发 requestClose，防止重复弹窗 */
@@ -278,10 +333,12 @@ async function handleRequestClose(): Promise<void> {
     <StatusBar v-if="!ui.zenMode" />
     <ImageViewer />
     <ImageContextMenu />
+    <TableContextMenu />
     <SettingsDialog />
     <UpdateDialog />
     <ExportDialog />
     <ConfirmDialog />
+    <QuickOpen />
     <Toast />
   </div>
 </template>

@@ -303,6 +303,8 @@ function installBrowserMock(): void {
         const w = window as unknown as { __mockClosed?: number }
         w.__mockClosed = (w.__mockClosed ?? 0) + 1
       },
+      // 浏览器拿不到拖入文件的磁盘路径：返回空 → 拖放打开功能在 mock 下不生效
+      pathsForFiles: () => [],
       // 浏览器验证：window.__triggerRequestClose() 模拟点标题栏 X
       onRequestClose: (cb: () => void) => {
         const w = window as unknown as {

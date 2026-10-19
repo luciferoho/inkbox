@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   AppConfig,
   AppInfo,
@@ -198,6 +198,8 @@ const api = {
     toggleAlwaysOnTop: (): void => ipcRenderer.send('win:toggleAlwaysOnTop'),
     /** 拖出标签到新窗口 */
     openDoc: (doc: DetachDoc): void => ipcRenderer.send('win:openDoc', doc),
+    /** 拖入窗口的文件 → 绝对路径（Electron ≥32 移除 File.path，webUtils 仅 preload 侧可用） */
+    pathsForFiles: (files: File[]): string[] => files.map((f) => webUtils.getPathForFile(f)),
     /** 启动时一次性取走初始文档与窗口键 */
     takeInitialDoc: (): Promise<InitialDoc> => ipcRenderer.invoke('win:takeInitialDoc'),
     /** 手动关闭握手：未保存检查完成后确认关闭 */
