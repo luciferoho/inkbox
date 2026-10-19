@@ -124,9 +124,16 @@ export function applyTableOp(
 
   switch (op.kind) {
     case 'row-above': {
-      const at = idx <= 1 ? 2 : idx
-      lines.splice(at, 0, emptyRow())
-      return { lines, cursorLine: at, cursorCol: Math.min(info.colIndex, colCount - 1) }
+      // 表头/分隔行之上插入 = 新增一行表头：新行成为表头，原表头下移为
+      // 第一条数据行（分隔行必须保持第 2 行，否则表格语法失效）
+      if (idx <= 1) {
+        const oldHeader = lines[0]
+        lines[0] = emptyRow()
+        lines.splice(2, 0, oldHeader)
+        return { lines, cursorLine: 0, cursorCol: Math.min(info.colIndex, colCount - 1) }
+      }
+      lines.splice(idx, 0, emptyRow())
+      return { lines, cursorLine: idx, cursorCol: Math.min(info.colIndex, colCount - 1) }
     }
     case 'row-below': {
       const at = idx <= 1 ? 2 : idx + 1

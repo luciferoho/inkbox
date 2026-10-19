@@ -65,6 +65,8 @@ export const useUiStore = defineStore('ui', {
     findRequest: 0,
     jumpLine: null as { line: number; seq: number } | null,
     currentLine: 1,
+    /* 光标/内容变化序号：同一行连续输入时 currentLine 不变，预览靠它触发跟随 */
+    caretSeq: 0,
     /* 弹层 */
     settingsOpen: false,
     exportOpen: false,

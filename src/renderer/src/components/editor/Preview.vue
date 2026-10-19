@@ -150,6 +150,44 @@ function restoreViewAnchor(a: ViewAnchor): void {
   lockUntil = Date.now() + 120 // 程序落位期间忽略滚动回声
 }
 
+/** 光标行可见性跟随：输入/移动光标时若对应块离开预览视口，最小幅度滚回。
+ *  与锚点保持分工——视口已在目标处时不动（避免回弹），只在看不到时补滚 */
+function ensureLineVisible(line: number): void {
+  const el = scroller.value
+  if (!el || el.offsetParent === null || blocks.length === 0) return
+  let target = blocks[0]
+  for (const b of blocks) {
+    if (b.line <= line) target = b
+    else break
+  }
+  if (!target) return
+  const top = target.top
+  const bottom = top + target.height
+  const viewTop = el.scrollTop
+  const viewBottom = viewTop + el.clientHeight
+  const margin = 30
+  let next: number | null = null
+  if (bottom > viewBottom - margin) next = bottom - el.clientHeight + margin
+  else if (top < viewTop + 6) next = top - 6
+  if (next === null) return
+  el.scrollTop = Math.max(0, next)
+  lockUntil = Date.now() + 120
+}
+
+let caretEnsureTimer = 0
+/* 源码光标/内容变化（同一行连续输入也会触发）→ 稍等渲染完成后保证该行在预览视口内 */
+watch(
+  () => ui.caretSeq,
+  () => {
+    if (ui.editorMode !== 'split') return
+    const line = ui.currentLine
+    window.clearTimeout(caretEnsureTimer)
+    caretEnsureTimer = window.setTimeout(() => {
+      if (ui.editorMode === 'split') ensureLineVisible(line)
+    }, 220)
+  }
+)
+
 /* ---------- 图片尺寸缓存：共享实现见 editor/img-size-cache.ts ---------- */
 
 watch(

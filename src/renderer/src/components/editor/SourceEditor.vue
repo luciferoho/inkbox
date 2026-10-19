@@ -247,6 +247,7 @@ function makeState(content: string): EditorState {
         }
         if (u.docChanged || u.selectionSet) {
           ui.currentLine = u.state.doc.lineAt(u.state.selection.main.head).number
+          ui.caretSeq++
         }
       }),
       EditorView.domEventHandlers({

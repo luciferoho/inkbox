@@ -79,7 +79,8 @@ export function tableMeta(state: EditorState): Pick<ElToolbarState, 'row' | 'col
   return {
     row: rowIndex,
     col: colIndex,
-    canDeleteRow: !!table && table.childCount > 1,
+    // 表头（第 0 行）不可删；只有表头时也无行可删
+    canDeleteRow: !!table && rowIndex >= 1 && table.childCount > 1,
     canDeleteCol: !!table && table.childCount > 0 && table.child(0).childCount > 1
   }
 }

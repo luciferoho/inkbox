@@ -7,6 +7,7 @@ import { useDocumentsStore } from '@/stores/documents'
 import { t } from '@/i18n'
 import { cmViews } from './cm-registry'
 import { pmViews } from './pm-registry'
+import { findTableSelection } from './pm-element-toolbar'
 import { writeClipboard } from './code-copy'
 import { parseImageLine } from './image-utils'
 import { applyTableOp, cellStart, detectTable, type TableInfo, type TableOp } from './table-utils'
@@ -272,7 +273,11 @@ function onContext(e: MouseEvent): void {
         /* 落点不可解析：保持原选区 */
       }
     }
-    openTableMenu(e.clientX, e.clientY, true, true, { kind: 'pm' })
+    // 行列可删性按落位后的选区复算：表头不可删、只剩单列时不可删列
+    const meta = findTableSelection(view)
+    openTableMenu(e.clientX, e.clientY, meta?.canDeleteRow ?? false, meta?.canDeleteCol ?? false, {
+      kind: 'pm'
+    })
     return
   }
 
