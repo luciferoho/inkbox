@@ -1,11 +1,18 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useDocumentsStore } from '@/stores/documents'
+import { useDocumentsStore, type DocTab } from '@/stores/documents'
 import { useUiStore } from '@/stores/ui'
 import { t } from '@/i18n'
 
 const docs = useDocumentsStore()
 const ui = useUiStore()
+
+/** 中键关闭标签（2.8）：按下即关（脏标签走确认框）；preventDefault 顺带压掉中键自动滚屏 */
+function onTabMouseDown(tab: DocTab, e: MouseEvent): void {
+  if (e.button !== 1) return
+  e.preventDefault()
+  void docs.closeIfClean(tab)
+}
 
 /* ---------- 拖拽：窗口内排序 + 跨窗口移动 + 拖出拆分新窗 ----------
    跨窗口时 dataTransfer 数据不可靠，载荷走主进程登记（drag:begin/take），
@@ -300,6 +307,7 @@ function menuItems(id: number): MenuItem[] {
         :title="tab.path ?? tab.name"
         draggable="true"
         @click="docs.activate(tab.id)"
+        @mousedown="onTabMouseDown(tab, $event)"
         @dragstart="onDragStart(tab.id, $event)"
         @dragover="onDragOver(index + 1, $event)"
         @drop="onDrop($event)"
