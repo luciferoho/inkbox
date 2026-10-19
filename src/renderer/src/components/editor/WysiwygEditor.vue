@@ -25,7 +25,9 @@ import {
   selectRowCommand,
   selectColCommand,
   selectTableCommand,
-  deleteSelectedCellsCommand
+  deleteSelectedCellsCommand,
+  goToNextTableCellCommand,
+  goToPrevTableCellCommand
 } from '@milkdown/kit/preset/gfm'
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { history } from '@milkdown/kit/plugin/history'
@@ -234,6 +236,15 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   if (event.key === 'Tab') {
     // 始终拦截:普通段落放行 Tab 会被浏览器抢走焦点(跳到状态栏按钮)
     event.preventDefault()
+    // 表格单元格：Tab/Shift+Tab 跳到下/上一个单元格（prosemirror-tables 命令）
+    if (inTable(state)) {
+      if (editor) {
+        elTable(
+          callCommand((event.shiftKey ? goToPrevTableCellCommand : goToNextTableCellCommand).key)
+        )
+      }
+      return true
+    }
     if (!inCodeBlock(state)) {
       const itemType = state.schema.nodes.list_item
       if (inListItem(state) && itemType) {
@@ -1065,35 +1076,6 @@ function elTableAlign(how: 'left' | 'center' | 'right' | 'none'): void {
    contextmenu 已把光标落到点击单元格（Chromium 原生行为），行列定位用
    findTableSelection 按当前选区复算，不依赖浮层工具条的状态。 */
 
-/** 在表头之上插入：新增一行表头，原表头降为第一条数据行。
- *  prosemirror-tables 的 addRowBefore 在表头行上会扩出多行，这里自行构造 */
-function insertHeaderAbove(view: EditorView, tablePos: number): void {
-  const table = view.state.doc.nodeAt(tablePos)
-  if (!table || table.type.name !== 'table') return
-  const schema = view.state.schema
-  const headerType = schema.nodes.table_header
-  const cellType = schema.nodes.table_cell
-  const rowType = schema.nodes.table_row
-  const paraType = schema.nodes.paragraph
-  const firstRow = table.firstChild
-  if (!headerType || !cellType || !rowType || !paraType || !firstRow) return
-  const colCount = firstRow.childCount
-  const newHeader = rowType.create(
-    null,
-    Array.from({ length: colCount }, () => headerType.create(null, paraType.create()))
-  )
-  const demotedCells: PMNode[] = []
-  firstRow.forEach((cell) => demotedCells.push(cellType.create(cell.attrs, cell.content)))
-  const rows: PMNode[] = [newHeader, rowType.create(null, demotedCells)]
-  for (let i = 1; i < table.childCount; i++) rows.push(table.child(i))
-  const next = table.type.create(table.attrs, rows)
-  const tr = view.state.tr.replaceWith(tablePos, tablePos + table.nodeSize, next)
-  // 新表头第一格内（table→row→cell→paragraph 内起点）
-  tr.setSelection(TextSelection.create(tr.doc, tablePos + 4))
-  view.dispatch(tr)
-  view.focus()
-}
-
 function executeTableMenuAction(action: TableMenuAction): boolean {
   if (!editor) return false
   const run = (fn: () => void): boolean => {
@@ -1102,14 +1084,10 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
   }
   switch (action) {
     case 'row-above': {
+      // 表头之上不可插入（菜单已禁用；命令层同样拒绝）
       const view = getView()
       const meta = view ? findTableSelection(view) : null
-      if (view && meta && meta.row === 0) {
-        // 表头之上插入：新增一行表头，原表头降为第一条数据行。
-        // prosemirror-tables 的 addRowBefore 在表头上会扩出多行，这里自行构造
-        insertHeaderAbove(view, meta.pos)
-        return true
-      }
+      if (!meta || meta.row === 0) return false
       return run(() => elTable(callCommand(addRowBeforeCommand.key)))
     }
     case 'row-below':

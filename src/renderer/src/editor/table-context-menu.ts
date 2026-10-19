@@ -53,13 +53,14 @@ export const tableMenu = reactive({
   y: 0,
   canRow: true,
   canCol: true,
+  canAbove: true,
   /** 预览（只读）面板：仅复制/列宽重置可用 */
   readOnly: false
 })
 
 type Target =
   | { kind: 'cm'; view: CmView; info: TableInfo }
-  | { kind: 'pm' }
+  | { kind: 'pm'; view: PmView }
   | { kind: 'preview'; table: HTMLTableElement }
 let target: Target | null = null
 
@@ -75,6 +76,7 @@ export function openTableMenu(
   y: number,
   canRow: boolean,
   canCol: boolean,
+  canAbove: boolean,
   tgt: Target
 ): void {
   target = tgt
@@ -83,6 +85,7 @@ export function openTableMenu(
   tableMenu.y = y
   tableMenu.canRow = canRow
   tableMenu.canCol = canCol
+  tableMenu.canAbove = canAbove
   tableMenu.readOnly = tgt.kind === 'preview'
 }
 
@@ -100,7 +103,8 @@ export interface TableMenuItem {
 export function tableMenuItems(): TableMenuItem[] {
   const ro = tableMenu.readOnly
   return [
-    { action: 'row-above', label: t('table.addRowAbove'), disabled: ro },
+    // 表头/分隔行之上不可插入（markdown 表头必须首行）
+    { action: 'row-above', label: t('table.addRowAbove'), disabled: ro || !tableMenu.canAbove },
     { action: 'row-below', label: t('table.addRowBelow'), disabled: ro },
     { action: 'row-delete', label: t('table.deleteRow'), disabled: ro || !tableMenu.canRow },
     { action: 'col-left', label: t('table.addColLeft'), disabled: ro },
@@ -235,6 +239,7 @@ export function runTableMenuAction(action: TableMenuAction): void {
   target = null
   if (tgt.kind === 'pm') {
     pmExecutor?.(action)
+    tgt.view.focus() // 菜单点击会抢焦点：操作后交还编辑器，Ctrl+Z 才能直接生效
     return
   }
   if (tgt.kind === 'preview') {
@@ -242,6 +247,7 @@ export function runTableMenuAction(action: TableMenuAction): void {
     return
   }
   runCmTableAction(tgt.view, tgt.info, action)
+  tgt.view.focus() // 同上：复制/自适应等提前 return 的路径也恢复焦点
 }
 
 /* ---------- 全局识别（App.vue 挂载时调用 init） ---------- */
@@ -273,11 +279,16 @@ function onContext(e: MouseEvent): void {
         /* 落点不可解析：保持原选区 */
       }
     }
-    // 行列可删性按落位后的选区复算：表头不可删、只剩单列时不可删列
+    // 行列可删性按落位后的选区复算：表头不可删/不可上方插入、只剩单列时不可删列
     const meta = findTableSelection(view)
-    openTableMenu(e.clientX, e.clientY, meta?.canDeleteRow ?? false, meta?.canDeleteCol ?? false, {
-      kind: 'pm'
-    })
+    openTableMenu(
+      e.clientX,
+      e.clientY,
+      meta?.canDeleteRow ?? false,
+      meta?.canDeleteCol ?? false,
+      (meta?.row ?? 0) >= 1,
+      { kind: 'pm', view }
+    )
     return
   }
 
@@ -286,7 +297,7 @@ function onContext(e: MouseEvent): void {
   if (pvTable instanceof HTMLTableElement) {
     e.preventDefault()
     e.stopPropagation()
-    openTableMenu(e.clientX, e.clientY, true, true, { kind: 'preview', table: pvTable })
+    openTableMenu(e.clientX, e.clientY, true, true, false, { kind: 'preview', table: pvTable })
     return
   }
 
@@ -309,11 +320,14 @@ function onContext(e: MouseEvent): void {
     }
     e.preventDefault()
     e.stopPropagation()
-    openTableMenu(e.clientX, e.clientY, info.cursorLine > info.startLine + 1, info.colCount > 1, {
-      kind: 'cm',
-      view,
-      info
-    })
+    openTableMenu(
+      e.clientX,
+      e.clientY,
+      info.cursorLine > info.startLine + 1,
+      info.colCount > 1,
+      info.cursorLine > info.startLine + 1,
+      { kind: 'cm', view, info }
+    )
     return
   }
   closeTableMenu()
