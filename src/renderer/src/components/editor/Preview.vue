@@ -150,8 +150,8 @@ function restoreViewAnchor(a: ViewAnchor): void {
   lockUntil = Date.now() + 120 // 程序落位期间忽略滚动回声
 }
 
-/** 光标行可见性跟随：输入/移动光标时若对应块离开预览视口，最小幅度滚回。
- *  与锚点保持分工——视口已在目标处时不动（避免回弹），只在看不到时补滚 */
+/** 光标行可见性跟随：把行号按块内行跨度插值成块内 Y 坐标，再判断是否可见。
+ *  大块（如整张表格）不能按块底判断——否则光标在表头时会把表尾滚进视口 */
 function ensureLineVisible(line: number): void {
   const el = scroller.value
   if (!el || el.offsetParent === null || blocks.length === 0) return
@@ -161,16 +161,16 @@ function ensureLineVisible(line: number): void {
     else break
   }
   if (!target) return
-  const top = target.top
-  const bottom = top + target.height
+  const span = Math.max(1, target.end - target.line)
+  const f = Math.min(1, Math.max(0, (line - target.line) / span))
+  const y = target.top + f * target.height
   const viewTop = el.scrollTop
-  const viewBottom = viewTop + el.clientHeight
-  const margin = 30
-  let next: number | null = null
-  if (bottom > viewBottom - margin) next = bottom - el.clientHeight + margin
-  else if (top < viewTop + 6) next = top - 6
-  if (next === null) return
-  el.scrollTop = Math.max(0, next)
+  const viewH = el.clientHeight
+  const margin = 24
+  if (y >= viewTop + 8 && y <= viewTop + viewH - margin) return
+  // 目标行不可见：放到视口上约 1/3 处，让上下文可见
+  const maxTop = Math.max(0, el.scrollHeight - viewH)
+  el.scrollTop = Math.max(0, Math.min(maxTop, y - viewH * 0.34))
   lockUntil = Date.now() + 120
 }
 
