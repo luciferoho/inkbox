@@ -8,7 +8,7 @@ import { useUiStore } from '@/stores/ui'
 import { initImageContextMenu } from '@/editor/image-context-menu'
 import { initTableContextMenu } from '@/editor/table-context-menu'
 import { insertImageFromDisk, uploadAllLocalImages } from '@/editor/insert-image'
-import { useDocumentsStore } from '@/stores/documents'
+import { useDocumentsStore, samePath } from '@/stores/documents'
 import { useWorkspaceStore } from '@/stores/workspace'
 import TitleBar from '@/components/chrome/TitleBar.vue'
 import TabsBar from '@/components/chrome/TabsBar.vue'
@@ -307,24 +307,44 @@ function onWindowDrop(e: DragEvent): void {
   if (!e.dataTransfer?.types.includes('Files')) return
   e.preventDefault() // 恒阻止默认导航（拖入任意文件都不应让窗口跳到 file:// 页）
   const files = [...e.dataTransfer.files]
-  const droppedNames = files.map((f) => f.name).filter(Boolean)
   resetDragHint()
   if (files.length === 0) return
-  const docPaths = window.api.win
-    .pathsForFiles(files)
-    .filter((p) => p && isDocPath(p))
-  if (docPaths.length === 0) return // 非文档文件（图片等）放行给编辑器的 drop 处理
+  const paths = window.api.win.pathsForFiles(files)
+  // 按文件名/路径成对收集；不支持的类型（图片、html 等）直接过滤并计数
+  const entries = files
+    .map((f, i) => ({ name: f.name, path: paths[i] ?? '' }))
+    .filter((en) => en.path && isDocPath(en.path))
+  const ignored = files.length - entries.length
+  if (entries.length === 0) {
+    if (ignored > 0) ui.showToast(t('app.dropIgnored', { n: ignored }))
+    return
+  }
   e.stopPropagation()
+  // 已在标签中打开的文件：激活而不是重复创建，并在提示中单独说明
+  const alreadyOpen = entries.filter((en) => docs.tabs.some((tb) => samePath(tb.path, en.path)))
+  const fresh = entries.filter((en) => !alreadyOpen.some((a) => samePath(a.path, en.path)))
   void (async () => {
-    for (const p of docPaths) await docs.openPath(p)
-    // 落点后明确告知实际打开了哪些文件（dragover 阶段拿不到文件名时尤其需要）
-    const names = droppedNames.length > 0 ? droppedNames : docPaths.map((p) => p.split(/[\\/]/).pop() ?? p)
-    ui.showToast(
-      t('app.dropOpened', {
-        n: docPaths.length,
-        names: names.slice(0, 3).join('、') + (names.length > 3 ? '…' : '')
-      })
-    )
+    for (const en of entries) await docs.openPath(en.path)
+    const parts: string[] = []
+    if (fresh.length > 0) {
+      const names = fresh.map((en) => en.name).slice(0, 3).join('、')
+      parts.push(
+        t('app.dropOpened', {
+          n: fresh.length,
+          names: names + (fresh.length > 3 ? '…' : '')
+        })
+      )
+    }
+    if (alreadyOpen.length > 0) {
+      const names = alreadyOpen.map((en) => en.name).slice(0, 3).join('、')
+      parts.push(
+        t('app.dropAlready', {
+          names: names + (alreadyOpen.length > 3 ? '…' : '')
+        })
+      )
+    }
+    if (ignored > 0) parts.push(t('app.dropIgnored', { n: ignored }))
+    if (parts.length > 0) ui.showToast(parts.join('；'))
   })()
 }
 

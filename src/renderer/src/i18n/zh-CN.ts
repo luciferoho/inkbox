@@ -17,6 +17,8 @@ export const zh = {
   'app.exportNoDoc': '请先打开要导出的文档',
   'app.dropOpen': '松开以打开 Markdown / 文本文件',
   'app.dropOpened': '已打开 {n} 个文件：{names}',
+  'app.dropAlready': '已在标签中打开：{names}',
+  'app.dropIgnored': '已忽略 {n} 个不支持的文件',
   'app.draftsRestored': '检测到异常退出，已恢复 {n} 份未保存的内容',
   'app.closeTitle': '有未保存的文档',
   'app.closeMsg': '还有 {n} 个文档未保存，未保存的内容已自动备份。',

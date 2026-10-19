@@ -14,6 +14,8 @@ export const en: MsgSchema = {
   'app.exportNoDoc': 'Open a document first to export it',
   'app.dropOpen': 'Release to open Markdown / text files',
   'app.dropOpened': 'Opened {n} file(s): {names}',
+  'app.dropAlready': 'Already open in a tab: {names}',
+  'app.dropIgnored': 'Ignored {n} unsupported file(s)',
   'app.draftsRestored': 'Recovered from an abnormal exit — restored {n} unsaved document(s)',
   'app.closeTitle': 'Unsaved documents',
   'app.closeMsg': '{n} document(s) have unsaved changes. Your content has been backed up.',

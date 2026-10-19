@@ -54,10 +54,13 @@ import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createPasteLinkPlugin } from '@/editor/paste-link'
 import { createHeadingFoldPlugin } from '@/editor/pm-heading-fold'
 import {
+  beginColResize,
   clearColWidths,
   createTableWidthsPlugin,
+  endColResize,
   headerKeyOf,
   hitColumnBoundary,
+  normalizeWidthsToTable,
   onColWidthsChanged,
   refreshTableWidths,
   setColWidths,
@@ -675,18 +678,16 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
   if (!view) return
   const col = hitColumnBoundary(table, e.clientX)
   if (col === null) return
-  const startWidths = widthsFromDom(table)
-  if (!startWidths) return
+  const measured = widthsFromDom(table)
+  if (!measured) return
   // 边界按下即进入拖拽态：阻止默认行为，避免拖动过程选中表格文字
   e.preventDefault()
   e.stopPropagation()
+  const startWidths = normalizeWidthsToTable(table, measured)
   const tableIndex = Array.from(view.dom.querySelectorAll('table')).indexOf(table)
   const key = tableKey(tabId ?? 'x', tableIndex, headerKeyOf(table))
   const startX = e.clientX
-  const cursor = document.documentElement.style.cursor
-  const selectStart = document.documentElement.style.userSelect
-  document.documentElement.style.cursor = 'col-resize'
-  document.documentElement.style.userSelect = 'none'
+  beginColResize()
   let active = false
   let raf = 0
   let latest: number[] = startWidths
@@ -711,8 +712,7 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
     if (raf) window.cancelAnimationFrame(raf)
-    document.documentElement.style.cursor = cursor
-    document.documentElement.style.userSelect = selectStart
+    endColResize()
     if (!active) return // 纯点击：不提交、不广播
     setColWidths(key, latest) // 松手广播：预览侧同步
     if (editor) refreshTableWidths(view)

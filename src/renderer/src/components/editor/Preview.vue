@@ -110,9 +110,9 @@ let pendingFrac: number | null = null
 /** 下一次渲染是否禁用「内容锚点保持」（切标签/进模式时按进度或编辑器联动落位） */
 let anchorSuppressed = false
 
-/** 视口顶部的内容锚点（源码行 + 亚行比例）：纯内容重渲染后按它恢复位置，
- *  避免「上面有图片、正在下方输入」时预览被重新对齐到别处（回弹） */
-type ViewAnchor = { kind: 'top' } | { kind: 'bottom' } | { kind: 'line'; line: number }
+/** 视口顶部的内容锚点：块行号 + 块内像素偏移。
+ *  纯内容重渲染后按「同一块的同一像素偏移」恢复，避免回弹/跳动 */
+type ViewAnchor = { kind: 'top' } | { kind: 'bottom' } | { kind: 'block'; line: number; offset: number }
 
 function captureViewAnchor(): ViewAnchor | null {
   const el = scroller.value
@@ -125,19 +125,29 @@ function captureViewAnchor(): ViewAnchor | null {
     else break
   }
   const cur = blocks[i]
-  const next = blocks[i + 1]
-  const lineSpan = next ? next.line - cur.line : Math.max(1, cur.end - cur.line)
-  const h = next ? next.top - cur.top : Math.max(1, cur.height)
-  const f = h > 0 ? Math.min(1, Math.max(0, (el.scrollTop - cur.top) / h)) : 0
-  return { kind: 'line', line: cur.line + f * lineSpan }
+  return { kind: 'block', line: cur.line, offset: Math.round(el.scrollTop - cur.top) }
 }
 
 function restoreViewAnchor(a: ViewAnchor): void {
   const el = scroller.value
   if (!el) return
-  if (a.kind === 'top') el.scrollTop = 0
-  else if (a.kind === 'bottom') el.scrollTop = el.scrollHeight
-  else syncToLine(a.line, 0)
+  if (a.kind === 'top') {
+    el.scrollTop = 0
+    return
+  }
+  if (a.kind === 'bottom') {
+    el.scrollTop = el.scrollHeight
+    return
+  }
+  // 找行号相同（或其后最近的）块，保留块内像素偏移；找不到时按行号插值兜底
+  let target = blocks[0]
+  for (const b of blocks) {
+    if (b.line <= a.line) target = b
+    else break
+  }
+  if (!target) return
+  el.scrollTop = Math.max(0, target.top + a.offset)
+  lockUntil = Date.now() + 120 // 程序落位期间忽略滚动回声
 }
 
 /* ---------- 图片尺寸缓存：共享实现见 editor/img-size-cache.ts ---------- */

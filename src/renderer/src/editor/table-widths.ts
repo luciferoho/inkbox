@@ -141,8 +141,27 @@ export function hitColumnBoundary(table: HTMLTableElement, x: number, tol = 5): 
   return null
 }
 
+/** 列宽拖拽态：全局光标/禁用选择（拖拽中鼠标可能离开表格，逐元素 cursor 会被覆盖） */
+export function beginColResize(): void {
+  document.body.classList.add('inkbox-col-resizing')
+}
+
+export function endColResize(): void {
+  document.body.classList.remove('inkbox-col-resizing')
+}
+
+/** 起始列宽归一：让列宽之和等于表格当前渲染宽度。
+ *  自适应布局（width:max-content / min-width:100%）切到 fixed 布局时，
+ *  若列宽和与表格实宽不一致，会先跳一下再跟手（实测「自适应后再拖会回弹」） */
+export function normalizeWidthsToTable(table: HTMLTableElement, widths: number[]): number[] {
+  const sum = widths.reduce((a, b) => a + b, 0)
+  const w = table.getBoundingClientRect().width
+  if (sum <= 0 || w <= 0 || Math.abs(sum - w) < 1) return widths
+  return widths.map((x) => (x * w) / sum)
+}
+
 /**
- * 预览侧列宽拖拽：按下命中列边界 → 立即进入拖拽态（阻止文本选中），
+ * 预览侧列宽拖拽：按下命中列边界 → 立即进入拖拽态（阻止文本选中 + 全局列宽光标），
  * 拖动超过阈值才写入列宽（单击不改布局），松手回调最终列宽。
  * 返回 true 表示已接管该按下。
  */
@@ -153,15 +172,13 @@ export function dragColumnWidth(
 ): boolean {
   const col = hitColumnBoundary(table, down.clientX)
   if (col === null) return false
-  const startWidths = widthsFromDom(table)
-  if (!startWidths) return false
+  const measured = widthsFromDom(table)
+  if (!measured) return false
   // 边界按下即视为拖拽起点：阻止默认行为，避免拖动过程选中表格文字
   down.preventDefault()
+  const startWidths = normalizeWidthsToTable(table, measured)
   const startX = down.clientX
-  const cursor = document.documentElement.style.cursor
-  const selectStart = document.documentElement.style.userSelect
-  document.documentElement.style.cursor = 'col-resize'
-  document.documentElement.style.userSelect = 'none'
+  beginColResize()
   let active = false
   let latest = startWidths
 
@@ -181,8 +198,7 @@ export function dragColumnWidth(
   const onUp = (): void => {
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
-    document.documentElement.style.cursor = cursor
-    document.documentElement.style.userSelect = selectStart
+    endColResize()
     if (active) onCommit(latest) // 纯点击：不提交、不广播
   }
   window.addEventListener('mousemove', onMove)
