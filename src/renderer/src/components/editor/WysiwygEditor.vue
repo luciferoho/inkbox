@@ -1052,6 +1052,34 @@ function elTableAddRow(before: boolean): void {
 function elTableAddCol(left: boolean): void {
   elTable(callCommand((left ? addColBeforeCommand : addColAfterCommand).key))
 }
+function elTableDeleteTable(): void {
+  const t = elToolbar.value
+  if (!t) return
+  elTable(callCommand(selectTableCommand.key))
+  elTable(callCommand(deleteSelectedCellsCommand.key))
+}
+/** 删除行/列后把残留的 CellSelection 折叠成光标：prosemirror-tables 会把旧
+ *  选区按位置映射到新行/列上，表现为删除后另一行/列整块处于选中态 */
+function collapseTableSelection(view: EditorView, row: number, col: number): void {
+  const t = findTableSelection(view)
+  if (!t) return
+  const table = view.state.doc.nodeAt(t.pos)
+  if (!table) return
+  const r = Math.min(Math.max(0, row), table.childCount - 1)
+  const rowNode = table.child(r)
+  const c = Math.min(Math.max(0, col), rowNode.childCount - 1)
+  let rowOffset = 0
+  let cellOffset = 0
+  table.forEach((rNode, rOff, rIdx) => {
+    if (rIdx !== r) return
+    rowOffset = rOff
+    rNode.forEach((_cell, cOff, cIdx) => {
+      if (cIdx === c) cellOffset = cOff
+    })
+  })
+  const $pos = view.state.doc.resolve(t.pos + 1 + rowOffset + 1 + cellOffset + 1)
+  view.dispatch(view.state.tr.setSelection(TextSelection.near($pos)).scrollIntoView())
+}
 function elTableDeleteRow(): void {
   const t = elToolbar.value
   const view = getView()
@@ -1059,6 +1087,7 @@ function elTableDeleteRow(): void {
   // selectRow/Col 的 pos 必须是单元格内位置：传表格起点会找不到表格导致命令空转
   elTable(callCommand(selectRowCommand.key, { index: t.row, pos: view.state.selection.from }))
   elTable(callCommand(deleteSelectedCellsCommand.key))
+  collapseTableSelection(view, t.row, t.col)
 }
 function elTableDeleteCol(): void {
   const t = elToolbar.value
@@ -1066,12 +1095,7 @@ function elTableDeleteCol(): void {
   if (!t || !view) return
   elTable(callCommand(selectColCommand.key, { index: t.col, pos: view.state.selection.from }))
   elTable(callCommand(deleteSelectedCellsCommand.key))
-}
-function elTableDeleteTable(): void {
-  const t = elToolbar.value
-  if (!t) return
-  elTable(callCommand(selectTableCommand.key))
-  elTable(callCommand(deleteSelectedCellsCommand.key))
+  collapseTableSelection(view, t.row, t.col)
 }
 /* gfm 的 setAlignCommand 在本 schema 下返回成功但属性不落盘，
    这里直接给整列逐格 setNodeMarkup（markdown 分隔行读表头 alignment） */
@@ -1139,6 +1163,7 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
         elTable(callCommand(selectRowCommand.key, { index: t.row, pos: view.state.selection.from }))
       else elTable(callCommand(selectColCommand.key, { index: t.col, pos: view.state.selection.from }))
       elTable(callCommand(deleteSelectedCellsCommand.key))
+      if (action !== 'table-delete') collapseTableSelection(view, t.row, t.col)
       return true
     }
     case 'align-left':

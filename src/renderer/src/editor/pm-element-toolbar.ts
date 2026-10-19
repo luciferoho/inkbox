@@ -65,7 +65,8 @@ export function tableMeta(state: EditorState): Pick<ElToolbarState, 'row' | 'col
   for (let d = $h.depth; d > 0; d--) {
     const n = $h.node(d)
     if (n.type.name === 'table_cell' || n.type.name === 'table_header') cell ??= n
-    else if (n.type.name === 'table_row') row ??= n
+    // gfm 表头行是独立类型 table_header_row，漏掉它表头选区算不出列号
+    else if (n.type.name === 'table_row' || n.type.name === 'table_header_row') row ??= n
     else if (n.type.name === 'table') table ??= n
   }
   let rowIndex = 0
