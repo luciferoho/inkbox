@@ -21,7 +21,6 @@ import {
   addRowAfterCommand,
   addColBeforeCommand,
   addColAfterCommand,
-  setAlignCommand,
   selectRowCommand,
   selectColCommand,
   selectTableCommand,
@@ -1045,6 +1044,9 @@ function elTable(action: Parameters<Editor['action']>[0]): void {
   if (editor) editor.action(action)
 }
 function elTableAddRow(before: boolean): void {
+  const t = elToolbar.value
+  // 表头之上不允许插入（与右键菜单一致）
+  if (before && t && t.row === 0) return
   elTable(callCommand((before ? addRowBeforeCommand : addRowAfterCommand).key))
 }
 function elTableAddCol(left: boolean): void {
@@ -1052,14 +1054,17 @@ function elTableAddCol(left: boolean): void {
 }
 function elTableDeleteRow(): void {
   const t = elToolbar.value
-  if (!t) return
-  elTable(callCommand(selectRowCommand.key, { index: t.row, pos: t.pos }))
+  const view = getView()
+  if (!t || !view) return
+  // selectRow/Col 的 pos 必须是单元格内位置：传表格起点会找不到表格导致命令空转
+  elTable(callCommand(selectRowCommand.key, { index: t.row, pos: view.state.selection.from }))
   elTable(callCommand(deleteSelectedCellsCommand.key))
 }
 function elTableDeleteCol(): void {
   const t = elToolbar.value
-  if (!t) return
-  elTable(callCommand(selectColCommand.key, { index: t.col, pos: t.pos }))
+  const view = getView()
+  if (!t || !view) return
+  elTable(callCommand(selectColCommand.key, { index: t.col, pos: view.state.selection.from }))
   elTable(callCommand(deleteSelectedCellsCommand.key))
 }
 function elTableDeleteTable(): void {
@@ -1068,8 +1073,35 @@ function elTableDeleteTable(): void {
   elTable(callCommand(selectTableCommand.key))
   elTable(callCommand(deleteSelectedCellsCommand.key))
 }
+/* gfm 的 setAlignCommand 在本 schema 下返回成功但属性不落盘，
+   这里直接给整列逐格 setNodeMarkup（markdown 分隔行读表头 alignment） */
+function setColumnAlign(
+  view: EditorView,
+  tablePos: number,
+  col: number,
+  value: 'left' | 'center' | 'right' | null
+): boolean {
+  const table = view.state.doc.nodeAt(tablePos)
+  if (!table || table.type.name !== 'table') return false
+  const tr = view.state.tr
+  let changed = false
+  table.forEach((row, rowOffset) => {
+    row.forEach((cell, cellOffset, cellIndex) => {
+      if (cellIndex !== col || cell.attrs.alignment === value) return
+      const pos = tablePos + 1 + rowOffset + 1 + cellOffset
+      tr.setNodeMarkup(pos, null, { ...cell.attrs, alignment: value })
+      changed = true
+    })
+  })
+  if (!changed) return false
+  view.dispatch(tr.scrollIntoView())
+  return true
+}
 function elTableAlign(how: 'left' | 'center' | 'right' | 'none'): void {
-  elTable(callCommand(setAlignCommand.key, how === 'none' ? undefined : how))
+  const t = elToolbar.value
+  const view = getView()
+  if (!t || !view) return
+  setColumnAlign(view, t.pos, t.col, how === 'none' ? null : how)
 }
 
 /* ---------- 表格右键菜单（2.3）：菜单动作 → Milkdown gfm 命令 ----------
@@ -1104,16 +1136,22 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
       if (!view || !t) return false
       if (action === 'table-delete') elTable(callCommand(selectTableCommand.key))
       else if (action === 'row-delete')
-        elTable(callCommand(selectRowCommand.key, { index: t.row, pos: t.pos }))
-      else elTable(callCommand(selectColCommand.key, { index: t.col, pos: t.pos }))
+        elTable(callCommand(selectRowCommand.key, { index: t.row, pos: view.state.selection.from }))
+      else elTable(callCommand(selectColCommand.key, { index: t.col, pos: view.state.selection.from }))
       elTable(callCommand(deleteSelectedCellsCommand.key))
       return true
     }
     case 'align-left':
     case 'align-center':
     case 'align-right':
-    case 'align-none':
-      return run(() => elTableAlign(action.slice(6) as 'left' | 'center' | 'right' | 'none'))
+    case 'align-none': {
+      // 菜单动作不依赖工具条状态：按落位选区重新定位表格与列
+      const view = getView()
+      const meta = view ? findTableSelection(view) : null
+      if (!view || !meta) return false
+      const how = action === 'align-none' ? null : (action.slice(6) as 'left' | 'center' | 'right')
+      return setColumnAlign(view, meta.pos, meta.col, how)
+    }
     case 'auto-width':
       return run(() => resetWysiwygTableWidths())
     case 'copy-table':

@@ -454,6 +454,9 @@ function insertSnippet(text: string, cursorOffset: number, isBlock = false): voi
    行号带亚行小数（顶行内已滚过的像素比例）：预览按它做亚行插值。图片密集区
    左右行高差异巨大（左 ~20px/行、右一整张图），整数行号会让预览一格格跳图片 */
 let scrollPending = false
+/** 上次同步过的事件位置：内容变高/回车等布局变化也会派发 scroll 事件但
+ *  scrollTop 未动，若当成「滚到顶部」会把预览强行拉回 0（表现为闪跳） */
+let syncedScrollTop = -1
 function onScrollDom(): void {
   if (Date.now() < lockUntil || scrollPending) return
   scrollPending = true
@@ -462,6 +465,8 @@ function onScrollDom(): void {
     // 排队期间若刚发生过程序同步，丢弃本次陈旧行号，避免回声
     if (!view || Date.now() < lockUntil) return
     const sd = view.scrollDOM
+    if (sd.scrollTop === syncedScrollTop) return
+    syncedScrollTop = sd.scrollTop
     // 顶/底边缘发显式信号（编辑器底部有 40vh 内边距，「滚到底」时
     // 视口顶行远小于末行，插值模型无法把预览也带到同一端点）
     if (sd.scrollTop + sd.clientHeight >= sd.scrollHeight - 4) {
