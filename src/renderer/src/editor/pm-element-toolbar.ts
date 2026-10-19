@@ -45,8 +45,19 @@ function findTarget(view: EditorView): Target | null {
   return null
 }
 
-/** 表格上下文:光标行列与可删性（结构统计,基于当前 selection） */
-function tableMeta(state: EditorState): Pick<ElToolbarState, 'row' | 'col' | 'canDeleteRow' | 'canDeleteCol'> {
+/** 当前选区所在表格的 { pos, row, col, canDeleteRow, canDeleteCol }；不在表格内返回 null。
+ *  表格右键菜单复用（导出 findTarget 的表格分支 + tableMeta 组合） */
+export function findTableSelection(
+  view: EditorView
+): { pos: number; row: number; col: number; canDeleteRow: boolean; canDeleteCol: boolean } | null {
+  const t = findTarget(view)
+  if (!t || t.kind !== 'table') return null
+  return { pos: t.pos, ...tableMeta(view.state) }
+}
+
+/** 表格上下文:光标行列与可删性（结构统计,基于当前 selection）。
+ *  导出供表格右键菜单在执行动作时复算（右键已把光标落到点击单元格） */
+export function tableMeta(state: EditorState): Pick<ElToolbarState, 'row' | 'col' | 'canDeleteRow' | 'canDeleteCol'> {
   const $h = state.selection.$head
   let cell: PMNode | null = null
   let row: PMNode | null = null

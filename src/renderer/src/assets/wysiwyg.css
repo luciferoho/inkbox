@@ -533,3 +533,77 @@
 .wysiwyg-host .luci-prose > .pm-dim {
   opacity: 0.32;
 }
+
+/* ---------- 标题折叠（ROADMAP 2.9，pm-heading-fold 装饰器打标）---------- */
+/* 箭头挂在标题元素内部首位：hover 显现，折叠时常显并指向右侧 */
+.wysiwyg-host h1 .pm-fold-arrow,
+.wysiwyg-host h2 .pm-fold-arrow,
+.wysiwyg-host h3 .pm-fold-arrow,
+.wysiwyg-host h4 .pm-fold-arrow,
+.wysiwyg-host h5 .pm-fold-arrow,
+.wysiwyg-host h6 .pm-fold-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+  opacity: 0;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: opacity 0.12s, background 0.12s;
+}
+
+.wysiwyg-host h1:hover .pm-fold-arrow,
+.wysiwyg-host h2:hover .pm-fold-arrow,
+.wysiwyg-host h3:hover .pm-fold-arrow,
+.wysiwyg-host h4:hover .pm-fold-arrow,
+.wysiwyg-host h5:hover .pm-fold-arrow,
+.wysiwyg-host h6:hover .pm-fold-arrow,
+.wysiwyg-host .pm-fold-arrow.folded {
+  opacity: 0.75;
+}
+
+.wysiwyg-host .pm-fold-arrow:hover {
+  opacity: 1;
+  background: var(--surface-2);
+}
+
+/* 展开 = 朝下，折叠 = 朝右 */
+.wysiwyg-host .pm-fold-arrow svg {
+  transform: rotate(90deg);
+  transition: transform 0.12s;
+}
+
+.wysiwyg-host .pm-fold-arrow.folded svg {
+  transform: rotate(0deg);
+}
+
+/* 折叠区段内的顶层块：整块隐藏（Decoration.node 打标） */
+.wysiwyg-host .pm-fold-hidden {
+  display: none !important;
+}
+
+/* ---------- 图片拖拽缩放手柄（ROADMAP 2.4）---------- */
+.et-resize-handle {
+  position: absolute;
+  z-index: 42;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px; /* 中心对齐到图片右下角 */
+  border-radius: 3px;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  box-shadow: 0 1px 4px rgba(15, 12, 9, 0.25);
+  cursor: nwse-resize;
+  opacity: 0.85;
+}
+
+.et-resize-handle:hover {
+  opacity: 1;
+}
