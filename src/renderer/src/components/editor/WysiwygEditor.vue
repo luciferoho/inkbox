@@ -61,6 +61,7 @@ import {
   onColWidthsChanged,
   refreshTableWidths,
   setColWidths,
+  tableKey,
   widthsFromDom,
 } from '@/editor/table-widths'
 import { registerPmTableExecutor, type TableMenuAction } from '@/editor/table-context-menu'
@@ -660,7 +661,7 @@ const pasteLinkPlugin = $prose(() => createPasteLinkPlugin())
 // 标题折叠（2.9）
 const headingFoldPlugin = $prose(() => createHeadingFoldPlugin())
 // 表格列宽记忆恢复（2.2）
-const tableWidthsPlugin = $prose(() => createTableWidthsPlugin())
+const tableWidthsPlugin = $prose(() => createTableWidthsPlugin(() => tabId))
 
 /** 表格列边界按下（捕获阶段，先于 PM 自身的 mousedown 处理）：进入列宽拖拽。
  *  即显侧不能直接写表格 DOM（PM 的 DOM 观察器会把 style 变更当文档变更 →
@@ -676,10 +677,16 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
   if (col === null) return
   const startWidths = widthsFromDom(table)
   if (!startWidths) return
-  const key = headerKeyOf(table)
+  // 边界按下即进入拖拽态：阻止默认行为，避免拖动过程选中表格文字
+  e.preventDefault()
+  e.stopPropagation()
+  const tableIndex = Array.from(view.dom.querySelectorAll('table')).indexOf(table)
+  const key = tableKey(tabId ?? 'x', tableIndex, headerKeyOf(table))
   const startX = e.clientX
   const cursor = document.documentElement.style.cursor
   const selectStart = document.documentElement.style.userSelect
+  document.documentElement.style.cursor = 'col-resize'
+  document.documentElement.style.userSelect = 'none'
   let active = false
   let raf = 0
   let latest: number[] = startWidths
@@ -687,12 +694,8 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
   const onMove = (ev: MouseEvent): void => {
     const dx = ev.clientX - startX
     if (!active) {
-      if (Math.abs(dx) < 3) return // 阈值内视为点击：不拦默认行为、不改布局（图三修复）
+      if (Math.abs(dx) < 3) return // 阈值内视为点击：不改布局
       active = true
-      e.preventDefault()
-      e.stopPropagation()
-      document.documentElement.style.cursor = 'col-resize'
-      document.documentElement.style.userSelect = 'none'
     }
     const next = [...startWidths]
     next[col] = Math.max(24, Math.round(startWidths[col] + dx))
@@ -708,9 +711,9 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
     if (raf) window.cancelAnimationFrame(raf)
-    if (!active) return // 纯点击：不提交、不广播
     document.documentElement.style.cursor = cursor
     document.documentElement.style.userSelect = selectStart
+    if (!active) return // 纯点击：不提交、不广播
     setColWidths(key, latest) // 松手广播：预览侧同步
     if (editor) refreshTableWidths(view)
   }
@@ -737,19 +740,27 @@ function onHostMouseMoveTableCursor(e: MouseEvent): void {
   })
 }
 
-/** 右键「自适应宽度」：清记忆并刷新装饰器（表头键从选区所在表格重建） */
+/** 右键「自适应宽度」：清记忆并刷新装饰器（标签 + 表格序号 + 表头定位） */
 function resetWysiwygTableWidths(): void {
   const view = getView()
   if (!view) return
   const $h = view.state.selection.$head
   for (let d = $h.depth; d > 0; d--) {
-    if ($h.node(d).type.name === 'table') {
-      const firstRow = $h.node(d).firstChild
-      const parts: string[] = []
-      firstRow?.forEach((cell) => parts.push(cell.textContent.trim()))
-      clearColWidths(parts.join('\u0001'))
-      break
-    }
+    if ($h.node(d).type.name !== 'table') continue
+    const tablePos = $h.before(d)
+    const firstRow = $h.node(d).firstChild
+    const parts: string[] = []
+    firstRow?.forEach((cell) => parts.push(cell.textContent.trim()))
+    let idx = -1
+    let found = -1
+    view.state.doc.descendants((node, pos) => {
+      if (node.type.name !== 'table') return true
+      idx++
+      if (pos === tablePos) found = idx
+      return false
+    })
+    if (found >= 0) clearColWidths(tableKey(tabId ?? 'x', found, parts.join('\u0001')))
+    break
   }
   refreshTableWidths(view)
 }
@@ -974,9 +985,19 @@ function onImageResizeMove(e: MouseEvent): void {
   const w = Math.min(4000, Math.max(24, Math.round(ctx.startW + (e.clientX - ctx.startX))))
   ctx.imgEl.style.width = `${w}px`
   ctx.imgEl.style.height = 'auto' // 等比：高度交给图片自身比例
-  // 手柄跟随：拖动期间工具条数据不会更新（无事务），用本地矩形驱动
-  const r = resizeRect.value
-  if (r) resizeRect.value = { ...r, w, h: Math.round(w * ctx.ratio) }
+  // 手柄跟随：拖动期间工具条数据不会更新（无事务），按图片当前视口矩形
+  // 重算内容坐标——居中/右对齐图片放大时左缘会移动，不能沿用按下时的 x/y
+  const hostEl = host.value
+  if (hostEl) {
+    const ir = ctx.imgEl.getBoundingClientRect()
+    const hr = hostEl.getBoundingClientRect()
+    resizeRect.value = {
+      x: ir.left - hr.left + hostEl.scrollLeft,
+      y: ir.top - hr.top + hostEl.scrollTop,
+      w: ir.width,
+      h: ir.height,
+    }
+  }
 }
 
 function onImageResizeEnd(): void {

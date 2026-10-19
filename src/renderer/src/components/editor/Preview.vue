@@ -28,17 +28,19 @@ import {
   onColWidthsChanged,
   resetTableWidth,
   setColWidths,
+  tableKey,
 } from '@/editor/table-widths'
 
 /** 列宽记忆恢复/清除（2.2）：渲染完成后把共享记忆注入表头匹配的表格；
- *  记忆被清除（自适应宽度）时同步去掉内联宽度 */
+ *  键 = 标签 + 文档内表格序号 + 表头，同名表头的表格互不影响 */
 function applyStoredTableWidths(container: HTMLElement): void {
-  for (const el of Array.from(container.querySelectorAll('table'))) {
-    if (!(el instanceof HTMLTableElement)) continue
-    const w = getColWidths(headerKeyOf(el))
+  const tables = Array.from(container.querySelectorAll('table'))
+  tables.forEach((el, index) => {
+    if (!(el instanceof HTMLTableElement)) return
+    const w = getColWidths(tableKey(docs.activeId ?? 'x', index, headerKeyOf(el)))
     if (w) applyColWidths(el, w)
     else if (hasColWidths(el)) resetTableWidth(el)
-  }
+  })
 }
 
 /** 表头列边界 hover 光标（与即显同款，rAF 节流） */
@@ -66,7 +68,11 @@ function onPreviewMouseDownTableWidths(e: MouseEvent): void {
   const el = e.target as HTMLElement | null
   const table = el?.closest?.('table')
   if (!(table instanceof HTMLTableElement)) return
-  dragColumnWidth(table, e, (widths) => setColWidths(headerKeyOf(table), widths))
+  const tables = Array.from(body.value?.querySelectorAll('table') ?? [])
+  const index = tables.indexOf(table)
+  dragColumnWidth(table, e, (widths) =>
+    setColWidths(tableKey(docs.activeId ?? 'x', index, headerKeyOf(table)), widths)
+  )
 }
 import FindBar from './FindBar.vue'
 import '@/assets/preview.css'
@@ -101,6 +107,38 @@ let renderSeq = 0
 let renderQueued = false
 /** 待恢复的共享浏览进度（0..1）；null = 无待恢复。同一文档所有模式共用一份进度 */
 let pendingFrac: number | null = null
+/** 下一次渲染是否禁用「内容锚点保持」（切标签/进模式时按进度或编辑器联动落位） */
+let anchorSuppressed = false
+
+/** 视口顶部的内容锚点（源码行 + 亚行比例）：纯内容重渲染后按它恢复位置，
+ *  避免「上面有图片、正在下方输入」时预览被重新对齐到别处（回弹） */
+type ViewAnchor = { kind: 'top' } | { kind: 'bottom' } | { kind: 'line'; line: number }
+
+function captureViewAnchor(): ViewAnchor | null {
+  const el = scroller.value
+  if (!el || el.offsetParent === null || blocks.length === 0) return null
+  if (el.scrollTop <= 2) return { kind: 'top' }
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 4) return { kind: 'bottom' }
+  let i = 0
+  for (let k = 0; k < blocks.length; k++) {
+    if (blocks[k].top <= el.scrollTop) i = k
+    else break
+  }
+  const cur = blocks[i]
+  const next = blocks[i + 1]
+  const lineSpan = next ? next.line - cur.line : Math.max(1, cur.end - cur.line)
+  const h = next ? next.top - cur.top : Math.max(1, cur.height)
+  const f = h > 0 ? Math.min(1, Math.max(0, (el.scrollTop - cur.top) / h)) : 0
+  return { kind: 'line', line: cur.line + f * lineSpan }
+}
+
+function restoreViewAnchor(a: ViewAnchor): void {
+  const el = scroller.value
+  if (!el) return
+  if (a.kind === 'top') el.scrollTop = 0
+  else if (a.kind === 'bottom') el.scrollTop = el.scrollHeight
+  else syncToLine(a.line, 0)
+}
 
 /* ---------- 图片尺寸缓存：共享实现见 editor/img-size-cache.ts ---------- */
 
@@ -322,6 +360,10 @@ function swapPreviewHtml(container: HTMLElement, nextHtml: string): void {
 
 async function render(content: string): Promise<void> {
   const seq = ++renderSeq
+  // 纯内容重渲染（输入触发）前记录视口锚点：换 DOM 后按内容位置恢复，
+  // 避免被重新对齐到源码行造成「回弹」；切签/进模式由 anchorSuppressed 关闭
+  const anchor = anchorSuppressed ? null : captureViewAnchor()
+  anchorSuppressed = false
   await ensureMath(content)
   if (seq !== renderSeq) return
   const nextHtml = content.trim() ? renderWithDir(content, props.docDir) : ''
@@ -338,7 +380,8 @@ async function render(content: string): Promise<void> {
   collectBlocks()
   applyPvFocus() // DOM 重建后重放双栏联动高亮（光标没动就不需要等下一次 emit）
   renderQueued = false
-  applyPendingScroll() // 切签滚动恢复：内容 DOM 换完即落位（mermaid 异步只改局部高度）
+  if (pendingFrac !== null) applyPendingScroll() // 切签滚动恢复：DOM 换完即落位
+  else if (anchor) restoreViewAnchor(anchor) // 输入触发重渲染：保持原内容锚点
   await renderMermaid()
   // 内容重渲染重置了 DOM，开着查找就重扫；恢复标签状态后的首次重扫不滚动定位
   if (findOpen.value) {
@@ -885,6 +928,7 @@ watch(
     }
     pendingFrac = loadView(id)?.frac ?? null
     lastSyncLine = null
+    anchorSuppressed = true // 切签按进度落位，不保留上一标签的视口锚点
     pullFind(id, true)
     void nextTick(() => {
       if (!renderQueued) applyPendingScroll() // 内容相同没有重渲染排队时也要落位
@@ -899,6 +943,7 @@ watch(
   () => ui.editorMode,
   (m) => {
     if (m !== 'preview' && m !== 'split') return
+    anchorSuppressed = true // 进入可见模式按共享进度落位，不保留隐藏期的旧锚点
     // 读进度必须延迟到 nextTick：同一 flush 里「离开中的窗格」的落袋保存
     // 发生在父组件渲染期间（v-if 卸载的 beforeUnmount），watcher 触发时它
     // 还没执行——此刻读会拿到上一次的旧值甚至空值

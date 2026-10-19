@@ -3,6 +3,7 @@ import { TextSelection } from '@milkdown/kit/prose/state'
 import type { EditorView as PmView } from '@milkdown/kit/prose/view'
 import type { EditorView as CmView } from '@codemirror/view'
 import { useUiStore } from '@/stores/ui'
+import { useDocumentsStore } from '@/stores/documents'
 import { t } from '@/i18n'
 import { cmViews } from './cm-registry'
 import { pmViews } from './pm-registry'
@@ -15,6 +16,7 @@ import {
   headerKeyOf,
   refreshTableWidths,
   resetTableWidth,
+  tableKey,
 } from './table-widths'
 
 /**
@@ -128,8 +130,9 @@ function runCmTableAction(view: CmView, info: TableInfo, action: TableMenuAction
   const blockTo = view.state.doc.line(info.endLine).to
 
   if (action === 'auto-width') {
-    // 源码里没有内联宽度，只需清记忆（预览/即显下次渲染恢复自适应）
-    const key = lines[0]
+    // 源码里没有内联宽度，只需清记忆（预览/即显下次渲染恢复自适应）。
+    // 键 = 标签 + 文档内表格序号 + 表头：同名表头的其他表格不受影响
+    const header = lines[0]
       ? lines[0]
           .trim()
           .replace(/^\|/, '')
@@ -138,7 +141,16 @@ function runCmTableAction(view: CmView, info: TableInfo, action: TableMenuAction
           .map((c) => c.trim())
           .join('\u0001')
       : ''
-    clearColWidths(key)
+    let index = 0
+    let inTable = false
+    for (let n = 1; n < info.startLine; n++) {
+      const row = /^\s*\|/.test(view.state.doc.line(n).text)
+      if (row && !inTable) {
+        inTable = true
+        index++
+      } else if (!row) inTable = false
+    }
+    clearColWidths(tableKey(useDocumentsStore().activeId ?? 'x', index, header))
     return
   }
 
@@ -197,8 +209,10 @@ function runCmTableAction(view: CmView, info: TableInfo, action: TableMenuAction
 /** 预览侧执行（只读视图：复制 / 列宽重置） */
 function runPreviewAction(table: HTMLTableElement, action: TableMenuAction): void {
   if (action === 'auto-width') {
-    const key = headerKeyOf(table)
-    clearColWidths(key)
+    const body = table.closest('.md-preview') ?? document
+    const tables = Array.from(body.querySelectorAll('table'))
+    const index = tables.indexOf(table)
+    clearColWidths(tableKey(useDocumentsStore().activeId ?? 'x', index, headerKeyOf(table)))
     resetTableWidth(table)
     return
   }

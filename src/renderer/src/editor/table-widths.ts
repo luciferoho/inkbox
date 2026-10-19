@@ -17,10 +17,17 @@ import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import type { EditorView as PmView } from '@milkdown/kit/prose/view'
 
-const MAX_ENTRIES = 100
+const MAX_ENTRIES = 200
 
-/** 列宽记忆：表头键 → 像素宽度数组（文档不加标记，视图态） */
+/** 列宽记忆：表键 → 像素宽度数组（文档不加标记，视图态） */
 const store = new Map<string, number[]>()
+
+/** 表格唯一键：标签 + 文档内表格序号 + 表头文本。
+ *  只用表头文本会让同名表头的不同表格互相串列宽（实测问题），
+ *  序号保证同一文档内各表独立；标签隔离不同文档。 */
+export function tableKey(tabId: number | string, index: number, header: string): string {
+  return `${tabId}\u0002${index}\u0002${header}`
+}
 
 /** 列宽记忆变更订阅（双栏两块面板各自动作后互相同步） */
 const listeners = new Set<(key: string) => void>()
@@ -135,8 +142,9 @@ export function hitColumnBoundary(table: HTMLTableElement, x: number, tol = 5): 
 }
 
 /**
- * 预览侧列宽拖拽：按下命中列边界 → 拖动超过阈值才真正调整（单击不改变布局），
- * 松手回调最终列宽（调用方写回记忆）。返回 true 表示已接管该按下。
+ * 预览侧列宽拖拽：按下命中列边界 → 立即进入拖拽态（阻止文本选中），
+ * 拖动超过阈值才写入列宽（单击不改布局），松手回调最终列宽。
+ * 返回 true 表示已接管该按下。
  */
 export function dragColumnWidth(
   table: HTMLTableElement,
@@ -147,9 +155,13 @@ export function dragColumnWidth(
   if (col === null) return false
   const startWidths = widthsFromDom(table)
   if (!startWidths) return false
+  // 边界按下即视为拖拽起点：阻止默认行为，避免拖动过程选中表格文字
+  down.preventDefault()
   const startX = down.clientX
   const cursor = document.documentElement.style.cursor
   const selectStart = document.documentElement.style.userSelect
+  document.documentElement.style.cursor = 'col-resize'
+  document.documentElement.style.userSelect = 'none'
   let active = false
   let latest = startWidths
 
@@ -158,8 +170,6 @@ export function dragColumnWidth(
     if (!active) {
       if (Math.abs(dx) < 3) return // 阈值内视为点击，不改布局
       active = true
-      document.documentElement.style.cursor = 'col-resize'
-      document.documentElement.style.userSelect = 'none'
       // 拖动前先落 fixed：避免首帧按自动布局重排造成跳动
       applyColWidths(table, startWidths)
     }
@@ -171,10 +181,9 @@ export function dragColumnWidth(
   const onUp = (): void => {
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
-    if (!active) return // 纯点击：不提交、不广播
     document.documentElement.style.cursor = cursor
     document.documentElement.style.userSelect = selectStart
-    onCommit(latest)
+    if (active) onCommit(latest) // 纯点击：不提交、不广播
   }
   window.addEventListener('mousemove', onMove)
   window.addEventListener('mouseup', onUp)
@@ -201,8 +210,9 @@ function headerKeyOfNode(tableNode: { firstChild: unknown }): string {
   return parts.join('\u0001')
 }
 
-/** 即显侧列宽装饰器：记忆中的列宽以 node decoration style 形式由 PM 施加 */
-export function createTableWidthsPlugin(): Plugin<number> {
+/** 即显侧列宽装饰器：记忆中的列宽以 node decoration style 形式由 PM 施加。
+ *  getTabId 用于构造表格唯一键（标签 + 文档内序号 + 表头），切换标签时重算。 */
+export function createTableWidthsPlugin(getTabId: () => number | string | null): Plugin<number> {
   return new Plugin<number>({
     key,
     state: {
@@ -215,9 +225,12 @@ export function createTableWidthsPlugin(): Plugin<number> {
     props: {
       decorations: (state): DecorationSet => {
         const decos: Decoration[] = []
+        const tabId = getTabId() ?? 'x'
+        let tableIndex = -1
         state.doc.descendants((node, pos) => {
           if (node.type.name !== 'table') return true
-          const widths = getColWidths(headerKeyOfNode(node))
+          tableIndex++
+          const widths = getColWidths(tableKey(tabId, tableIndex, headerKeyOfNode(node)))
           if (!widths || widths.length < 1) return false
           const total = widths.reduce((a, b) => a + b, 0)
           if (total <= 0) return false
