@@ -188,11 +188,12 @@
   margin-right: 7px;
 }
 
-/* 表格 */
+/* 表格：内容自适应宽度（窄窗口横向滚动，不压扁成竖排文字） */
 .wysiwyg-host .luci-prose table {
   border-collapse: collapse;
   margin: 1em 0;
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   font-size: 0.94em;
 }
 
@@ -202,6 +203,8 @@
   padding: 6px 12px;
   text-align: left;
   position: relative;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .wysiwyg-host .luci-prose th {

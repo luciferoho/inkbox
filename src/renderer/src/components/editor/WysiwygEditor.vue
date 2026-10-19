@@ -54,6 +54,7 @@ import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createPasteLinkPlugin } from '@/editor/paste-link'
 import { createHeadingFoldPlugin } from '@/editor/pm-heading-fold'
 import {
+  clearColWidths,
   createTableWidthsPlugin,
   headerKeyOf,
   hitColumnBoundary,
@@ -675,20 +676,26 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
   if (col === null) return
   const startWidths = widthsFromDom(table)
   if (!startWidths) return
-  e.preventDefault()
-  e.stopPropagation()
   const key = headerKeyOf(table)
   const startX = e.clientX
   const cursor = document.documentElement.style.cursor
   const selectStart = document.documentElement.style.userSelect
-  document.documentElement.style.cursor = 'col-resize'
-  document.documentElement.style.userSelect = 'none'
+  let active = false
   let raf = 0
   let latest: number[] = startWidths
 
   const onMove = (ev: MouseEvent): void => {
+    const dx = ev.clientX - startX
+    if (!active) {
+      if (Math.abs(dx) < 3) return // 阈值内视为点击：不拦默认行为、不改布局（图三修复）
+      active = true
+      e.preventDefault()
+      e.stopPropagation()
+      document.documentElement.style.cursor = 'col-resize'
+      document.documentElement.style.userSelect = 'none'
+    }
     const next = [...startWidths]
-    next[col] = Math.max(30, Math.round(startWidths[col] + (ev.clientX - startX)))
+    next[col] = Math.max(24, Math.round(startWidths[col] + dx))
     latest = next
     if (raf) return
     raf = window.requestAnimationFrame(() => {
@@ -701,6 +708,7 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
     if (raf) window.cancelAnimationFrame(raf)
+    if (!active) return // 纯点击：不提交、不广播
     document.documentElement.style.cursor = cursor
     document.documentElement.style.userSelect = selectStart
     setColWidths(key, latest) // 松手广播：预览侧同步
@@ -708,6 +716,42 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
   }
   window.addEventListener('mousemove', onMove)
   window.addEventListener('mouseup', onUp)
+}
+
+/** 表头列边界 hover：光标变 col-resize（el-table 手感）；rAF 节流避免每次移动查布局 */
+let cursorRaf = 0
+function onHostMouseMoveTableCursor(e: MouseEvent): void {
+  if (cursorRaf) return
+  const x = e.clientX
+  const target = e.target as HTMLElement | null
+  cursorRaf = window.requestAnimationFrame(() => {
+    cursorRaf = 0
+    const table = target?.closest?.('table')
+    if (!(table instanceof HTMLTableElement)) {
+      host.value?.style.removeProperty('cursor')
+      return
+    }
+    const col = hitColumnBoundary(table, x)
+    if (col !== null) host.value?.style.setProperty('cursor', 'col-resize')
+    else host.value?.style.removeProperty('cursor')
+  })
+}
+
+/** 右键「自适应宽度」：清记忆并刷新装饰器（表头键从选区所在表格重建） */
+function resetWysiwygTableWidths(): void {
+  const view = getView()
+  if (!view) return
+  const $h = view.state.selection.$head
+  for (let d = $h.depth; d > 0; d--) {
+    if ($h.node(d).type.name === 'table') {
+      const firstRow = $h.node(d).firstChild
+      const parts: string[] = []
+      firstRow?.forEach((cell) => parts.push(cell.textContent.trim()))
+      clearColWidths(parts.join('\u0001'))
+      break
+    }
+  }
+  refreshTableWidths(view)
 }
 // 图片/表格点击 → 元素工具条(浮层数据源)
 const elToolbar = ref<ElToolbarState | null>(null)
@@ -879,10 +923,13 @@ function elImageMods(next: ImageMods | ((cur: ImageMods) => ImageMods)): void {
 /* ---------- 图片拖拽缩放（ROADMAP 2.4）----------
    手柄贴图片右下角；拖动期间直接改 img style 实时预览（等比：只改宽度），
    松手一次性提交 |WxH| 修饰符（宽=拖动宽度，高=按当前渲染比例），单事务可撤销 */
+/** 拖拽中的实时矩形（手柄跟随；松手清空，回到工具条数据源） */
+const resizeRect = ref<{ x: number; y: number; w: number; h: number } | null>(null)
+
 const resizeHandleStyle = computed(() => {
-  const t = elToolbar.value
-  if (!t || t.kind !== 'image') return {}
-  return { left: `${t.rect.x + t.rect.w - 5}px`, top: `${t.rect.y + t.rect.h - 5}px` }
+  const r = resizeRect.value ?? (elToolbar.value?.kind === 'image' ? elToolbar.value.rect : null)
+  if (!r) return {}
+  return { left: `${r.x + r.w - 5}px`, top: `${r.y + r.h - 5}px` }
 })
 
 interface ResizeCtx {
@@ -916,6 +963,7 @@ function onImageResizeStart(e: MouseEvent): void {
     clean,
     mods,
   }
+  resizeRect.value = { ...t.rect }
   window.addEventListener('mousemove', onImageResizeMove)
   window.addEventListener('mouseup', onImageResizeEnd)
 }
@@ -926,6 +974,9 @@ function onImageResizeMove(e: MouseEvent): void {
   const w = Math.min(4000, Math.max(24, Math.round(ctx.startW + (e.clientX - ctx.startX))))
   ctx.imgEl.style.width = `${w}px`
   ctx.imgEl.style.height = 'auto' // 等比：高度交给图片自身比例
+  // 手柄跟随：拖动期间工具条数据不会更新（无事务），用本地矩形驱动
+  const r = resizeRect.value
+  if (r) resizeRect.value = { ...r, w, h: Math.round(w * ctx.ratio) }
 }
 
 function onImageResizeEnd(): void {
@@ -933,6 +984,7 @@ function onImageResizeEnd(): void {
   window.removeEventListener('mouseup', onImageResizeEnd)
   const ctx = resizeCtx
   resizeCtx = null
+  resizeRect.value = null
   if (!ctx) return
   const w = Math.round(parseFloat(ctx.imgEl.style.width) || 0)
   if (w < 24) return
@@ -1027,6 +1079,8 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
     case 'align-right':
     case 'align-none':
       return run(() => elTableAlign(action.slice(6) as 'left' | 'center' | 'right' | 'none'))
+    case 'auto-width':
+      return run(() => resetWysiwygTableWidths())
     case 'copy-table':
     case 'to-text': {
       const view = getView()
@@ -1081,6 +1135,8 @@ onMounted(() => {
   })
   // 点击即显区域任意位置都要让编辑器拿到焦点，避免"点了但打不了字"
   host.value.addEventListener('mousedown', onHostMousedown)
+  // 表格列边界 hover 光标（el-table 手感）
+  host.value.addEventListener('mousemove', onHostMouseMoveTableCursor, { passive: true })
   // 图片悬浮地址提示（mouseover/out 冒泡委托）;滚动即收起避免提示漂移
   host.value.addEventListener('mouseover', onHostOver)
   host.value.addEventListener('mouseout', onHostOut)
@@ -1274,6 +1330,7 @@ onBeforeUnmount(() => {
   }
   pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   host.value?.removeEventListener('mousedown', onHostMousedown)
+  host.value?.removeEventListener('mousemove', onHostMouseMoveTableCursor)
   host.value?.removeEventListener('mouseover', onHostOver)
   host.value?.removeEventListener('mouseout', onHostOut)
   host.value?.removeEventListener('scroll', onHostScroll)
@@ -1531,6 +1588,7 @@ watch(
   min-height: 0;
   min-width: 0;
   overflow-y: auto;
+  overflow-x: auto; /* 超宽表格横向滚动，不压扁列 */
   position: relative;
 }
 

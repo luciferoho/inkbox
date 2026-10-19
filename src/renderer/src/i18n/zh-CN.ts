@@ -15,6 +15,7 @@ export const zh = {
 
   // 关窗 / 应用级（App.vue）
   'app.exportNoDoc': '请先打开要导出的文档',
+  'app.dropOpen': '松开以打开 Markdown / 文本文件',
   'app.draftsRestored': '检测到异常退出，已恢复 {n} 份未保存的内容',
   'app.closeTitle': '有未保存的文档',
   'app.closeMsg': '还有 {n} 个文档未保存，未保存的内容已自动备份。',
@@ -169,6 +170,7 @@ export const zh = {
   'table.deleteTable': '删除整个表格',
   'table.copyTable': '复制表格',
   'table.toText': '转为纯文本',
+  'table.autoWidth': '自适应宽度（清除列宽）',
 
   // 块悬浮工具栏
   'block.bold': '加粗 (Ctrl+B)',

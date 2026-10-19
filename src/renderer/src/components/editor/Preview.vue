@@ -24,17 +24,40 @@ import {
   getColWidths,
   hasColWidths,
   headerKeyOf,
+  hitColumnBoundary,
   onColWidthsChanged,
+  resetTableWidth,
   setColWidths,
 } from '@/editor/table-widths'
 
-/** 列宽记忆恢复（2.2）：渲染完成后把共享记忆注入表头匹配的表格 */
+/** 列宽记忆恢复/清除（2.2）：渲染完成后把共享记忆注入表头匹配的表格；
+ *  记忆被清除（自适应宽度）时同步去掉内联宽度 */
 function applyStoredTableWidths(container: HTMLElement): void {
   for (const el of Array.from(container.querySelectorAll('table'))) {
-    if (!(el instanceof HTMLTableElement) || hasColWidths(el)) continue
+    if (!(el instanceof HTMLTableElement)) continue
     const w = getColWidths(headerKeyOf(el))
     if (w) applyColWidths(el, w)
+    else if (hasColWidths(el)) resetTableWidth(el)
   }
+}
+
+/** 表头列边界 hover 光标（与即显同款，rAF 节流） */
+let pvCursorRaf = 0
+function onPreviewMouseMoveTableCursor(e: MouseEvent): void {
+  if (pvCursorRaf) return
+  const x = e.clientX
+  const target = e.target as HTMLElement | null
+  pvCursorRaf = window.requestAnimationFrame(() => {
+    pvCursorRaf = 0
+    const table = target?.closest?.('table')
+    if (!(table instanceof HTMLTableElement)) {
+      scroller.value?.style.removeProperty('cursor')
+      return
+    }
+    if (hitColumnBoundary(table, x) !== null)
+      scroller.value?.style.setProperty('cursor', 'col-resize')
+    else scroller.value?.style.removeProperty('cursor')
+  })
 }
 
 /** 预览侧列宽拖拽：与即显共享同一份记忆，拖完即显侧重渲染时自动跟随 */
@@ -961,6 +984,7 @@ onMounted(() => {
   offTableWidths = onColWidthsChanged(() => {
     if (body.value) applyStoredTableWidths(body.value)
   })
+  scroller.value?.addEventListener('mousemove', onPreviewMouseMoveTableCursor, { passive: true })
   scroller.value?.addEventListener('scroll', onScrollDom, { passive: true })
   scroller.value?.addEventListener('click', onClickDom)
   scroller.value?.addEventListener('load', onImgLoad, { capture: true, passive: true })
@@ -972,6 +996,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   offTableWidths?.()
+  scroller.value?.removeEventListener('mousemove', onPreviewMouseMoveTableCursor)
   pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   scroller.value?.removeEventListener('scroll', onScrollDom)
   scroller.value?.removeEventListener('click', onClickDom)

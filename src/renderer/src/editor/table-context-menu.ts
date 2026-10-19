@@ -1,5 +1,6 @@
 import { reactive } from 'vue'
 import { TextSelection } from '@milkdown/kit/prose/state'
+import type { EditorView as PmView } from '@milkdown/kit/prose/view'
 import type { EditorView as CmView } from '@codemirror/view'
 import { useUiStore } from '@/stores/ui'
 import { t } from '@/i18n'
@@ -8,15 +9,23 @@ import { pmViews } from './pm-registry'
 import { writeClipboard } from './code-copy'
 import { parseImageLine } from './image-utils'
 import { applyTableOp, cellStart, detectTable, type TableInfo, type TableOp } from './table-utils'
+import {
+  clearColWidths,
+  getColWidths,
+  headerKeyOf,
+  refreshTableWidths,
+  resetTableWidth,
+} from './table-widths'
 
 /**
- * 表格右键菜单（ROADMAP 2.3，复刻 ImageContextMenu 模式，条目/动作为数据层）：
+ * 表格右键菜单（ROADMAP 2.3/2.2，复刻 ImageContextMenu 模式，条目/动作为数据层）：
  * - 捕获 contextmenu：即显面板内的 table 元素（图片/math 上让位给图片菜单）、
- *   源码/双栏点击坐标处的表格语法（CodeMirror posAtCoords → detectTable）→ 弹菜单
+ *   源码/双栏点击坐标处的表格语法（CodeMirror posAtCoords → detectTable）、
+ *   预览面板内的 table 元素（只读：仅提供复制与列宽重置）→ 弹菜单
  * - 结构操作：源码侧走 table-utils 纯文本变换（单事务可撤销）；即显侧委托
  *   WysiwygEditor 注册的执行器（Milkdown gfm 命令，光标已被右键落到点击单元格）
- * - 复制表格 = 表格块源码（CM）/ 单元格文本逐行（PM）；转文本 = 去管道逐行、
- *   制表符分隔（表格语义丢失，不可逆）
+ * - 复制表格 = 表格块源码（CM）/ 单元格文本逐行（PM/预览）
+ * - 自适应宽度 = 清除该表的会话列宽记忆与内联宽度（即显/预览）
  */
 
 export type TableMenuAction =
@@ -32,18 +41,23 @@ export type TableMenuAction =
   | 'align-none'
   | 'copy-table'
   | 'to-text'
+  | 'auto-width'
   | 'table-delete'
 
 export const tableMenu = reactive({
   open: false,
   x: 0,
   y: 0,
-  /** 行/列可删性（表头/分隔行、仅剩单行/单列时禁用） */
   canRow: true,
-  canCol: true
+  canCol: true,
+  /** 预览（只读）面板：仅复制/列宽重置可用 */
+  readOnly: false
 })
 
-type Target = { kind: 'cm'; view: CmView; info: TableInfo } | { kind: 'pm' }
+type Target =
+  | { kind: 'cm'; view: CmView; info: TableInfo }
+  | { kind: 'pm' }
+  | { kind: 'preview'; table: HTMLTableElement }
 let target: Target | null = null
 
 /** 即显侧执行器（WysiwygEditor 挂载时注册）：菜单动作 → Milkdown gfm 命令 */
@@ -53,13 +67,20 @@ export function registerPmTableExecutor(fn: PmTableExecutor | null): void {
   pmExecutor = fn
 }
 
-export function openTableMenu(x: number, y: number, canRow: boolean, canCol: boolean, tgt: Target): void {
+export function openTableMenu(
+  x: number,
+  y: number,
+  canRow: boolean,
+  canCol: boolean,
+  tgt: Target
+): void {
   target = tgt
   tableMenu.open = true
   tableMenu.x = x
   tableMenu.y = y
   tableMenu.canRow = canRow
   tableMenu.canCol = canCol
+  tableMenu.readOnly = tgt.kind === 'preview'
 }
 
 export function closeTableMenu(): void {
@@ -74,20 +95,22 @@ export interface TableMenuItem {
 }
 
 export function tableMenuItems(): TableMenuItem[] {
+  const ro = tableMenu.readOnly
   return [
-    { action: 'row-above', label: t('table.addRowAbove') },
-    { action: 'row-below', label: t('table.addRowBelow') },
-    { action: 'row-delete', label: t('table.deleteRow'), disabled: !tableMenu.canRow },
-    { action: 'col-left', label: t('table.addColLeft') },
-    { action: 'col-right', label: t('table.addColRight') },
-    { action: 'col-delete', label: t('table.deleteCol'), disabled: !tableMenu.canCol },
-    { action: 'align-left', label: t('table.alignLeft') },
-    { action: 'align-center', label: t('table.alignCenter') },
-    { action: 'align-right', label: t('table.alignRight') },
-    { action: 'align-none', label: t('table.alignNone') },
+    { action: 'row-above', label: t('table.addRowAbove'), disabled: ro },
+    { action: 'row-below', label: t('table.addRowBelow'), disabled: ro },
+    { action: 'row-delete', label: t('table.deleteRow'), disabled: ro || !tableMenu.canRow },
+    { action: 'col-left', label: t('table.addColLeft'), disabled: ro },
+    { action: 'col-right', label: t('table.addColRight'), disabled: ro },
+    { action: 'col-delete', label: t('table.deleteCol'), disabled: ro || !tableMenu.canCol },
+    { action: 'align-left', label: t('table.alignLeft'), disabled: ro },
+    { action: 'align-center', label: t('table.alignCenter'), disabled: ro },
+    { action: 'align-right', label: t('table.alignRight'), disabled: ro },
+    { action: 'align-none', label: t('table.alignNone'), disabled: ro },
     { action: 'copy-table', label: t('table.copyTable') },
-    { action: 'to-text', label: t('table.toText') },
-    { action: 'table-delete', label: t('table.deleteTable'), danger: true }
+    { action: 'auto-width', label: t('table.autoWidth') },
+    { action: 'to-text', label: t('table.toText'), disabled: ro },
+    { action: 'table-delete', label: t('table.deleteTable'), disabled: ro, danger: true }
   ]
 }
 
@@ -104,6 +127,21 @@ function runCmTableAction(view: CmView, info: TableInfo, action: TableMenuAction
   const blockFrom = view.state.doc.line(info.startLine).from
   const blockTo = view.state.doc.line(info.endLine).to
 
+  if (action === 'auto-width') {
+    // 源码里没有内联宽度，只需清记忆（预览/即显下次渲染恢复自适应）
+    const key = lines[0]
+      ? lines[0]
+          .trim()
+          .replace(/^\|/, '')
+          .replace(/\|$/, '')
+          .split(/(?<!\\)\|/)
+          .map((c) => c.trim())
+          .join('\u0001')
+      : ''
+    clearColWidths(key)
+    return
+  }
+
   if (action === 'copy-table') {
     void writeClipboard(lines.join('\n'))
     return
@@ -115,7 +153,7 @@ function runCmTableAction(view: CmView, info: TableInfo, action: TableMenuAction
         l
           .trim()
           .replace(/^\|/, '')
-          .replace(/\|(?=[^|]*$)/, '') // 去尾管道（转义 \| 不受影响）
+          .replace(/\|$/, '')
           .split(/(?<!\\)\|/)
           .map((c) => c.trim())
           .join('\t')
@@ -156,7 +194,25 @@ function runCmTableAction(view: CmView, info: TableInfo, action: TableMenuAction
   view.focus()
 }
 
-/** 执行菜单动作（TableMenu.vue 调用） */
+/** 预览侧执行（只读视图：复制 / 列宽重置） */
+function runPreviewAction(table: HTMLTableElement, action: TableMenuAction): void {
+  if (action === 'auto-width') {
+    const key = headerKeyOf(table)
+    clearColWidths(key)
+    resetTableWidth(table)
+    return
+  }
+  if (action === 'copy-table') {
+    const lines: string[] = []
+    for (const row of Array.from(table.rows)) {
+      const cells = Array.from(row.cells).map((c) => (c.textContent ?? '').trim())
+      lines.push(`| ${cells.join(' | ')} |`)
+    }
+    void writeClipboard(lines.join('\n'))
+  }
+}
+
+/** 执行菜单动作（TableContextMenu.vue 调用） */
 export function runTableMenuAction(action: TableMenuAction): void {
   closeTableMenu()
   if (!target) return
@@ -164,6 +220,10 @@ export function runTableMenuAction(action: TableMenuAction): void {
   target = null
   if (tgt.kind === 'pm') {
     pmExecutor?.(action)
+    return
+  }
+  if (tgt.kind === 'preview') {
+    runPreviewAction(tgt.table, action)
     return
   }
   runCmTableAction(tgt.view, tgt.info, action)
@@ -189,8 +249,6 @@ function onContext(e: MouseEvent): void {
     }
     e.preventDefault()
     e.stopPropagation()
-    // 显式把光标落到点击单元格：行列操作按选区定位，真实右键虽由 Chromium
-    // 落位，但合成/异常路径不保证；落位失败（坐标无效）则保持原选区
     const hit = view.posAtCoords({ left: e.clientX, top: e.clientY })
     const pos = hit?.pos
     if (pos != null && pos >= 0 && pos <= view.state.doc.content.size) {
@@ -201,6 +259,15 @@ function onContext(e: MouseEvent): void {
       }
     }
     openTableMenu(e.clientX, e.clientY, true, true, { kind: 'pm' })
+    return
+  }
+
+  // 预览面板：只读，但列宽重置/复制可用
+  const pvTable = el.closest('.md-preview table')
+  if (pvTable instanceof HTMLTableElement) {
+    e.preventDefault()
+    e.stopPropagation()
+    openTableMenu(e.clientX, e.clientY, true, true, { kind: 'preview', table: pvTable })
     return
   }
 
@@ -235,4 +302,14 @@ function onContext(e: MouseEvent): void {
 
 export function initTableContextMenu(): void {
   window.addEventListener('contextmenu', onContext, true)
+}
+
+/** 供组件层查询「某表是否已有列宽记忆」（右键禁用态/工具提示用） */
+export function tableHasWidths(table: HTMLTableElement): boolean {
+  return !!getColWidths(headerKeyOf(table))
+}
+
+/** 即显侧装饰器刷新入口（供组件复用） */
+export function requestTableWidthsRefresh(view: PmView): void {
+  refreshTableWidths(view)
 }
