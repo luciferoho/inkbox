@@ -240,6 +240,7 @@ function onZenEsc(e: KeyboardEvent): void {
    悬停时显示「松开以打开」遮罩，替代系统默认的复制光标提示。 */
 const dragOverOpen = ref(false)
 const dragNames = ref<string[]>([])
+const dragCount = ref(0)
 let dragDepth = 0
 /** 兜底隐藏：拖拽离开事件可能丢失（拖出窗口/被系统取消），无 dragover 续命即收起 */
 let dragHideTimer = 0
@@ -250,6 +251,7 @@ function armDragHide(): void {
     dragDepth = 0
     dragOverOpen.value = false
     dragNames.value = []
+    dragCount.value = 0
   }, 1500)
 }
 
@@ -258,6 +260,7 @@ function resetDragHint(): void {
   dragDepth = 0
   dragOverOpen.value = false
   dragNames.value = []
+  dragCount.value = 0
 }
 
 function isDocPath(p: string): boolean {
@@ -278,12 +281,20 @@ function onWindowDragOver(e: DragEvent): void {
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
   dragOverOpen.value = true
   armDragHide()
-  // 拖入文件名的即时预览（dragover 阶段 items 只提供文件项）
-  const names = [...(e.dataTransfer?.items ?? [])]
+  // 拖入文件名的即时预览：优先 files（dragover 阶段部分环境已可用），
+  // 否则退化到 items；Chromium 在 dragover 阶段对 getAsFile 有限制时
+  // 至少用 items 数量给出「N 个文件」，落点后再 toast 列出实际打开的文件
+  const fileNames = [...(e.dataTransfer?.files ?? [])].map((f) => f.name).filter(Boolean)
+  const itemNames = [...(e.dataTransfer?.items ?? [])]
     .filter((it) => it.kind === 'file')
     .map((it) => it.getAsFile()?.name ?? '')
     .filter(Boolean)
+  const names = fileNames.length > 0 ? fileNames : itemNames
   if (names.length > 0) dragNames.value = names
+  else {
+    const itemCount = [...(e.dataTransfer?.items ?? [])].filter((it) => it.kind === 'file').length
+    dragCount.value = itemCount
+  }
 }
 
 function onWindowDragLeave(_e: DragEvent): void {
@@ -294,9 +305,10 @@ function onWindowDragLeave(_e: DragEvent): void {
 
 function onWindowDrop(e: DragEvent): void {
   if (!e.dataTransfer?.types.includes('Files')) return
-  resetDragHint()
   e.preventDefault() // 恒阻止默认导航（拖入任意文件都不应让窗口跳到 file:// 页）
   const files = [...e.dataTransfer.files]
+  const droppedNames = files.map((f) => f.name).filter(Boolean)
+  resetDragHint()
   if (files.length === 0) return
   const docPaths = window.api.win
     .pathsForFiles(files)
@@ -305,6 +317,14 @@ function onWindowDrop(e: DragEvent): void {
   e.stopPropagation()
   void (async () => {
     for (const p of docPaths) await docs.openPath(p)
+    // 落点后明确告知实际打开了哪些文件（dragover 阶段拿不到文件名时尤其需要）
+    const names = droppedNames.length > 0 ? droppedNames : docPaths.map((p) => p.split(/[\\/]/).pop() ?? p)
+    ui.showToast(
+      t('app.dropOpened', {
+        n: docPaths.length,
+        names: names.slice(0, 3).join('、') + (names.length > 3 ? '…' : '')
+      })
+    )
   })()
 }
 
@@ -402,6 +422,7 @@ async function handleRequestClose(): Promise<void> {
         <div v-if="dragNames.length" class="drop-hint-names">
           {{ dragNames.slice(0, 3).join('、') }}{{ dragNames.length > 3 ? ` 等 ${dragNames.length} 个文件` : '' }}
         </div>
+        <div v-else-if="dragCount > 0" class="drop-hint-names">{{ dragCount }} 个文件</div>
       </div>
     </div>
   </div>

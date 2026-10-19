@@ -16,6 +16,7 @@ export const zh = {
   // 关窗 / 应用级（App.vue）
   'app.exportNoDoc': '请先打开要导出的文档',
   'app.dropOpen': '松开以打开 Markdown / 文本文件',
+  'app.dropOpened': '已打开 {n} 个文件：{names}',
   'app.draftsRestored': '检测到异常退出，已恢复 {n} 份未保存的内容',
   'app.closeTitle': '有未保存的文档',
   'app.closeMsg': '还有 {n} 个文档未保存，未保存的内容已自动备份。',

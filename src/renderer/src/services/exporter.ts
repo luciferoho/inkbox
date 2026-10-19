@@ -267,6 +267,9 @@ body { background: #fff; padding: 0; }
   width: auto !important; white-space: normal !important;
   word-break: break-word; overflow-wrap: anywhere; padding: 4px 6px;
 }
+/* 打印产物不出现滚动条：代码块自动换行 */
+.md-preview pre { overflow: visible !important; white-space: pre-wrap; word-break: break-word; }
+.md-preview pre code { white-space: pre-wrap; }
 `
     : `
 body { background: var(--bg); padding: 40px 20px 64px; }
@@ -290,6 +293,22 @@ body { background: var(--bg); padding: 40px 20px 64px; }
   width: auto !important; white-space: normal !important;
   word-break: break-word; overflow-wrap: anywhere;
 }
+/* 暗色导出滚动条：跟随主题令牌，避免浏览器默认亮色滚动条刺眼 */
+.md-preview pre, .md-preview .md-table-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: ${theme === 'dark' ? '#5c564e' : '#c9c2b8'} transparent;
+}
+.md-preview pre::-webkit-scrollbar,
+.md-preview .md-table-wrap::-webkit-scrollbar { width: 8px; height: 8px; }
+.md-preview pre::-webkit-scrollbar-track,
+.md-preview .md-table-wrap::-webkit-scrollbar-track { background: transparent; }
+.md-preview pre::-webkit-scrollbar-thumb,
+.md-preview .md-table-wrap::-webkit-scrollbar-thumb {
+  background: ${theme === 'dark' ? '#5c564e' : '#c9c2b8'};
+  border-radius: 4px;
+}
+.md-preview pre::-webkit-scrollbar-corner,
+.md-preview .md-table-wrap::-webkit-scrollbar-corner { background: transparent; }
 `
 
   /* 关键：容器必须带 .md-preview，preview.css 的全部排版规则以它为前缀。
