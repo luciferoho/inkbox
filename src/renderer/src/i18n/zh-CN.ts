@@ -167,6 +167,8 @@ export const zh = {
   'table.alignRight': '此列右对齐',
   'table.alignNone': '恢复默认对齐',
   'table.deleteTable': '删除整个表格',
+  'table.copyTable': '复制表格',
+  'table.toText': '转为纯文本',
 
   // 块悬浮工具栏
   'block.bold': '加粗 (Ctrl+B)',
@@ -191,6 +193,7 @@ export const zh = {
   'img.delete': '删除图片',
   'img.copySrc': '复制图片地址',
   'img.srcCopied': '已复制图片地址',
+  'img.resize': '拖拽等比缩放（写入 |宽x高| 修饰符）',
   'img.ctxCopyImage': '复制图像',
   'img.ctxOpenDir': '打开图片所在目录',
   'img.ctxUploadPicgo': '转 PicGo 上传',
@@ -203,6 +206,16 @@ export const zh = {
   'editor.picgoUnreachable': '无法连接图床服务，请检查本地 PicGo 是否已启动；已回退本地保存',
 
   'editor.imagesInserted': '已插入 {n} 张图片到 {dir}/',
+  'editor.uploadAllNeedPicgo': '请先在设置中开启图床上传，再批量上传本地图片',
+  'editor.uploadAllNone': '文档中没有本地图片链接',
+  'editor.uploadAllDone': '已上传 {n} 张本地图片到图床',
+  'editor.uploadAllPartial': '已上传 {ok} 张，失败 {fail} 张（原链接保留）',
+
+  // Quick Open 快速打开
+  'qo.title': '快速打开',
+  'qo.placeholder': '输入文件名模糊搜索…',
+  'qo.noWorkspace': '先打开工作区文件夹，才能按文件名快速打开',
+  'qo.noMatch': '无匹配文件',
 
   // 大纲节点 / 文件树节点
   'outline.untitled': '（无标题文字）',
@@ -220,6 +233,9 @@ export const zh = {
   'sc.save': '保存',
   'sc.saveAs': '另存为',
   'sc.export': '导出文档',
+  'sc.insertImage': '插入图片',
+  'sc.uploadImages': '上传全部本地图片',
+  'sc.quickOpen': '快速打开',
   'sc.closeTab': '关闭标签页',
   'sc.workspaceSearch': '全局搜索（工作区）',  'sc.gView': '视图与模式',
   'sc.nextTab': '下一标签',

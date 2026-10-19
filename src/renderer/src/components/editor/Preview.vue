@@ -18,6 +18,33 @@ import { buildRegex, type FindQuery } from '@/find-shared'
 import { findState, sameQuery } from '@/editor/find-state'
 import { saveViewProgress, loadView } from '@/editor/tab-view-state'
 import { applyCachedImageSizes, rememberImgSize } from '@/editor/img-size-cache'
+import {
+  applyColWidths,
+  dragColumnWidth,
+  getColWidths,
+  hasColWidths,
+  headerKeyOf,
+  onColWidthsChanged,
+  setColWidths,
+} from '@/editor/table-widths'
+
+/** 列宽记忆恢复（2.2）：渲染完成后把共享记忆注入表头匹配的表格 */
+function applyStoredTableWidths(container: HTMLElement): void {
+  for (const el of Array.from(container.querySelectorAll('table'))) {
+    if (!(el instanceof HTMLTableElement) || hasColWidths(el)) continue
+    const w = getColWidths(headerKeyOf(el))
+    if (w) applyColWidths(el, w)
+  }
+}
+
+/** 预览侧列宽拖拽：与即显共享同一份记忆，拖完即显侧重渲染时自动跟随 */
+function onPreviewMouseDownTableWidths(e: MouseEvent): void {
+  if (e.button !== 0) return
+  const el = e.target as HTMLElement | null
+  const table = el?.closest?.('table')
+  if (!(table instanceof HTMLTableElement)) return
+  dragColumnWidth(table, e, (widths) => setColWidths(headerKeyOf(table), widths))
+}
 import FindBar from './FindBar.vue'
 import '@/assets/preview.css'
 
@@ -284,6 +311,7 @@ async function render(content: string): Promise<void> {
   if (nextHtml && body.value) swapPreviewHtml(body.value, nextHtml)
   applyBlankGaps() // 空行占位先插入，块映射与切签锚点才拿得到最终布局
   if (body.value) applyCachedImageSizes(body.value) // 图片占位尺寸先落位，块映射与切签锚点才不会按塌缩布局算
+  if (body.value) applyStoredTableWidths(body.value) // 列宽记忆（2.2）：与即显共享
   collectBlocks()
   applyPvFocus() // DOM 重建后重放双栏联动高亮（光标没动就不需要等下一次 emit）
   renderQueued = false
@@ -881,6 +909,16 @@ watch(
   }
 )
 
+/* 进入预览/双栏：面板可能一直挂载着没重渲染（内容未变），补一次列宽重放 */
+watch(
+  () => ui.editorMode,
+  async (m) => {
+    if (m !== 'preview' && m !== 'split') return
+    await nextTick()
+    if (body.value) applyStoredTableWidths(body.value)
+  }
+)
+
 /* ---------- 图片点击 → 查看器 ---------- */
 
 function onClickDom(e: MouseEvent): void {
@@ -892,6 +930,7 @@ function onClickDom(e: MouseEvent): void {
 }
 
 let resizeObserver: ResizeObserver | undefined
+let offTableWidths: (() => void) | null = null
 
 /** 图片加载完成会撑高预览（加载前 img 无高度，映射表按占位高度收集）：
     load 不冒泡，捕获委托重收集锚点，并按源码侧最近目标行把预览重新对齐，
@@ -918,6 +957,10 @@ function onImgLoad(e: Event): void {
 
 onMounted(() => {
   pullFind(docs.activeId, true) // 恢复当前标签共享的查找条状态
+  // 即显侧拖列宽（广播）→ 本侧重放；预览面板保持挂载时切模式也要重放
+  offTableWidths = onColWidthsChanged(() => {
+    if (body.value) applyStoredTableWidths(body.value)
+  })
   scroller.value?.addEventListener('scroll', onScrollDom, { passive: true })
   scroller.value?.addEventListener('click', onClickDom)
   scroller.value?.addEventListener('load', onImgLoad, { capture: true, passive: true })
@@ -928,6 +971,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  offTableWidths?.()
   pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   scroller.value?.removeEventListener('scroll', onScrollDom)
   scroller.value?.removeEventListener('click', onClickDom)
@@ -956,7 +1000,7 @@ onBeforeUnmount(() => {
       @nav="pvNav"
       @close="pvClose"
     />
-    <div ref="scroller" class="preview-scroll">
+    <div ref="scroller" class="preview-scroll" @mousedown.capture="onPreviewMouseDownTableWidths">
       <div v-if="html" ref="body" class="md-preview" />
       <div v-else class="preview-empty">{{ $t('preview.empty') }}</div>
     </div>
