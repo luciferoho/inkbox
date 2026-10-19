@@ -374,6 +374,10 @@ async function render(content: string): Promise<void> {
   // 避免被重新对齐到源码行造成「回弹」；切签/进模式由 anchorSuppressed 关闭
   const anchor = anchorSuppressed ? null : captureViewAnchor()
   anchorSuppressed = false
+  // 换 DOM 期间 scrollHeight 会短暂塌缩，scroll 事件可能把 scrollTop 钳到 0；
+  // 这种回声不能冒发给编辑器（否则源码跳到顶部 → 联动又把预览带回顶部）。
+  // 整段替换/恢复期间加锁，等落位完成后解锁。
+  lockUntil = Date.now() + 350
   await ensureMath(content)
   if (seq !== renderSeq) return
   const nextHtml = content.trim() ? renderWithDir(content, props.docDir) : ''

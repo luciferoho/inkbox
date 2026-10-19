@@ -256,8 +256,9 @@ export function createTableWidthsPlugin(getTabId: () => number | string | null):
             })
           )
           node.forEach((row, rowOffset) => {
-            row.forEach((cell, cellOffset) => {
-              const idx = cellOffset
+            row.forEach((cell, cellOffset, cellIndex) => {
+              // 第二个参数是行内容内的偏移（拼接位置用），列号必须取第三个参数
+              const idx = cellIndex
               if (idx >= widths.length) return
               const from = pos + 1 + rowOffset + 1 + cellOffset
               const to = from + cell.nodeSize
@@ -275,3 +276,4 @@ export function createTableWidthsPlugin(getTabId: () => number | string | null):
     },
   })
 }
+

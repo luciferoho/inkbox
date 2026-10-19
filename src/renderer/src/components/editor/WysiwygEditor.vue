@@ -689,7 +689,6 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
   const startX = e.clientX
   beginColResize()
   let active = false
-  let raf = 0
   let latest: number[] = startWidths
 
   const onMove = (ev: MouseEvent): void => {
@@ -701,17 +700,14 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
     const next = [...startWidths]
     next[col] = Math.max(24, Math.round(startWidths[col] + dx))
     latest = next
-    if (raf) return
-    raf = window.requestAnimationFrame(() => {
-      raf = 0
-      setColWidths(key, latest, true) // 本侧自己刷新装饰器，不触发广播
-      if (editor) refreshTableWidths(view)
-    })
+    // 每个 mousemove 立即应用：不依赖 rAF（窗口不可见/后台时 rAF 会被暂停，
+    // 拖拽会变成松手才生效）；PM 事务 + 装饰器重算在这个体量下足够轻
+    setColWidths(key, latest, true) // 本侧自己刷新装饰器，不触发广播
+    if (editor) refreshTableWidths(view)
   }
   const onUp = (): void => {
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
-    if (raf) window.cancelAnimationFrame(raf)
     endColResize()
     if (!active) return // 纯点击：不提交、不广播
     setColWidths(key, latest) // 松手广播：预览侧同步
