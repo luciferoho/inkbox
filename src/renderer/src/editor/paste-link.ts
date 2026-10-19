@@ -12,21 +12,26 @@ export function isHttpUrl(text: string): boolean {
   return /^https?:\/\/[^\s]+$/i.test(text.trim())
 }
 
-/** 选区文本作为链接文本：换行折叠为空格（markdown 行内链接文本惯例） */
+/** 选区文本作为链接文本：换行折叠为空格（markdown 行内链接文本惯例）；
+ *  `[` `]` 转义，避免选中的文字自带方括号时链接语法被截断 */
 export function linkTextFromSelection(text: string): string {
-  return text.replace(/\s+/g, ' ').trim()
+  return text.replace(/\s+/g, ' ').trim().replace(/\[/g, '\\[').replace(/\]/g, '\\]')
 }
 
-/** 即显侧粘贴 URL 插件：选区非空时把选区包成链接 */
+/** 即显侧粘贴 URL 插件：选区非空且在同一文本块内时把选区包成链接 */
 export function createPasteLinkPlugin(): Plugin {
   return new Plugin({
     props: {
       handlePaste: (view, event) => {
-        const text = event.clipboardData?.getData('text/plain')?.trim() ?? ''
+        const raw = event.clipboardData?.getData('text/plain') ?? ''
+        // 地址栏/终端复制常带首尾空白或换行
+        const text = raw.trim()
         if (!isHttpUrl(text)) return false
         const { state } = view
-        const { from, to, empty } = state.selection
+        const { from, to, empty, $from, $to } = state.selection
         if (empty) return false
+        // 跨块选区无法直接替换为行内文本（Transaction 会破坏结构），交回默认粘贴
+        if (!$from.sameParent($to)) return false
         const mark = state.schema.marks.link?.create({ href: text })
         if (!mark) return false
         const linkText = linkTextFromSelection(state.doc.textBetween(from, to, ' '))

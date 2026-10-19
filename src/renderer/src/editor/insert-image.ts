@@ -103,6 +103,13 @@ export async function insertImageFromDisk(): Promise<void> {
     ui.showToast(t('editor.saveFirstForImage'))
     return
   }
+  // 打开原生对话框前清掉可能残留的拖拽样式：列宽/图片拖拽若在窗口外松开，
+  // mouseup 丢失会让 document 上的 col-resize/禁用选择一直保留，
+  // 原生对话框期间表现为光标状态异常（看不到指针位置）
+  document.documentElement.style.removeProperty('cursor')
+  document.documentElement.style.removeProperty('user-select')
+  ;(document.activeElement as HTMLElement | null)?.blur?.()
+  await new Promise((r) => window.setTimeout(r, 30))
   const src = await window.api.dialog.openImage()
   if (!src) return
   const name = src.split(/[\\/]/).pop() ?? 'image'

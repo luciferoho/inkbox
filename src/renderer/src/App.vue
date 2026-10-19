@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'
+import { onMounted, onBeforeUnmount, nextTick, defineAsyncComponent, ref } from 'vue'
 import type { MenuCommand, UpdateStatePayload } from '@shared/types'
 import { t } from '@/i18n'
 import { canonicalizeContent } from '@/services/markdown'
+import { isOpenablePath } from '@/services/openable'
 import { useUiStore } from '@/stores/ui'
 import { initImageContextMenu } from '@/editor/image-context-menu'
 import { initTableContextMenu } from '@/editor/table-context-menu'
@@ -209,14 +210,21 @@ onMounted(() => {
   // 禅模式 Esc 退出（弹层/查看器打开时让位给它们的 Esc 处理）
   window.addEventListener('keydown', onZenEsc)
   // 拖文档文件进窗口打开（capture 先于编辑器的图片 drop 处理）
+  window.addEventListener('dragenter', onWindowDragEnter, true)
   window.addEventListener('dragover', onWindowDragOver, true)
+  window.addEventListener('dragleave', onWindowDragLeave, true)
   window.addEventListener('drop', onWindowDrop, true)
+  window.addEventListener('dragend', resetDragHint, true)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onZenEsc)
+  window.removeEventListener('dragenter', onWindowDragEnter, true)
   window.removeEventListener('dragover', onWindowDragOver, true)
+  window.removeEventListener('dragleave', onWindowDragLeave, true)
   window.removeEventListener('drop', onWindowDrop, true)
+  window.removeEventListener('dragend', resetDragHint, true)
+  window.clearTimeout(dragHideTimer)
 })
 
 /** 禅模式下的 Esc：无任何弹层时退出禅模式 */
@@ -226,24 +234,67 @@ function onZenEsc(e: KeyboardEvent): void {
   ui.toggleZen()
 }
 
-/* ---------- 拖 .md/.html 文件进窗口打开（支持多文件） ----------
+/* ---------- 拖文档文件进窗口打开（支持多文件） ----------
    capture 阶段拦在编辑器 drop 处理之前：编辑器只接管图片文件，文档文件归这里。
-   窗口内标签拖拽带的是自定义 MIME 载荷而非 Files，不会误入此路径。 */
-const OPENABLE_EXTS = ['.md', '.markdown', '.html', '.htm']
+   窗口内标签拖拽带的是自定义 MIME 载荷而非 Files，不会误入此路径。
+   悬停时显示「松开以打开」遮罩，替代系统默认的复制光标提示。 */
+const dragOverOpen = ref(false)
+const dragNames = ref<string[]>([])
+let dragDepth = 0
+/** 兜底隐藏：拖拽离开事件可能丢失（拖出窗口/被系统取消），无 dragover 续命即收起 */
+let dragHideTimer = 0
+
+function armDragHide(): void {
+  window.clearTimeout(dragHideTimer)
+  dragHideTimer = window.setTimeout(() => {
+    dragDepth = 0
+    dragOverOpen.value = false
+    dragNames.value = []
+  }, 1500)
+}
+
+function resetDragHint(): void {
+  window.clearTimeout(dragHideTimer)
+  dragDepth = 0
+  dragOverOpen.value = false
+  dragNames.value = []
+}
 
 function isDocPath(p: string): boolean {
-  const lower = p.toLowerCase()
-  return OPENABLE_EXTS.some((ext) => lower.endsWith(ext))
+  return isOpenablePath(p)
+}
+
+function onWindowDragEnter(e: DragEvent): void {
+  if (!e.dataTransfer?.types.includes('Files')) return
+  dragDepth++
+  dragOverOpen.value = true
+  armDragHide()
 }
 
 function onWindowDragOver(e: DragEvent): void {
   if (!e.dataTransfer?.types.includes('Files')) return
-  // 允许 drop（否则 Chromium 判定不可放置）；dropEffect 不影响编辑器各自的处理
+  // 允许 drop（否则 Chromium 判定不可放置）；copy 让系统光标显示可放置
   e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+  dragOverOpen.value = true
+  armDragHide()
+  // 拖入文件名的即时预览（dragover 阶段 items 只提供文件项）
+  const names = [...(e.dataTransfer?.items ?? [])]
+    .filter((it) => it.kind === 'file')
+    .map((it) => it.getAsFile()?.name ?? '')
+    .filter(Boolean)
+  if (names.length > 0) dragNames.value = names
+}
+
+function onWindowDragLeave(_e: DragEvent): void {
+  // 离开事件的 dataTransfer 可能为空，不能按类型过滤（否则遮罩残留）
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) resetDragHint()
 }
 
 function onWindowDrop(e: DragEvent): void {
   if (!e.dataTransfer?.types.includes('Files')) return
+  resetDragHint()
   e.preventDefault() // 恒阻止默认导航（拖入任意文件都不应让窗口跳到 file:// 页）
   const files = [...e.dataTransfer.files]
   if (files.length === 0) return
@@ -340,5 +391,57 @@ async function handleRequestClose(): Promise<void> {
     <ConfirmDialog />
     <QuickOpen />
     <Toast />
+    <!-- 外部文档拖入提示：替代系统默认的复制提示，明确「松开即打开」 -->
+    <div v-if="dragOverOpen" class="drop-hint">
+      <div class="drop-hint-card">
+        <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 8V6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+          <path d="M12 11v6M9 14l3 3 3-3" />
+        </svg>
+        <div class="drop-hint-title">{{ $t('app.dropOpen') }}</div>
+        <div v-if="dragNames.length" class="drop-hint-names">
+          {{ dragNames.slice(0, 3).join('、') }}{{ dragNames.length > 3 ? ` 等 ${dragNames.length} 个文件` : '' }}
+        </div>
+      </div>
+    </div>
   </div>
 </template>
+
+<style>
+.drop-hint {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.drop-hint-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 26px 40px;
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--accent-strong);
+  box-shadow: 0 12px 32px rgba(15, 12, 9, 0.22);
+}
+
+.drop-hint-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.drop-hint-names {
+  max-width: 420px;
+  color: var(--text-2);
+  font-size: 12px;
+  text-align: center;
+  word-break: break-all;
+}
+</style>

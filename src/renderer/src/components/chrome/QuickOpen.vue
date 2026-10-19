@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useUiStore } from '@/stores/ui'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useDocumentsStore } from '@/stores/documents'
+import { isOpenablePath } from '@/services/openable'
 import { t } from '@/i18n'
 
 /**
@@ -19,6 +20,8 @@ const query = ref('')
 const active = ref(0)
 const inputEl = ref<HTMLInputElement | null>(null)
 const listEl = ref<HTMLElement | null>(null)
+/** 输入法组合状态：组合中不响应 Enter/方向键（否则中文输入会被当作确认打开） */
+const composing = ref(false)
 
 /* 键盘导航时保持激活项可见 */
 watch(active, async () => {
@@ -77,9 +80,11 @@ interface Hit {
 
 const hits = computed<Hit[]>(() => {
   const q = query.value.trim()
-  const all = ws.allFiles
+  // 与工作区文件树同一份可打开类型（md/markdown/mdown/txt）：
+  // 图片/资源等不可打开文件不进入候选，避免「筛出来点不开」
+  const all = ws.allFiles.filter(isOpenablePath)
   if (!q) {
-    // 空查询：按最近文件时间序（allFiles 本身是树序），直接给前 50
+    // 空查询：直接给前 50（allFiles 为树序）
     return all.slice(0, 50).map((p) => ({ path: p, name: baseName(p), rel: relPath(p), score: 0 }))
   }
   const scored: Hit[] = []
@@ -124,6 +129,8 @@ function openHit(hit?: Hit): void {
 }
 
 function onKeydown(e: KeyboardEvent): void {
+  // 中文输入法组合中（候选窗未上屏）不抢 Enter/方向键
+  if (e.isComposing || composing.value) return
   if (e.key === 'Escape') {
     e.preventDefault()
     ui.quickOpenOpen = false
@@ -152,6 +159,8 @@ function onKeydown(e: KeyboardEvent): void {
           :placeholder="$t('qo.placeholder')"
           spellcheck="false"
           @keydown="onKeydown"
+          @compositionstart="composing = true"
+          @compositionend="composing = false"
         />
         <div v-if="!ws.root" class="qo-hint">{{ $t('qo.noWorkspace') }}</div>
         <div v-else-if="hits.length === 0" class="qo-hint">{{ $t('qo.noMatch') }}</div>

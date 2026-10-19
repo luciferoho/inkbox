@@ -207,6 +207,24 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+/** 去掉列宽拖拽固化的内联宽度/布局样式：列宽是视图态，导出产物必须自适应。
+ *  在 HTML 字符串层再兜一次（调用方可能直接传预览 innerHTML，未经 ExportDialog 清洗） */
+function stripTableWidthStyles(html: string): string {
+  if (!/table|width\s*:/i.test(html)) return html
+  const doc = new DOMParser().parseFromString(`<div id="root">${html}</div>`, 'text/html')
+  const root = doc.getElementById('root')
+  if (!root) return html
+  root.querySelectorAll('table, th, td').forEach((el) => {
+    const s = el as HTMLElement
+    s.style.removeProperty('width')
+    s.style.removeProperty('min-width')
+    s.style.removeProperty('max-width')
+    s.style.removeProperty('table-layout')
+    if (!s.getAttribute('style')) s.removeAttribute('style')
+  })
+  return root.innerHTML
+}
+
 export interface BuildExportOptions {
   /** true = 打印/PDF 用：白底、打印密度、分页保护 */
   forPrint?: boolean
@@ -221,7 +239,7 @@ export async function buildExportHtml(
 ): Promise<string> {
   const [katexInlined, body] = await Promise.all([
     inlineKatexFonts(katexCss),
-    inlineImages(previewHtml)
+    inlineImages(stripTableWidthStyles(previewHtml))
   ])
 
   /* 打印密度：A4 上 16px 正文太稀，落到 13px / 1.65 行距。
@@ -242,6 +260,13 @@ body { background: #fff; padding: 0; }
 .md-preview pre, .md-preview .mermaid, .md-preview table,
 .md-preview blockquote, .md-preview .math-block, .md-preview img { break-inside: avoid; }
 .md-preview p, .md-preview li { orphans: 2; widows: 2; }
+/* 超宽表格：打印页宽固定，强制自适应换行（导出不应出现横向裁切） */
+.md-preview .md-table-wrap { overflow: visible; max-width: 100%; }
+.md-preview table { width: 100% !important; table-layout: auto !important; font-size: 10.5px; }
+.md-preview th, .md-preview td {
+  width: auto !important; white-space: normal !important;
+  word-break: break-word; overflow-wrap: anywhere; padding: 4px 6px;
+}
 `
     : `
 body { background: var(--bg); padding: 40px 20px 64px; }
@@ -257,6 +282,13 @@ body { background: var(--bg); padding: 40px 20px 64px; }
 .md-preview img { cursor: default; }
 .md-preview tr:nth-child(even) td {
   background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+}
+/* 超宽表格：导出页宽固定，去掉预览的横向滚动与拖拽宽度，自适应换行 */
+.md-preview .md-table-wrap { overflow: visible; max-width: 100%; }
+.md-preview table { width: 100% !important; table-layout: auto !important; }
+.md-preview th, .md-preview td {
+  width: auto !important; white-space: normal !important;
+  word-break: break-word; overflow-wrap: anywhere;
 }
 `
 

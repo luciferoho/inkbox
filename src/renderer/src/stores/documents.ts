@@ -11,6 +11,18 @@ import sampleDoc from '@samples/示例.md?raw'
 /** 主页（欢迎页）标签的固定 id */
 export const HOME_ID = 0
 
+/** 路径比较归一：不同来源（工作区树 / Quick Open / 拖放 / 跨窗口）混用 / 与 \，
+ *  Windows 下大小写不敏感；不归一会导致同一文件被重复打开成两个标签 */
+export function normalizePath(p: string): string {
+  const s = p.replace(/[\\/]+/g, '\\').replace(/\\$/, '')
+  return /^[A-Za-z]:/.test(s) ? s.toLowerCase() : s
+}
+
+export function samePath(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false
+  return normalizePath(a) === normalizePath(b)
+}
+
 export interface DocTab {
   id: number
   path: string | null
@@ -164,7 +176,7 @@ export const useDocumentsStore = defineStore('documents', {
       await this.importHtml(path)
       return
     }
-    const existing = this.tabs.find((t) => t.path === path)
+    const existing = this.tabs.find((t) => samePath(t.path, path))
       if (existing) {
         this.activeId = existing.id
         return
@@ -389,7 +401,7 @@ export const useDocumentsStore = defineStore('documents', {
 
     /** 外部修改（fs:fileChanged）：内容比对后决定静默重载 / 询问 / 忽略自身保存 */
     async handleExternalChange(path: string): Promise<void> {
-      const tab = this.tabs.find((t) => t.path === path)
+      const tab = this.tabs.find((t) => samePath(t.path, path))
       if (!tab) return
       const ui = useUiStore()
       let disk: string
@@ -430,7 +442,7 @@ export const useDocumentsStore = defineStore('documents', {
     restoreDrafts(list: DraftPayload[]): void {
       let last = -1
       for (const d of list) {
-        if (d.path && this.tabs.some((t) => t.path === d.path)) continue // 同文件已打开
+        if (d.path && this.tabs.some((t) => samePath(t.path, d.path))) continue // 同文件已打开
         const tab: DocTab = {
           id: nextId++,
           path: d.path,
@@ -472,7 +484,7 @@ export const useDocumentsStore = defineStore('documents', {
     /** 跨窗口拖入：把别的窗口拖来的标签接到本窗口（index 为空 = 追加到最后）。
      *  同文件已在本窗口时更新其内容并激活（拖动编辑版优先），不再开重复标签 */
     adoptDoc(doc: DetachDoc, index: number | null): void {
-      const existing = doc.path ? this.tabs.find((t) => t.path === doc.path) : undefined
+      const existing = doc.path ? this.tabs.find((t) => samePath(t.path, doc.path)) : undefined
       if (existing) {
         if (existing.content !== doc.content) {
           existing.content = doc.content
@@ -501,7 +513,7 @@ export const useDocumentsStore = defineStore('documents', {
 
     /** 其他窗口请求激活本窗口中该文件的标签（跨窗口去重） */
     activateByPath(path: string): void {
-      const tab = this.tabs.find((t) => t.path === path)
+      const tab = this.tabs.find((t) => samePath(t.path, path))
       if (tab) this.activate(tab.id)
     },
 
@@ -544,7 +556,7 @@ export const useDocumentsStore = defineStore('documents', {
           for (const { session } of ordered) {
             for (const p of session.tabs) {
               if (draftPaths.has(p)) continue
-              if (this.tabs.some((t) => t.path === p)) continue
+              if (this.tabs.some((t) => samePath(t.path, p))) continue
               await this.openPath(p)
             }
           }
@@ -553,7 +565,7 @@ export const useDocumentsStore = defineStore('documents', {
             const m = t.path ? modes[t.path] : undefined
             if (m) t.mode = m as EditorMode
           }
-          const activeTab = firstActive ? this.tabs.find((t) => t.path === firstActive) : null
+          const activeTab = firstActive ? this.tabs.find((t) => samePath(t.path, firstActive)) : null
           if (activeTab) this.activate(activeTab.id)
         }
         await window.api.session.clearOthers(this.windowKey)
