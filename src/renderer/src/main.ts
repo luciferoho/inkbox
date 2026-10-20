@@ -170,6 +170,7 @@ function installBrowserMock(): void {
       }),
       // 浏览器 mock：没有应用菜单可挂起，改键录制的加速键防护为空操作
       setShortcutsCapture: () => undefined,
+      setThemeBackground: () => undefined,
       debugMenuAccels: async () => ({}),
       debugMenuInvoke: async () => false,
       // 窗口私有偏好：localStorage 按窗口键背书，浏览器里可跨重载验证

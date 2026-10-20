@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
@@ -72,7 +72,12 @@ function normalizeAppearance(raw: unknown): NonNullable<AppConfig['appearance']>
   if (!raw || typeof raw !== 'object') return { ...def }
   const r = raw as Record<string, unknown>
   const str = (v: unknown): string => (typeof v === 'string' ? v : '')
-  return { themeCss: str(r.themeCss), bodyFont: str(r.bodyFont), codeFont: str(r.codeFont) }
+  return {
+    themeCss: str(r.themeCss),
+    themeVariant: str(r.themeVariant) || 'auto',
+    bodyFont: str(r.bodyFont),
+    codeFont: str(r.codeFont)
+  }
 }
 
 function load(): AppConfig {
@@ -119,6 +124,20 @@ function load(): AppConfig {
 /** 主进程内读取当前配置（窗口关闭行为等原生逻辑用，与渲染层 IPC 共享缓存） */
 export function getConfig(): AppConfig {
   return load()
+}
+
+/** 窗口底色（创建时/主题切换后）：避免深色主题启动时先闪一帧浅色；
+ *  精确的主题底色由渲染层 apply 完成后经 app:themeBackground 回写。 */
+export function themeBackgroundColor(): string {
+  const pref = cache?.theme ?? 'system'
+  const dark = pref === 'dark' || (pref === 'system' && nativeTheme.shouldUseDarkColors)
+  return dark ? '#1D1814' : '#F6F2EC'
+}
+
+export function applyWindowBackground(color: string): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.setBackgroundColor(color)
+  }
 }
 
 function persist(): void {
@@ -184,6 +203,12 @@ export function registerConfigIpc(): void {
   applyLoginItem()
 
   ipcMain.handle('app:getConfig', () => load())
+
+  /** 渲染层应用主题后回写真实底色（主题 CSS 可把窗口刷成任意颜色）：
+   *  窗口背景与内容一致，切换/resize 时不再闪出默认浅色边 */
+  ipcMain.on('app:themeBackground', (_e, color: unknown) => {
+    if (typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)) applyWindowBackground(color)
+  })
 
   ipcMain.handle('app:setConfig', (_e, patch: Partial<AppConfig>) => {
     const prev = load()

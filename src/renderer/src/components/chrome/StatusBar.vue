@@ -4,6 +4,7 @@ import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
 import { textStats } from '@/utils/text'
 import { t } from '@/i18n'
+import { shortcutTitle } from '@/services/shortcut-title'
 
 const ui = useUiStore()
 const docs = useDocumentsStore()
@@ -46,7 +47,7 @@ const saveLabel = computed(() => {
       <button
         class="badge toggle"
         :class="{ on: ui.focusMode }"
-        :title="$t('status.focusTitle')"
+        :title="shortcutTitle('view:toggleFocus', $t('status.focusTitle'))"
         @click="ui.toggleFocus()"
       >
         {{ $t('status.focus') }}
@@ -54,7 +55,7 @@ const saveLabel = computed(() => {
       <button
         class="badge toggle"
         :class="{ on: ui.typewriterMode }"
-        :title="$t('status.typewriterTitle')"
+        :title="shortcutTitle('view:toggleTypewriter', $t('status.typewriterTitle'))"
         @click="ui.toggleTypewriter()"
       >
         {{ $t('status.typewriter') }}

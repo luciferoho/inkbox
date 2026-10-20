@@ -53,6 +53,10 @@
   /* 文档内容字族（M3 设置页可覆盖，默认回落上面两族；外观服务写根节点行内样式） */
   --font-body: var(--font-ui);
   --font-code: var(--font-mono);
+  /* 行内代码（主题可覆盖：Typora 的 --inline-code-* / --bg-inline-code） */
+  --inline-code-bg: var(--surface-2);
+  --inline-code-fg: inherit;
+  --inline-code-border: transparent;
 
   /* 排版偏好（设置页实时覆盖：ui.applyEditorPrefs） */
   --preview-font-size: 16px;

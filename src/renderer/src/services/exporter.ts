@@ -144,7 +144,13 @@ ${CODE_TOKENS_DARK}
 const EXPORT_TOKENS_COMMON = `
 * { box-sizing: border-box; margin: 0; padding: 0; }
 /* 文档字族回落（M3）：外部主题/用户 CSS 覆盖 --font-body/--font-code 即生效 */
-:root { --font-body: var(--font-ui); --font-code: var(--font-mono); }
+:root {
+  --font-body: var(--font-ui);
+  --font-code: var(--font-mono);
+  --inline-code-bg: var(--surface-2);
+  --inline-code-fg: inherit;
+  --inline-code-border: transparent;
+}
 `
 
 function bufToBase64(buf: ArrayBuffer): string {

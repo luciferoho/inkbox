@@ -1,10 +1,12 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import { join } from 'node:path'
 import type { DetachDoc, InitialDoc } from '@shared/types'
+import { accelFromEvent, effectiveShortcuts, normalizeForCompare } from '@shared/shortcuts'
 import { clearSession, isSessionCrashed } from './session'
 import { releaseWindowDocs } from './docRegistry'
 import { isQuitting } from './tray'
-import { getConfig } from './ipc/config'
+import { isMenuSuspended } from './menu'
+import { getConfig, themeBackgroundColor } from './ipc/config'
 
 /** 窗口键（w1、w2…）：草稿按窗口隔离；重启后从 1 重新计数，旧草稿归首个窗口接管 */
 let nextWindowSeq = 1
@@ -35,7 +37,7 @@ export function createAppWindow(doc?: DetachDoc): BrowserWindow {
     // 原创设计：自绘一体化标题栏（见 DESIGN.md），Windows 先行
     frame: false,
     show: false,
-    backgroundColor: '#F6F2EC',
+    backgroundColor: themeBackgroundColor(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -63,6 +65,31 @@ export function createAppWindow(doc?: DetachDoc): BrowserWindow {
     crashed: windowKey === 'w1' && isSessionCrashed()
   })
   windowKeys.set(win.webContents.id, windowKey)
+
+  // 应用内快捷键统一在 main 拦截：命中即 preventDefault（页面默认行为与系统菜单加速器都不再走），
+  // 由主进程转发 menu:command。避免按键在页面/菜单/外部程序之间重复消费。
+  // 注意：QQ 闪传这类**系统级全局热键**在输入到达窗口前就被系统取走，应用无法拦截，
+  // 只能避开该组合（默认主题快捷键已改为 Ctrl+Alt+Shift+T，可在设置里改键）。
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || input.isAutoRepeat) return
+    if (isMenuSuspended()) return // 改键录制中：放行原始按键给渲染层捕获
+    const accel = accelFromEvent({
+      key: input.key,
+      ctrlKey: input.control,
+      altKey: input.alt,
+      shiftKey: input.shift,
+      metaKey: input.meta
+    })
+    if (!accel) return
+    const norm = normalizeForCompare(accel)
+    const map = effectiveShortcuts(getConfig().shortcuts)
+    for (const [id, value] of Object.entries(map)) {
+      if (!value || normalizeForCompare(value) !== norm) continue
+      event.preventDefault()
+      win.webContents.send('menu:command', id)
+      return
+    }
+  })
 
   // 「最小化到托盘」：点关闭仅隐藏窗口（正在退出时放行），配置即时生效
   win.on('close', (e) => {
