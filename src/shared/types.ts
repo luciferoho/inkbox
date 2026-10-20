@@ -39,8 +39,25 @@ export interface AppConfig {
   plugins?: {
     disabled: string[]
   }
+  /** 外观扩展（M3）：外部 CSS 主题 + 字体族。字段为空串 = 用内置默认 */
+  appearance?: {
+    /** 主题样式文件名（userData/themes/<name>.css 的 name，不含扩展名） */
+    themeCss?: string
+    /** 正文字体族（CSS font-family 值，作用于文档内容） */
+    bodyFont?: string
+    /** 代码字体族（CSS font-family 值，作用于代码块/行内代码） */
+    codeFont?: string
+  }
   /** 最近文件，新的在前 */
   recent: RecentFile[]
+}
+
+/** userData/themes 下发现的外部 CSS 主题（M3） */
+export interface ThemeInfo {
+  /** 显示名（不含 .css 扩展名） */
+  name: string
+  /** 文件名（含 .css，theme:readCss 参数） */
+  file: string
 }
 
 /** 插件清单（userData/plugins/<目录>/plugin.json） */
@@ -108,6 +125,7 @@ export const defaultConfig: AppConfig = {
   upload: { enabled: false, server: 'http://127.0.0.1:36677/upload' },
   vimMode: false,
   plugins: { disabled: [] },
+  appearance: { themeCss: '', bodyFont: '', codeFont: '' },
   recent: []
 }
 

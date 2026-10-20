@@ -50,6 +50,9 @@
   --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
   --font-mono: 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
   --font-serif: Georgia, 'Source Serif SC', 'Noto Serif SC', 'Times New Roman', serif;
+  /* 文档内容字族（M3 设置页可覆盖，默认回落上面两族；外观服务写根节点行内样式） */
+  --font-body: var(--font-ui);
+  --font-code: var(--font-mono);
 
   /* 排版偏好（设置页实时覆盖：ui.applyEditorPrefs） */
   --preview-font-size: 16px;

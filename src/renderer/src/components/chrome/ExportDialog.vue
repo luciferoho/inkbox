@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
 import { buildExportHtml } from '@/services/exporter'
+import { exportExtraCss } from '@/services/appearance'
 import { mdToLaTeX } from '@/services/latex'
 import { t } from '@/i18n'
 // pdf.js 按需加载 + 独立 worker 资源（Electron iframe 内嵌 PDF 查看器不可靠，自渲染最稳）
@@ -212,7 +213,7 @@ async function regenerate(): Promise<void> {
   const seq = ++genSeq
   generating.value = true
   try {
-    const html = await buildExportHtml(tab.name, body, { forPrint: fmt.value === 'pdf', theme: exportTheme.value })
+    const html = await buildExportHtml(tab.name, body, { forPrint: fmt.value === 'pdf', theme: exportTheme.value, extraCss: await exportExtraCss() })
     if (seq !== genSeq) return
     if (fmt.value === 'pdf') {
       const b64 = await window.api.export.previewPdf(html, {
@@ -276,7 +277,7 @@ async function doExport(): Promise<void> {
   }
   busy.value = true
   try {
-    const html = await buildExportHtml(tab.name, body, { forPrint: fmt.value === 'pdf', theme: exportTheme.value })
+    const html = await buildExportHtml(tab.name, body, { forPrint: fmt.value === 'pdf', theme: exportTheme.value, extraCss: await exportExtraCss() })
     if (fmt.value === 'html') {
       const path = await window.api.dialog.saveFile(`${name}.html`, 'html')
       if (!path) return

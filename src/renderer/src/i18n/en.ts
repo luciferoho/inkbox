@@ -444,5 +444,16 @@ export const en: MsgSchema = {
   'settings.autosaveSilent': 'Silent save',
   'settings.autosaveSilentHint': 'No "saved" toast on autosave; manual save (Ctrl+S) always notifies',
   'settings.interval': 'Interval',
-  'settings.sec': '{n} s'
+  'settings.sec': '{n} s',
+  /* M3 appearance */
+  'settings.themeCss': 'Theme style',
+  'settings.themeDefault': 'Built-in (paper)',
+  'settings.openThemesDir': 'Open themes folder',
+  'settings.themeCssHint': 'CSS files in the themes folder override design tokens; common Typora theme variables are supported.',
+  'settings.bodyFont': 'Body font',
+  'settings.codeFont': 'Code font',
+  'settings.fontHint': 'A CSS font-family value; leave empty for the default.',
+  'settings.userCss': 'Custom CSS',
+  'settings.openUserCss': 'Open base.user.css',
+  'settings.userCssHint': 'Global custom stylesheet, applied instantly to all windows.'
 }

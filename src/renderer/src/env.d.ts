@@ -97,6 +97,14 @@ interface Window {
       readCode(id: string): Promise<string | null>
       openDir(): Promise<void>
     }
+    theme: {
+      list(): Promise<import('@shared/types').ThemeInfo[]>
+      readCss(file: string): Promise<string | null>
+      openDir(): Promise<void>
+      userCssPath(): Promise<string>
+      readUserCss(): Promise<string>
+      openUserCss(): Promise<void>
+    }
     win: {
       minimize(): void
       toggleMaximize(): void

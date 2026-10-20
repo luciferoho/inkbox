@@ -190,6 +190,19 @@ const api = {
     /** 打开（不存在则创建）插件目录 */
     openDir: (): Promise<void> => ipcRenderer.invoke('plugin:openDir')
   },
+  /** 外部 CSS 主题与全局自定义样式（M3） */
+  theme: {
+    list: (): Promise<import('@shared/types').ThemeInfo[]> => ipcRenderer.invoke('theme:list'),
+    /** 读取主题 CSS 内容（文件名限 themes 目录内白名单名） */
+    readCss: (file: string): Promise<string | null> => ipcRenderer.invoke('theme:readCss', file),
+    /** 打开（不存在则创建）主题目录 */
+    openDir: (): Promise<void> => ipcRenderer.invoke('theme:openDir'),
+    /** 用户自定义样式表绝对路径（userData/base.user.css） */
+    userCssPath: (): Promise<string> => ipcRenderer.invoke('userCss:path'),
+    readUserCss: (): Promise<string> => ipcRenderer.invoke('userCss:read'),
+    /** 打开（不存在则创建）用户样式表 */
+    openUserCss: (): Promise<void> => ipcRenderer.invoke('userCss:open')
+  },
   win: {
     minimize: (): void => ipcRenderer.send('win:minimize'),
     toggleMaximize: (): void => ipcRenderer.send('win:toggleMaximize'),

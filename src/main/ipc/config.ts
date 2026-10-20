@@ -66,6 +66,15 @@ function normalizePlugins(raw: unknown): AppConfig['plugins'] {
   return { disabled }
 }
 
+/** 外观扩展（M3）：字段都只收字符串，非法/缺省回空串（= 内置默认） */
+function normalizeAppearance(raw: unknown): NonNullable<AppConfig['appearance']> {
+  const def = defaultConfig.appearance!
+  if (!raw || typeof raw !== 'object') return { ...def }
+  const r = raw as Record<string, unknown>
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '')
+  return { themeCss: str(r.themeCss), bodyFont: str(r.bodyFont), codeFont: str(r.codeFont) }
+}
+
 function load(): AppConfig {
   if (cache) return cache
   try {
@@ -84,6 +93,7 @@ function load(): AppConfig {
       shortcuts: normalizeShortcuts(raw.shortcuts),
       upload: normalizeUpload(raw.upload),
       plugins: normalizePlugins(raw.plugins),
+      appearance: normalizeAppearance(raw.appearance),
       recent: normalizeRecent(raw.recent)
     }
     // 旧版把纸宽/侧栏宽存在全局 config：迁入 w1 的窗口偏好（一次性，读不到就跳过）
@@ -183,7 +193,8 @@ export function registerConfigIpc(): void {
       editor: { ...prev.editor, ...patch.editor },
       autosave: { ...prev.autosave, ...patch.autosave },
       upload: { ...prev.upload, ...patch.upload },
-      plugins: patch.plugins ?? prev.plugins
+      plugins: patch.plugins ?? prev.plugins,
+      appearance: { ...prev.appearance, ...patch.appearance }
     }
     persist()
     if (patch.openAtLogin !== undefined && patch.openAtLogin !== prev.openAtLogin) applyLoginItem()

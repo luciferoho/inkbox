@@ -106,7 +106,9 @@ export const useUiStore = defineStore('ui', {
     /* 窗口私有偏好：各窗口尺寸不同，纸宽/侧栏宽独立调整、不同步 */
     winPrefs: { pageWidthPct: 80, sidebarWidth: 264 } as WindowPrefs,
     /* 纸宽滑杆的动态最小值（保证纸面不窄于 620px，随窗口/侧栏状态变化） */
-    pageWidthMinPct: 50
+    pageWidthMinPct: 50,
+    /* 外观扩展（M3）：外部 CSS 主题 + 字体族；'' = 内置默认 */
+    appearance: { themeCss: '', bodyFont: '', codeFont: '' }
   }),
   actions: {
     /** 跳过指定更新版本：不再自动提示（设置里手动检查不受影响） */
@@ -141,8 +143,12 @@ export const useUiStore = defineStore('ui', {
       this.vimMode = cfg.vimMode ?? false
       this.pluginsDisabled = cfg.plugins?.disabled ?? []
       this.editorPrefs = { ...cfg.editor }
+      const a = cfg.appearance ?? {}
+      this.appearance = { themeCss: a.themeCss ?? '', bodyFont: a.bodyFont ?? '', codeFont: a.codeFont ?? '' }
       this.applyTheme()
       this.applyEditorPrefs()
+      // 外观扩展（M3）：外部主题 CSS/字体族/用户 CSS；异步注入，不阻塞首帧
+      void import('@/services/appearance').then((m) => m.applyAppearanceConfig(cfg))
       // 插件发现/禁用表可能变了：动态 import 避免与 pluginHost 形成模块环
       void import('@/services/pluginHost').then((m) => m.syncPlugins())
     },
@@ -193,6 +199,12 @@ export const useUiStore = defineStore('ui', {
       this.editorPrefs = { ...this.editorPrefs, ...patch }
       this.applyEditorPrefs()
       await window.api.app.setConfig({ editor: { ...this.editorPrefs } })
+    },
+    /** 外观扩展（M3）：主题样式/字体族。广播后各窗口 applyConfig 重注入 */
+    async setAppearance(patch: Partial<AppConfig['appearance']>): Promise<void> {
+      this.appearance = { ...this.appearance, ...patch }
+      // 代理过不了 IPC 结构化克隆，必须展开成普通对象（同 setEditorPrefs）
+      await window.api.app.setConfig({ appearance: { ...this.appearance } })
     },
     /** 纸面宽度（窗口私有，不广播）：立即生效并按窗口键持久化 */
     async setPageWidth(pageWidthPct: number): Promise<void> {

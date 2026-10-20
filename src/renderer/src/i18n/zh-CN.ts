@@ -442,7 +442,18 @@ export const zh = {
   'settings.autosaveSilent': '静默保存',
   'settings.autosaveSilentHint': '自动保存成功时不弹「已保存」提示；手动保存（Ctrl+S）始终提示',
   'settings.interval': '保存间隔',
-  'settings.sec': '{n} 秒'
+  'settings.sec': '{n} 秒',
+  /* M3 外观扩展 */
+  'settings.themeCss': '主题样式',
+  'settings.themeDefault': '内置（墨匣纸面）',
+  'settings.openThemesDir': '打开主题目录',
+  'settings.themeCssHint': 'themes 目录里的 .css 文件，覆盖设计令牌即可换肤；兼容常见 Typora 主题变量。',
+  'settings.bodyFont': '正文字体',
+  'settings.codeFont': '代码字体',
+  'settings.fontHint': '填 CSS font-family 值，留空用默认。',
+  'settings.userCss': '自定义 CSS',
+  'settings.openUserCss': '打开 base.user.css',
+  'settings.userCssHint': '全局自定义样式，保存后即时生效，对所有窗口生效。',
 } as const
 
 /** 词典形状：键必须逐一对齐，值放宽为 string（en.ts 缺键/多键都在编译期报错） */

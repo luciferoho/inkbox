@@ -23,6 +23,28 @@ const THEMES: { key: ThemePref; labelKey: string }[] = [
   { key: 'dark', labelKey: 'settings.thDark' }
 ]
 
+/* ---------- M3 外观扩展：外部 CSS 主题 / 字体族 / 自定义 CSS ---------- */
+const themeFiles = ref<{ name: string; file: string }[]>([])
+async function reloadThemes(): Promise<void> {
+  themeFiles.value = await window.api.theme.list()
+}
+// 每次打开设置都刷新一次（用户可能刚往目录里放了新主题）
+watch(
+  () => ui.settingsOpen,
+  (open) => {
+    if (open) void reloadThemes()
+  }
+)
+function pickTheme(name: string): void {
+  void ui.setAppearance({ themeCss: name })
+}
+function openThemesDir(): void {
+  void window.api.theme.openDir()
+}
+function openUserCss(): void {
+  void window.api.theme.openUserCss()
+}
+
 const LOCALES: { key: LocalePref; labelKey?: string; label?: string }[] = [
   { key: 'system', labelKey: 'settings.lSystem' },
   { key: 'zh-CN', label: '简体中文' },
@@ -225,6 +247,43 @@ function checkUpdate(): void {
                 </button>
               </div>
             </div>
+
+            <!-- 主题样式与字体（M3） -->
+            <h3 class="group-title">{{ $t('settings.themeCss') }}</h3>
+            <div class="row">
+              <span class="label">{{ $t('settings.themeCss') }}</span>
+              <select class="theme-select" :value="ui.appearance.themeCss" @change="pickTheme(($event.target as HTMLSelectElement).value)">
+                <option value="">{{ $t('settings.themeDefault') }}</option>
+                <option v-for="th in themeFiles" :key="th.file" :value="th.name">{{ th.name }}</option>
+              </select>
+              <button class="link-btn" @click="openThemesDir">{{ $t('settings.openThemesDir') }}</button>
+            </div>
+            <p class="row-hint">{{ $t('settings.themeCssHint') }}</p>
+            <div class="row">
+              <span class="label">{{ $t('settings.bodyFont') }}</span>
+              <input
+                class="font-input"
+                type="text"
+                :value="ui.appearance.bodyFont"
+                :placeholder="$t('settings.fontHint')"
+                @change="ui.setAppearance({ bodyFont: ($event.target as HTMLInputElement).value.trim() })"
+              />
+            </div>
+            <div class="row">
+              <span class="label">{{ $t('settings.codeFont') }}</span>
+              <input
+                class="font-input"
+                type="text"
+                :value="ui.appearance.codeFont"
+                :placeholder="$t('settings.fontHint')"
+                @change="ui.setAppearance({ codeFont: ($event.target as HTMLInputElement).value.trim() })"
+              />
+            </div>
+            <div class="row">
+              <span class="label">{{ $t('settings.userCss') }}</span>
+              <button class="link-btn" @click="openUserCss">{{ $t('settings.openUserCss') }}</button>
+            </div>
+            <p class="row-hint">{{ $t('settings.userCssHint') }}</p>
 
             <!-- 排版 -->
             <h3 class="group-title">{{ $t('settings.gLayout') }}</h3>
@@ -688,6 +747,45 @@ function checkUpdate(): void {
   padding: 2px;
   border-radius: var(--radius-m);
   background: var(--surface-2);
+}
+
+/* M3：外部主题选择 / 字体输入 / 目录跳转按钮 */
+.theme-select {
+  min-width: 200px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.font-input {
+  flex: 1;
+  max-width: 360px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.font-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.link-btn {
+  padding: 4px 10px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--accent-strong);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.link-btn:hover {
+  background: var(--accent-soft);
 }
 
 .segmented button {

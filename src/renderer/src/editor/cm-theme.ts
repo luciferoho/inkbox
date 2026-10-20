@@ -14,7 +14,7 @@ const luciBase = EditorView.theme({
     height: '100%'
   },
   '.cm-scroller': {
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-code)',
     fontSize: 'var(--editor-font-size, 13.5px)',
     lineHeight: 'var(--editor-line-height, 1.75)'
   },

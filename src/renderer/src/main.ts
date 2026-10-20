@@ -201,6 +201,15 @@ function installBrowserMock(): void {
       readCode: async () => null,
       openDir: async () => undefined
     },
+    theme: {
+      // 浏览器 mock：无主题目录，恒为空表；用户 CSS 恒为空
+      list: async () => [],
+      readCss: async () => null,
+      openDir: async () => undefined,
+      userCssPath: async () => 'mock://base.user.css',
+      readUserCss: async () => '',
+      openUserCss: async () => undefined
+    },
     update: (() => {
       // 浏览器 mock：模拟完整更新流程（available → downloading → downloaded）
       // notes 用 GitHub 渲染后的 HTML 形态（electron-updater 实际行为）,验证 HTML→markdown 转换
