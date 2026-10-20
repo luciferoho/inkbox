@@ -124,9 +124,10 @@ export function applyTableOp(
 
   switch (op.kind) {
     case 'row-above': {
-      const at = idx <= 1 ? 2 : idx
-      lines.splice(at, 0, emptyRow())
-      return { lines, cursorLine: at, cursorCol: Math.min(info.colIndex, colCount - 1) }
+      // 表头/分隔行之上不可插入（菜单已禁用；直接调用也按不可执行处理）
+      if (idx <= 1) return null
+      lines.splice(idx, 0, emptyRow())
+      return { lines, cursorLine: idx, cursorCol: Math.min(info.colIndex, colCount - 1) }
     }
     case 'row-below': {
       const at = idx <= 1 ? 2 : idx + 1

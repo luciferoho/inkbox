@@ -121,6 +121,13 @@ export const md: MarkdownIt = MarkdownItDefault({
   .use(footnote)
   .use(emoji)
 
+/* 表格外套横向滚动容器：窄窗口/超宽表格不压扁内容，改为容器内横向滚动；
+   列宽拖拽（2.2）注入的固定 px 宽度也由该容器承接溢出 */
+md.renderer.rules.table_open = (tokens, idx, options, _env, self) =>
+  `<div class="md-table-wrap">${self.renderToken(tokens, idx, options)}`
+md.renderer.rules.table_close = (tokens, idx, options, _env, self) =>
+  `${self.renderToken(tokens, idx, options)}</div>`
+
 /* 行内 HTML 白名单（ROADMAP 1.9）：html:false 下原文一律转义，仅白名单内的
    标签放行为真实元素（与即显侧 wysiwyg-extensions 的白名单一致），其余照旧转义。
    不做配对校验：未闭合标签由浏览器就近闭合，行为与 Typora 一致 */

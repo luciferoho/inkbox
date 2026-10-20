@@ -18,6 +18,62 @@ import { buildRegex, type FindQuery } from '@/find-shared'
 import { findState, sameQuery } from '@/editor/find-state'
 import { saveViewProgress, loadView } from '@/editor/tab-view-state'
 import { applyCachedImageSizes, rememberImgSize } from '@/editor/img-size-cache'
+import {
+  applyColWidths,
+  dragColumnWidth,
+  getColWidths,
+  hasColWidths,
+  headerKeyOf,
+  hitColumnBoundary,
+  onColWidthsChanged,
+  resetTableWidth,
+  setColWidths,
+  tableKey,
+} from '@/editor/table-widths'
+
+/** 列宽记忆恢复/清除（2.2）：渲染完成后把共享记忆注入表头匹配的表格；
+ *  键 = 标签 + 文档内表格序号 + 表头，同名表头的表格互不影响 */
+function applyStoredTableWidths(container: HTMLElement): void {
+  const tables = Array.from(container.querySelectorAll('table'))
+  tables.forEach((el, index) => {
+    if (!(el instanceof HTMLTableElement)) return
+    const w = getColWidths(tableKey(docs.activeId ?? 'x', index, headerKeyOf(el)))
+    if (w) applyColWidths(el, w)
+    else if (hasColWidths(el)) resetTableWidth(el)
+  })
+}
+
+/** 表头列边界 hover 光标（与即显同款，rAF 节流） */
+let pvCursorRaf = 0
+function onPreviewMouseMoveTableCursor(e: MouseEvent): void {
+  if (pvCursorRaf) return
+  const x = e.clientX
+  const target = e.target as HTMLElement | null
+  pvCursorRaf = window.requestAnimationFrame(() => {
+    pvCursorRaf = 0
+    const table = target?.closest?.('table')
+    if (!(table instanceof HTMLTableElement)) {
+      scroller.value?.style.removeProperty('cursor')
+      return
+    }
+    if (hitColumnBoundary(table, x) !== null)
+      scroller.value?.style.setProperty('cursor', 'col-resize')
+    else scroller.value?.style.removeProperty('cursor')
+  })
+}
+
+/** 预览侧列宽拖拽：与即显共享同一份记忆，拖完即显侧重渲染时自动跟随 */
+function onPreviewMouseDownTableWidths(e: MouseEvent): void {
+  if (e.button !== 0) return
+  const el = e.target as HTMLElement | null
+  const table = el?.closest?.('table')
+  if (!(table instanceof HTMLTableElement)) return
+  const tables = Array.from(body.value?.querySelectorAll('table') ?? [])
+  const index = tables.indexOf(table)
+  dragColumnWidth(table, e, (widths) =>
+    setColWidths(tableKey(docs.activeId ?? 'x', index, headerKeyOf(table)), widths)
+  )
+}
 import FindBar from './FindBar.vue'
 import '@/assets/preview.css'
 
@@ -51,6 +107,86 @@ let renderSeq = 0
 let renderQueued = false
 /** 待恢复的共享浏览进度（0..1）；null = 无待恢复。同一文档所有模式共用一份进度 */
 let pendingFrac: number | null = null
+/** 下一次渲染是否禁用「内容锚点保持」（切标签/进模式时按进度或编辑器联动落位） */
+let anchorSuppressed = false
+
+/** 视口顶部的内容锚点：块行号 + 块内像素偏移。
+ *  纯内容重渲染后按「同一块的同一像素偏移」恢复，避免回弹/跳动 */
+type ViewAnchor = { kind: 'top' } | { kind: 'bottom' } | { kind: 'block'; line: number; offset: number }
+
+function captureViewAnchor(): ViewAnchor | null {
+  const el = scroller.value
+  if (!el || el.offsetParent === null || blocks.length === 0) return null
+  if (el.scrollTop <= 2) return { kind: 'top' }
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 4) return { kind: 'bottom' }
+  let i = 0
+  for (let k = 0; k < blocks.length; k++) {
+    if (blocks[k].top <= el.scrollTop) i = k
+    else break
+  }
+  const cur = blocks[i]
+  return { kind: 'block', line: cur.line, offset: Math.round(el.scrollTop - cur.top) }
+}
+
+function restoreViewAnchor(a: ViewAnchor): void {
+  const el = scroller.value
+  if (!el) return
+  if (a.kind === 'top') {
+    el.scrollTop = 0
+    return
+  }
+  if (a.kind === 'bottom') {
+    el.scrollTop = el.scrollHeight
+    return
+  }
+  // 找行号相同（或其后最近的）块，保留块内像素偏移；找不到时按行号插值兜底
+  let target = blocks[0]
+  for (const b of blocks) {
+    if (b.line <= a.line) target = b
+    else break
+  }
+  if (!target) return
+  el.scrollTop = Math.max(0, target.top + a.offset)
+  lockUntil = Date.now() + 120 // 程序落位期间忽略滚动回声
+}
+
+/** 光标行可见性跟随：把行号按块内行跨度插值成块内 Y 坐标，再判断是否可见。
+ *  大块（如整张表格）不能按块底判断——否则光标在表头时会把表尾滚进视口 */
+function ensureLineVisible(line: number): void {
+  const el = scroller.value
+  if (!el || el.offsetParent === null || blocks.length === 0) return
+  let target = blocks[0]
+  for (const b of blocks) {
+    if (b.line <= line) target = b
+    else break
+  }
+  if (!target) return
+  const span = Math.max(1, target.end - target.line)
+  const f = Math.min(1, Math.max(0, (line - target.line) / span))
+  const y = target.top + f * target.height
+  const viewTop = el.scrollTop
+  const viewH = el.clientHeight
+  const margin = 24
+  if (y >= viewTop + 8 && y <= viewTop + viewH - margin) return
+  // 目标行不可见：放到视口上约 1/3 处，让上下文可见
+  const maxTop = Math.max(0, el.scrollHeight - viewH)
+  el.scrollTop = Math.max(0, Math.min(maxTop, y - viewH * 0.34))
+  lockUntil = Date.now() + 120
+}
+
+let caretEnsureTimer = 0
+/* 源码光标/内容变化（同一行连续输入也会触发）→ 稍等渲染完成后保证该行在预览视口内 */
+watch(
+  () => ui.caretSeq,
+  () => {
+    if (ui.editorMode !== 'split') return
+    const line = ui.currentLine
+    window.clearTimeout(caretEnsureTimer)
+    caretEnsureTimer = window.setTimeout(() => {
+      if (ui.editorMode === 'split') ensureLineVisible(line)
+    }, 220)
+  }
+)
 
 /* ---------- 图片尺寸缓存：共享实现见 editor/img-size-cache.ts ---------- */
 
@@ -272,6 +408,14 @@ function swapPreviewHtml(container: HTMLElement, nextHtml: string): void {
 
 async function render(content: string): Promise<void> {
   const seq = ++renderSeq
+  // 纯内容重渲染（输入触发）前记录视口锚点：换 DOM 后按内容位置恢复，
+  // 避免被重新对齐到源码行造成「回弹」；切签/进模式由 anchorSuppressed 关闭
+  const anchor = anchorSuppressed ? null : captureViewAnchor()
+  anchorSuppressed = false
+  // 换 DOM 期间 scrollHeight 会短暂塌缩，scroll 事件可能把 scrollTop 钳到 0；
+  // 这种回声不能冒发给编辑器（否则源码跳到顶部 → 联动又把预览带回顶部）。
+  // 整段替换/恢复期间加锁，等落位完成后解锁。
+  lockUntil = Date.now() + 350
   await ensureMath(content)
   if (seq !== renderSeq) return
   const nextHtml = content.trim() ? renderWithDir(content, props.docDir) : ''
@@ -284,10 +428,12 @@ async function render(content: string): Promise<void> {
   if (nextHtml && body.value) swapPreviewHtml(body.value, nextHtml)
   applyBlankGaps() // 空行占位先插入，块映射与切签锚点才拿得到最终布局
   if (body.value) applyCachedImageSizes(body.value) // 图片占位尺寸先落位，块映射与切签锚点才不会按塌缩布局算
+  if (body.value) applyStoredTableWidths(body.value) // 列宽记忆（2.2）：与即显共享
   collectBlocks()
   applyPvFocus() // DOM 重建后重放双栏联动高亮（光标没动就不需要等下一次 emit）
   renderQueued = false
-  applyPendingScroll() // 切签滚动恢复：内容 DOM 换完即落位（mermaid 异步只改局部高度）
+  if (pendingFrac !== null) applyPendingScroll() // 切签滚动恢复：DOM 换完即落位
+  else if (anchor) restoreViewAnchor(anchor) // 输入触发重渲染：保持原内容锚点
   await renderMermaid()
   // 内容重渲染重置了 DOM，开着查找就重扫；恢复标签状态后的首次重扫不滚动定位
   if (findOpen.value) {
@@ -834,6 +980,7 @@ watch(
     }
     pendingFrac = loadView(id)?.frac ?? null
     lastSyncLine = null
+    anchorSuppressed = true // 切签按进度落位，不保留上一标签的视口锚点
     pullFind(id, true)
     void nextTick(() => {
       if (!renderQueued) applyPendingScroll() // 内容相同没有重渲染排队时也要落位
@@ -848,6 +995,7 @@ watch(
   () => ui.editorMode,
   (m) => {
     if (m !== 'preview' && m !== 'split') return
+    anchorSuppressed = true // 进入可见模式按共享进度落位，不保留隐藏期的旧锚点
     // 读进度必须延迟到 nextTick：同一 flush 里「离开中的窗格」的落袋保存
     // 发生在父组件渲染期间（v-if 卸载的 beforeUnmount），watcher 触发时它
     // 还没执行——此刻读会拿到上一次的旧值甚至空值
@@ -881,6 +1029,16 @@ watch(
   }
 )
 
+/* 进入预览/双栏：面板可能一直挂载着没重渲染（内容未变），补一次列宽重放 */
+watch(
+  () => ui.editorMode,
+  async (m) => {
+    if (m !== 'preview' && m !== 'split') return
+    await nextTick()
+    if (body.value) applyStoredTableWidths(body.value)
+  }
+)
+
 /* ---------- 图片点击 → 查看器 ---------- */
 
 function onClickDom(e: MouseEvent): void {
@@ -892,6 +1050,7 @@ function onClickDom(e: MouseEvent): void {
 }
 
 let resizeObserver: ResizeObserver | undefined
+let offTableWidths: (() => void) | null = null
 
 /** 图片加载完成会撑高预览（加载前 img 无高度，映射表按占位高度收集）：
     load 不冒泡，捕获委托重收集锚点，并按源码侧最近目标行把预览重新对齐，
@@ -918,6 +1077,11 @@ function onImgLoad(e: Event): void {
 
 onMounted(() => {
   pullFind(docs.activeId, true) // 恢复当前标签共享的查找条状态
+  // 即显侧拖列宽（广播）→ 本侧重放；预览面板保持挂载时切模式也要重放
+  offTableWidths = onColWidthsChanged(() => {
+    if (body.value) applyStoredTableWidths(body.value)
+  })
+  scroller.value?.addEventListener('mousemove', onPreviewMouseMoveTableCursor, { passive: true })
   scroller.value?.addEventListener('scroll', onScrollDom, { passive: true })
   scroller.value?.addEventListener('click', onClickDom)
   scroller.value?.addEventListener('load', onImgLoad, { capture: true, passive: true })
@@ -928,6 +1092,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  offTableWidths?.()
+  scroller.value?.removeEventListener('mousemove', onPreviewMouseMoveTableCursor)
   pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   scroller.value?.removeEventListener('scroll', onScrollDom)
   scroller.value?.removeEventListener('click', onClickDom)
@@ -956,7 +1122,7 @@ onBeforeUnmount(() => {
       @nav="pvNav"
       @close="pvClose"
     />
-    <div ref="scroller" class="preview-scroll">
+    <div ref="scroller" class="preview-scroll" @mousedown.capture="onPreviewMouseDownTableWidths">
       <div v-if="html" ref="body" class="md-preview" />
       <div v-else class="preview-empty">{{ $t('preview.empty') }}</div>
     </div>

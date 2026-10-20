@@ -182,11 +182,19 @@
   vertical-align: -1.5px;
 }
 
-/* 表格 */
+/* 表格：外层横向滚动容器（窄窗口不压扁内容）+ 内容自适应宽度 */
+.md-preview .md-table-wrap {
+  max-width: 100%;
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 .md-preview table {
   border-collapse: collapse;
-  margin: 1em 0;
-  width: 100%;
+  margin: 0;
+  width: max-content;
+  min-width: 100%;
   font-size: 0.94em;
 }
 .md-preview th,
@@ -194,6 +202,8 @@
   border: 1px solid var(--border);
   padding: 6px 12px;
   text-align: left;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .md-preview th {
   background: var(--surface-2);

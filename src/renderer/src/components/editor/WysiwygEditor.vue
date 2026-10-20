@@ -21,16 +21,18 @@ import {
   addRowAfterCommand,
   addColBeforeCommand,
   addColAfterCommand,
-  setAlignCommand,
   selectRowCommand,
   selectColCommand,
   selectTableCommand,
-  deleteSelectedCellsCommand
+  deleteSelectedCellsCommand,
+  goToNextTableCellCommand,
+  goToPrevTableCellCommand
 } from '@milkdown/kit/preset/gfm'
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { history } from '@milkdown/kit/plugin/history'
 import { replaceAll, $prose, callCommand } from '@milkdown/kit/utils'
 import { NodeSelection, TextSelection, type EditorState } from '@milkdown/kit/prose/state'
+import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { lift } from '@milkdown/kit/prose/commands'
 import { liftListItem, sinkListItem } from '@milkdown/kit/prose/schema-list'
@@ -51,7 +53,25 @@ import { findState, sameQuery } from '@/editor/find-state'
 import { saveViewProgress, loadView } from '@/editor/tab-view-state'
 import { applyCachedImageSizes, rememberImgSize } from '@/editor/img-size-cache'
 import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
-import { createElementToolbar, type ElToolbarState } from '@/editor/pm-element-toolbar'
+import { createPasteLinkPlugin } from '@/editor/paste-link'
+import { createHeadingFoldPlugin } from '@/editor/pm-heading-fold'
+import {
+  beginColResize,
+  clearColWidths,
+  createTableWidthsPlugin,
+  endColResize,
+  headerKeyOf,
+  hitColumnBoundary,
+  normalizeWidthsToTable,
+  onColWidthsChanged,
+  refreshTableWidths,
+  setColWidths,
+  tableKey,
+  widthsFromDom,
+} from '@/editor/table-widths'
+import { registerPmTableExecutor, type TableMenuAction } from '@/editor/table-context-menu'
+import { writeClipboard } from '@/editor/code-copy'
+import { createElementToolbar, findTableSelection, type ElToolbarState } from '@/editor/pm-element-toolbar'
 import { createCodeblockChromePlugin } from '@/editor/pm-codeblock-chrome'
 import { createCodeHighlightPlugin } from '@/editor/pm-code-highlight'
 import { createQuoteEscapePlugin } from '@/editor/pm-quote-escape'
@@ -215,6 +235,15 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   if (event.key === 'Tab') {
     // 始终拦截:普通段落放行 Tab 会被浏览器抢走焦点(跳到状态栏按钮)
     event.preventDefault()
+    // 表格单元格：Tab/Shift+Tab 跳到下/上一个单元格（prosemirror-tables 命令）
+    if (inTable(state)) {
+      if (editor) {
+        elTable(
+          callCommand((event.shiftKey ? goToPrevTableCellCommand : goToNextTableCellCommand).key)
+        )
+      }
+      return true
+    }
     if (!inCodeBlock(state)) {
       const itemType = state.schema.nodes.list_item
       if (inListItem(state) && itemType) {
@@ -641,6 +670,107 @@ const findProse = $prose(() => createFindPlugin())
 const centerProsePlugin = $prose(() => createCenterPlugin())
 // 图片粘贴/拖拽:占位图 → 上传 → 原地换链接（与源码模式共用上传链路）
 const wysiwygImagePlugin = $prose(() => createWysiwygImagePlugin())
+// 粘贴 http(s) URL 到选区 → 包成链接（无选区/非 URL 走默认粘贴）
+const pasteLinkPlugin = $prose(() => createPasteLinkPlugin())
+// 标题折叠（2.9）
+const headingFoldPlugin = $prose(() => createHeadingFoldPlugin())
+// 表格列宽记忆恢复（2.2）
+const tableWidthsPlugin = $prose(() => createTableWidthsPlugin(() => tabId))
+
+/** 表格列边界按下（捕获阶段，先于 PM 自身的 mousedown 处理）：进入列宽拖拽。
+ *  即显侧不能直接写表格 DOM（PM 的 DOM 观察器会把 style 变更当文档变更 →
+ *  事务 → 重绘抹掉写入 → 恢复 → 死循环），所以实时宽度也走记忆 + 装饰器重绘。 */
+function onHostMouseDownTableWidths(e: MouseEvent): void {
+  if (e.button !== 0) return
+  const el = e.target as HTMLElement | null
+  const table = el?.closest?.('table')
+  if (!(table instanceof HTMLTableElement)) return
+  const view = getView()
+  if (!view) return
+  const col = hitColumnBoundary(table, e.clientX)
+  if (col === null) return
+  const measured = widthsFromDom(table)
+  if (!measured) return
+  // 边界按下即进入拖拽态：阻止默认行为，避免拖动过程选中表格文字
+  e.preventDefault()
+  e.stopPropagation()
+  const startWidths = normalizeWidthsToTable(table, measured)
+  const tableIndex = Array.from(view.dom.querySelectorAll('table')).indexOf(table)
+  const key = tableKey(tabId ?? 'x', tableIndex, headerKeyOf(table))
+  const startX = e.clientX
+  beginColResize()
+  let active = false
+  let latest: number[] = startWidths
+
+  const onMove = (ev: MouseEvent): void => {
+    const dx = ev.clientX - startX
+    if (!active) {
+      if (Math.abs(dx) < 3) return // 阈值内视为点击：不改布局
+      active = true
+    }
+    const next = [...startWidths]
+    next[col] = Math.max(24, Math.round(startWidths[col] + dx))
+    latest = next
+    // 每个 mousemove 立即应用：不依赖 rAF（窗口不可见/后台时 rAF 会被暂停，
+    // 拖拽会变成松手才生效）；PM 事务 + 装饰器重算在这个体量下足够轻
+    setColWidths(key, latest, true) // 本侧自己刷新装饰器，不触发广播
+    if (editor) refreshTableWidths(view)
+  }
+  const onUp = (): void => {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    endColResize()
+    if (!active) return // 纯点击：不提交、不广播
+    setColWidths(key, latest) // 松手广播：预览侧同步
+    if (editor) refreshTableWidths(view)
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
+/** 表头列边界 hover：光标变 col-resize（el-table 手感）；rAF 节流避免每次移动查布局 */
+let cursorRaf = 0
+function onHostMouseMoveTableCursor(e: MouseEvent): void {
+  if (cursorRaf) return
+  const x = e.clientX
+  const target = e.target as HTMLElement | null
+  cursorRaf = window.requestAnimationFrame(() => {
+    cursorRaf = 0
+    const table = target?.closest?.('table')
+    if (!(table instanceof HTMLTableElement)) {
+      host.value?.style.removeProperty('cursor')
+      return
+    }
+    const col = hitColumnBoundary(table, x)
+    if (col !== null) host.value?.style.setProperty('cursor', 'col-resize')
+    else host.value?.style.removeProperty('cursor')
+  })
+}
+
+/** 右键「自适应宽度」：清记忆并刷新装饰器（标签 + 表格序号 + 表头定位） */
+function resetWysiwygTableWidths(): void {
+  const view = getView()
+  if (!view) return
+  const $h = view.state.selection.$head
+  for (let d = $h.depth; d > 0; d--) {
+    if ($h.node(d).type.name !== 'table') continue
+    const tablePos = $h.before(d)
+    const firstRow = $h.node(d).firstChild
+    const parts: string[] = []
+    firstRow?.forEach((cell) => parts.push(cell.textContent.trim()))
+    let idx = -1
+    let found = -1
+    view.state.doc.descendants((node, pos) => {
+      if (node.type.name !== 'table') return true
+      idx++
+      if (pos === tablePos) found = idx
+      return false
+    })
+    if (found >= 0) clearColWidths(tableKey(tabId ?? 'x', found, parts.join('\u0001')))
+    break
+  }
+  refreshTableWidths(view)
+}
 // 图片/表格点击 → 元素工具条(浮层数据源)
 const elToolbar = ref<ElToolbarState | null>(null)
 const elToolbarPlugin = $prose(() =>
@@ -808,8 +938,99 @@ function elImageMods(next: ImageMods | ((cur: ImageMods) => ImageMods)): void {
   })
 }
 
-function elImageDelete(): void {
+/* ---------- 图片拖拽缩放（ROADMAP 2.4）----------
+   手柄贴图片右下角；拖动期间直接改 img style 实时预览（等比：只改宽度），
+   松手一次性提交 |WxH| 修饰符（宽=拖动宽度，高=按当前渲染比例），单事务可撤销 */
+/** 拖拽中的实时矩形（手柄跟随；松手清空，回到工具条数据源） */
+const resizeRect = ref<{ x: number; y: number; w: number; h: number } | null>(null)
+
+const resizeHandleStyle = computed(() => {
+  const r = resizeRect.value ?? (elToolbar.value?.kind === 'image' ? elToolbar.value.rect : null)
+  if (!r) return {}
+  return { left: `${r.x + r.w - 5}px`, top: `${r.y + r.h - 5}px` }
+})
+
+interface ResizeCtx {
+  startX: number
+  startW: number
+  ratio: number
+  imgEl: HTMLImageElement
+  pos: number
+  clean: string
+  mods: ImageMods
+}
+let resizeCtx: ResizeCtx | null = null
+let offTableWidths: (() => void) | null = null
+
+function onImageResizeStart(e: MouseEvent): void {
   const t = elToolbar.value
+  if (!t || t.kind !== 'image') return
+  const view = getView()
+  const node = view?.state.doc.nodeAt(t.pos)
+  const imgEl = view?.nodeDOM(t.pos)
+  if (!view || !node || !(imgEl instanceof HTMLImageElement)) return
+  const rect = imgEl.getBoundingClientRect()
+  if (rect.width < 1) return
+  const { mods, clean } = parseAltMods(String(node.attrs.alt ?? ''))
+  resizeCtx = {
+    startX: e.clientX,
+    startW: rect.width,
+    ratio: rect.height / rect.width,
+    imgEl,
+    pos: t.pos,
+    clean,
+    mods,
+  }
+  resizeRect.value = { ...t.rect }
+  window.addEventListener('mousemove', onImageResizeMove)
+  window.addEventListener('mouseup', onImageResizeEnd)
+}
+
+function onImageResizeMove(e: MouseEvent): void {
+  const ctx = resizeCtx
+  if (!ctx) return
+  const w = Math.min(4000, Math.max(24, Math.round(ctx.startW + (e.clientX - ctx.startX))))
+  ctx.imgEl.style.width = `${w}px`
+  ctx.imgEl.style.height = 'auto' // 等比：高度交给图片自身比例
+  // 手柄跟随：拖动期间工具条数据不会更新（无事务），按图片当前视口矩形
+  // 重算内容坐标——居中/右对齐图片放大时左缘会移动，不能沿用按下时的 x/y
+  const hostEl = host.value
+  if (hostEl) {
+    const ir = ctx.imgEl.getBoundingClientRect()
+    const hr = hostEl.getBoundingClientRect()
+    resizeRect.value = {
+      x: ir.left - hr.left + hostEl.scrollLeft,
+      y: ir.top - hr.top + hostEl.scrollTop,
+      w: ir.width,
+      h: ir.height,
+    }
+  }
+}
+
+function onImageResizeEnd(): void {
+  window.removeEventListener('mousemove', onImageResizeMove)
+  window.removeEventListener('mouseup', onImageResizeEnd)
+  const ctx = resizeCtx
+  resizeCtx = null
+  resizeRect.value = null
+  if (!ctx) return
+  const w = Math.round(parseFloat(ctx.imgEl.style.width) || 0)
+  if (w < 24) return
+  const h = Math.max(1, Math.round(w * ctx.ratio))
+  const next: ImageMods = { ...ctx.mods, width: `${w}px`, height: `${h}px` }
+  withView((view) => {
+    const node = view.state.doc.nodeAt(ctx.pos)
+    if (!node || node.type.name !== 'image') return
+    const alt = buildAltMods(ctx.clean, next)
+    if (alt === String(node.attrs.alt)) return
+    const tr = view.state.tr.setNodeMarkup(ctx.pos, undefined, { ...node.attrs, alt })
+    // 与工具条同款：保持图片选中，防工具条闪没
+    tr.setSelection(NodeSelection.create(tr.doc, ctx.pos))
+    view.dispatch(tr)
+  })
+}
+
+function elImageDelete(): void {  const t = elToolbar.value
   if (!t || t.kind !== 'image') return
   withView((view) => {
     const node = view.state.doc.nodeAt(t.pos)
@@ -823,22 +1044,13 @@ function elTable(action: Parameters<Editor['action']>[0]): void {
   if (editor) editor.action(action)
 }
 function elTableAddRow(before: boolean): void {
+  const t = elToolbar.value
+  // 表头之上不允许插入（与右键菜单一致）
+  if (before && t && t.row === 0) return
   elTable(callCommand((before ? addRowBeforeCommand : addRowAfterCommand).key))
 }
 function elTableAddCol(left: boolean): void {
   elTable(callCommand((left ? addColBeforeCommand : addColAfterCommand).key))
-}
-function elTableDeleteRow(): void {
-  const t = elToolbar.value
-  if (!t) return
-  elTable(callCommand(selectRowCommand.key, { index: t.row, pos: t.pos }))
-  elTable(callCommand(deleteSelectedCellsCommand.key))
-}
-function elTableDeleteCol(): void {
-  const t = elToolbar.value
-  if (!t) return
-  elTable(callCommand(selectColCommand.key, { index: t.col, pos: t.pos }))
-  elTable(callCommand(deleteSelectedCellsCommand.key))
 }
 function elTableDeleteTable(): void {
   const t = elToolbar.value
@@ -846,9 +1058,163 @@ function elTableDeleteTable(): void {
   elTable(callCommand(selectTableCommand.key))
   elTable(callCommand(deleteSelectedCellsCommand.key))
 }
-function elTableAlign(how: 'left' | 'center' | 'right' | 'none'): void {
-  elTable(callCommand(setAlignCommand.key, how === 'none' ? undefined : how))
+/** 删除行/列后把残留的 CellSelection 折叠成光标：prosemirror-tables 会把旧
+ *  选区按位置映射到新行/列上，表现为删除后另一行/列整块处于选中态 */
+function collapseTableSelection(view: EditorView, row: number, col: number): void {
+  const t = findTableSelection(view)
+  if (!t) return
+  const table = view.state.doc.nodeAt(t.pos)
+  if (!table) return
+  const r = Math.min(Math.max(0, row), table.childCount - 1)
+  const rowNode = table.child(r)
+  const c = Math.min(Math.max(0, col), rowNode.childCount - 1)
+  let rowOffset = 0
+  let cellOffset = 0
+  table.forEach((rNode, rOff, rIdx) => {
+    if (rIdx !== r) return
+    rowOffset = rOff
+    rNode.forEach((_cell, cOff, cIdx) => {
+      if (cIdx === c) cellOffset = cOff
+    })
+  })
+  const $pos = view.state.doc.resolve(t.pos + 1 + rowOffset + 1 + cellOffset + 1)
+  view.dispatch(view.state.tr.setSelection(TextSelection.near($pos)).scrollIntoView())
 }
+function elTableDeleteRow(): void {
+  const t = elToolbar.value
+  const view = getView()
+  if (!t || !view) return
+  // selectRow/Col 的 pos 必须是单元格内位置：传表格起点会找不到表格导致命令空转
+  elTable(callCommand(selectRowCommand.key, { index: t.row, pos: view.state.selection.from }))
+  elTable(callCommand(deleteSelectedCellsCommand.key))
+  collapseTableSelection(view, t.row, t.col)
+}
+function elTableDeleteCol(): void {
+  const t = elToolbar.value
+  const view = getView()
+  if (!t || !view) return
+  elTable(callCommand(selectColCommand.key, { index: t.col, pos: view.state.selection.from }))
+  elTable(callCommand(deleteSelectedCellsCommand.key))
+  collapseTableSelection(view, t.row, t.col)
+}
+/* gfm 的 setAlignCommand 在本 schema 下返回成功但属性不落盘，
+   这里直接给整列逐格 setNodeMarkup（markdown 分隔行读表头 alignment） */
+function setColumnAlign(
+  view: EditorView,
+  tablePos: number,
+  col: number,
+  value: 'left' | 'center' | 'right' | null
+): boolean {
+  const table = view.state.doc.nodeAt(tablePos)
+  if (!table || table.type.name !== 'table') return false
+  const tr = view.state.tr
+  let changed = false
+  table.forEach((row, rowOffset) => {
+    row.forEach((cell, cellOffset, cellIndex) => {
+      if (cellIndex !== col || cell.attrs.alignment === value) return
+      const pos = tablePos + 1 + rowOffset + 1 + cellOffset
+      tr.setNodeMarkup(pos, null, { ...cell.attrs, alignment: value })
+      changed = true
+    })
+  })
+  if (!changed) return false
+  view.dispatch(tr.scrollIntoView())
+  return true
+}
+function elTableAlign(how: 'left' | 'center' | 'right' | 'none'): void {
+  const t = elToolbar.value
+  const view = getView()
+  if (!t || !view) return
+  setColumnAlign(view, t.pos, t.col, how === 'none' ? null : how)
+}
+
+/* ---------- 表格右键菜单（2.3）：菜单动作 → Milkdown gfm 命令 ----------
+   contextmenu 已把光标落到点击单元格（Chromium 原生行为），行列定位用
+   findTableSelection 按当前选区复算，不依赖浮层工具条的状态。 */
+
+function executeTableMenuAction(action: TableMenuAction): boolean {
+  if (!editor) return false
+  const run = (fn: () => void): boolean => {
+    fn()
+    return true
+  }
+  switch (action) {
+    case 'row-above': {
+      // 表头之上不可插入（菜单已禁用；命令层同样拒绝）
+      const view = getView()
+      const meta = view ? findTableSelection(view) : null
+      if (!meta || meta.row === 0) return false
+      return run(() => elTable(callCommand(addRowBeforeCommand.key)))
+    }
+    case 'row-below':
+      return run(() => elTable(callCommand(addRowAfterCommand.key)))
+    case 'col-left':
+      return run(() => elTable(callCommand(addColBeforeCommand.key)))
+    case 'col-right':
+      return run(() => elTable(callCommand(addColAfterCommand.key)))
+    case 'row-delete':
+    case 'col-delete':
+    case 'table-delete': {
+      const view = getView()
+      const t = view ? findTableSelection(view) : null
+      if (!view || !t) return false
+      if (action === 'table-delete') elTable(callCommand(selectTableCommand.key))
+      else if (action === 'row-delete')
+        elTable(callCommand(selectRowCommand.key, { index: t.row, pos: view.state.selection.from }))
+      else elTable(callCommand(selectColCommand.key, { index: t.col, pos: view.state.selection.from }))
+      elTable(callCommand(deleteSelectedCellsCommand.key))
+      if (action !== 'table-delete') collapseTableSelection(view, t.row, t.col)
+      return true
+    }
+    case 'align-left':
+    case 'align-center':
+    case 'align-right':
+    case 'align-none': {
+      // 菜单动作不依赖工具条状态：按落位选区重新定位表格与列
+      const view = getView()
+      const meta = view ? findTableSelection(view) : null
+      if (!view || !meta) return false
+      const how = action === 'align-none' ? null : (action.slice(6) as 'left' | 'center' | 'right')
+      return setColumnAlign(view, meta.pos, meta.col, how)
+    }
+    case 'auto-width':
+      return run(() => resetWysiwygTableWidths())
+    case 'copy-table':
+    case 'to-text': {
+      const view = getView()
+      const t = view ? findTableSelection(view) : null
+      if (!view || !t) return false
+      const node = view.state.doc.nodeAt(t.pos)
+      if (!node) return false
+      const lines: string[] = []
+      node.forEach((row) => {
+        const cells: string[] = []
+        row.forEach((cell) => cells.push(cell.textContent.trim()))
+        lines.push(`| ${cells.join(' | ')} |`)
+      })
+      if (action === 'copy-table') {
+        void writeClipboard(lines.join('\n'))
+        return true
+      }
+      // 转文本：表格 → 每行一段、制表符分隔单元格（不可逆）
+      const schema = view.state.schema
+      const paras = lines.map((l) => {
+        const text = l
+          .replace(/^\|/, '')
+          .replace(/\|$/, '')
+          .split('|')
+          .map((c) => c.trim())
+          .join('\t')
+        return schema.nodes.paragraph.create(null, text ? schema.text(text) : undefined)
+      })
+      const tr = view.state.tr
+      tr.replaceWith(t.pos, t.pos + node.nodeSize, paras)
+      view.dispatch(tr)
+      return true
+    }
+  }
+}
+registerPmTableExecutor(executeTableMenuAction)
 
 /** 浮层定位(贴元素上方,顶到可视区时钳在可见范围内) */
 const elToolbarStyle = computed(() => {
@@ -860,8 +1226,15 @@ const elToolbarStyle = computed(() => {
 
 onMounted(() => {
   if (!host.value) return
+  // 预览侧拖列宽（广播）→ 本侧装饰器重算
+  offTableWidths = onColWidthsChanged(() => {
+    const v = getView()
+    if (v) refreshTableWidths(v)
+  })
   // 点击即显区域任意位置都要让编辑器拿到焦点，避免"点了但打不了字"
   host.value.addEventListener('mousedown', onHostMousedown)
+  // 表格列边界 hover 光标（el-table 手感）
+  host.value.addEventListener('mousemove', onHostMouseMoveTableCursor, { passive: true })
   // 图片悬浮地址提示（mouseover/out 冒泡委托）;滚动即收起避免提示漂移
   host.value.addEventListener('mouseover', onHostOver)
   host.value.addEventListener('mouseout', onHostOut)
@@ -965,6 +1338,11 @@ onMounted(() => {
     .use(findProse)
     .use(centerProsePlugin)
     .use(wysiwygImagePlugin)
+    .use(pasteLinkPlugin)
+    // 标题折叠箭头（2.9）：纯装饰器，折叠区段不影响序列化
+    .use(headingFoldPlugin)
+    // 表格列宽记忆恢复（2.2）
+    .use(tableWidthsPlugin)
     .use(elToolbarPlugin)
     .use(codeblockChromePlugin)
     .use(codeHighlightPlugin)
@@ -1038,6 +1416,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  offTableWidths?.()
   // 滚动锚落袋必须在这里：模式切换/跨模式切签都会 v-if 卸载本组件，
   // 卸载会跳过排队的 pre-watcher（切签的保存已由 activeId watch 完成，
   // 这里 tabId 与视图内容恒一致，重复保存无害）
@@ -1049,6 +1428,7 @@ onBeforeUnmount(() => {
   }
   pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   host.value?.removeEventListener('mousedown', onHostMousedown)
+  host.value?.removeEventListener('mousemove', onHostMouseMoveTableCursor)
   host.value?.removeEventListener('mouseover', onHostOver)
   host.value?.removeEventListener('mouseout', onHostOut)
   host.value?.removeEventListener('scroll', onHostScroll)
@@ -1203,7 +1583,7 @@ watch(
       @replace-all="doReplaceAll"
       @close="closeFind"
     />
-    <div ref="host" class="wysiwyg-host">
+    <div ref="host" class="wysiwyg-host" @mousedown.capture="onHostMouseDownTableWidths">
       <!-- 图片悬浮地址:贴图片下缘内侧的轻提示,pointer-events 不挡交互 -->
       <div v-if="imgTip" class="img-src-tip" :style="imgTipStyle">{{ imgTip.text }}</div>
       <!-- 元素工具条:点击图片/表格时的浮动操作条(与源码模式工具条同按钮集) -->
@@ -1281,6 +1661,14 @@ watch(
           </button>
         </template>
       </div>
+      <!-- 图片拖拽缩放手柄（2.4）：贴图片右下角，拖动等比缩放，松手落 |WxH| 修饰符 -->
+      <div
+        v-if="elToolbar?.kind === 'image'"
+        class="et-resize-handle"
+        :style="resizeHandleStyle"
+        :title="$t('img.resize')"
+        @mousedown.prevent="onImageResizeStart"
+      />
     </div>
   </div>
 </template>
@@ -1298,6 +1686,7 @@ watch(
   min-height: 0;
   min-width: 0;
   overflow-y: auto;
+  overflow-x: auto; /* 超宽表格横向滚动，不压扁列 */
   position: relative;
 }
 

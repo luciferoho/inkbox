@@ -66,7 +66,9 @@ export function createWysiwygImagePlugin(): Plugin {
 
 let seq = 0
 
-async function handleImages(files: File[], view: EditorView, drop?: DragEvent): Promise<void> {
+/** 即显侧图片落位管线（粘贴/拖拽/「插入图片」命令共用）：占位 data: 图 +
+ *  上传遮罩 → persistImage → 原地换链接 */
+export async function handleImages(files: File[], view: EditorView, drop?: DragEvent): Promise<void> {
   const ui = useUiStore()
   const docs = useDocumentsStore()
   const docPath = docs.active?.path

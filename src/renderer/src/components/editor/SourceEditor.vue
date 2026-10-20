@@ -67,13 +67,9 @@ import { useDocumentsStore } from '@/stores/documents'
 import type { FindQuery } from '@/find-shared'
 import FindBar from './FindBar.vue'
 import { htmlToMarkdown } from '@/services/richPaste'
+import { isHttpUrl, linkTextFromSelection } from '@/editor/paste-link'
+import { insertImageFiles, insertImageFromDisk } from '@/editor/insert-image'
 import { t } from '@/i18n'
-import {
-  assetsDirFor,
-  fileExt,
-  mimeFromName,
-  persistImage
-} from '@/editor/image-persist'
 import {
   detectTable,
   applyTableOp,
@@ -90,6 +86,7 @@ import {
 } from '@/editor/image-utils'
 import { registerCmView } from '@/editor/cm-registry'
 import { fenceCompletion } from '@/editor/cm-fence-completion'
+import { emojiShortcodeSource } from '@/editor/cm-emoji-completion'
 import { findState, sameQuery } from '@/editor/find-state'
 import { saveViewProgress, saveViewCursor, loadView } from '@/editor/tab-view-state'
 
@@ -190,8 +187,8 @@ function makeState(content: string): EditorState {
       syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
       bracketMatching(),
       closeBrackets(),
-      // ``` 语言补全（Typora 效果）：候选列表 + Enter 自动收尾围栏
-      ...fenceCompletion(),
+      // ``` 语言补全 + :emoji: 短代码补全（候选列表；fence 源附 Enter 自动收尾围栏）
+      ...fenceCompletion(emojiShortcodeSource),
       rectangularSelection(),
       crosshairCursor(),
       highlightActiveLine(),
@@ -250,126 +247,44 @@ function makeState(content: string): EditorState {
         }
         if (u.docChanged || u.selectionSet) {
           ui.currentLine = u.state.doc.lineAt(u.state.selection.main.head).number
+          ui.caretSeq++
         }
       }),
       EditorView.domEventHandlers({
         paste: (event, view) => handlePaste(event, view),
-        drop: (event, view) => void insertImagesFrom(event.dataTransfer, view, event)
+        drop: (event, view) => void insertImageFiles(event.dataTransfer, view, event)
       })
     ]
   })
 }
 
-/* ---------- 图片粘贴/拖拽 → 上传链路见 editor/image-persist.ts ---------- */
+/* ---------- 图片粘贴/拖拽/插入 → 共享链路见 editor/insert-image.ts ---------- */
 
 /**
- * 上传占位符：粘贴/插入图片后立即在光标处显示「上传中」,完成后原地替换为最终链接。
- * 纯文本占位（含唯一 id），替换按整串精确查找，用户上传期间的编辑不会破坏替换定位。
- */
-let uploadSeq = 0
-function withUploadingPlaceholder(
-  view: EditorView,
-  run: (finish: (link: string | null) => void) => Promise<void>
-): Promise<void> {
-  const uid = `${Date.now()}-${++uploadSeq}`
-  const ph = `⏳ ${t('editor.imageUploading')} (inkbox-uploading-${uid})`
-  const pos = view.state.selection.main.head
-  view.dispatch({ changes: { from: pos, insert: `${ph}\n` } })
-  const finish = (link: string | null): void => {
-    const full = view.state.doc.toString()
-    const i = full.indexOf(ph)
-    if (i < 0) return // 占位符被用户删除:静默放弃
-    view.dispatch({
-      changes: { from: i, to: i + ph.length + 1, insert: link === null ? '' : `${link}\n` }
-    })
-  }
-  return run(finish)
-}
-
-async function insertImagesFrom(
-  dt: DataTransfer | null,
-  view: EditorView,
-  event: Event
-): Promise<boolean> {
-  const files = [...(dt?.files ?? [])].filter((f) => f.type.startsWith('image/'))
-  if (files.length === 0) return false
-  event.preventDefault()
-
-  const tab = docs.tabs.find((t) => t.id === tabId)
-  if (!tab?.path) {
-    ui.showToast(t('editor.saveFirstForImage'))
-    return true
-  }
-  const docPath = tab.path
-  const { dir, assetsDir } = assetsDirFor(docPath)
-  const stamp = new Date()
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  const ts = `${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(
-    stamp.getDate()
-  )}_${pad(stamp.getHours())}${pad(stamp.getMinutes())}${pad(stamp.getSeconds())}`
-
-  let failed = false
-  for (const [i, file] of files.entries()) {
-    const name = `IMG_${ts}${files.length > 1 ? `_${i + 1}` : ''}.${fileExt(file.type)}`
-    const buf = new Uint8Array(await file.arrayBuffer())
-    // 占位符立即上屏;上传/落盘完成后原地替换(图床失败回退本地链接)
-    await withUploadingPlaceholder(view, async (finish) => {
-      const link = await persistImage({ name, type: file.type }, buf, docPath)
-      if (link) finish(link)
-      else {
-        finish(null)
-        failed = true
-      }
-    })
-  }
-  if (!ui.upload.enabled && !failed) {
-    ui.showToast(t('editor.imagesInserted', { n: files.length, dir: assetsDir }))
-  }
-  return true
-}
-
-/** 块工具栏「插入图片」：原生文件选择器 → 图床/复制进 .assets → 插入链接 */
-async function insertImageFromDisk(): Promise<void> {
-  if (!view) return
-  const tab = docs.tabs.find((t) => t.id === tabId)
-  if (!tab?.path) {
-    ui.showToast(t('editor.saveFirstForImage'))
-    return
-  }
-  const src = await window.api.dialog.openImage()
-  if (!src) return
-  const docPath = tab.path
-  const { dir, assetsDir } = assetsDirFor(docPath)
-  const name = src.split(/[\\/]/).pop() ?? 'image'
-  // 主进程读（base64 中转），上传或落盘都在这条链路上
-  let base64: string
-  try {
-    base64 = await window.api.fs.readBinary(src)
-  } catch (err) {
-    console.error('[editor] image read failed:', err)
-    ui.showToast(t('editor.imageSaveFailed', { name }))
-    return
-  }
-  const type = mimeFromName(name)
-  const buf = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
-  await withUploadingPlaceholder(view, async (finish) => {
-    const link = await persistImage({ name, type }, buf, docPath)
-    if (link) finish(`${link}\n`)
-    else finish(null)
-  })
-  if (!ui.upload.enabled) ui.showToast(t('editor.imagesInserted', { n: 1, dir: assetsDir }))
-  view.focus()
-}
-
-/**
- * 粘贴分流：图片文件 → 自动落盘；富文本（text/html）→ 转 Markdown；
- * 其余（纯文本）→ 编辑器默认粘贴。返回 true 表示已接管该事件。
+ * 粘贴分流：URL + 有选区 → 包成链接；图片文件 → 自动落盘；
+ * 富文本（text/html）→ 转 Markdown；其余（纯文本）→ 编辑器默认粘贴。
+ * 返回 true 表示已接管该事件。
  */
 function handlePaste(event: ClipboardEvent, view: EditorView): boolean {
   const dt = event.clipboardData
   if (!dt) return false
+  // 粘贴 http(s) URL 且有选区 → [选中文本](URL)（优先于 html 分流：地址栏复制
+  // 常带 text/html 载荷，走转换会把选区覆盖成 URL 文本自身）
+  const url = (dt.getData('text/plain') ?? '').trim()
+  const selMain = view.state.selection.main
+  if (isHttpUrl(url) && !selMain.empty) {
+    const text = linkTextFromSelection(view.state.sliceDoc(selMain.from, selMain.to))
+    if (text) {
+      event.preventDefault()
+      view.dispatch({
+        changes: { from: selMain.from, to: selMain.to, insert: `[${text}](${url})` },
+        scrollIntoView: true
+      })
+      return true
+    }
+  }
   if ([...dt.files].some((f) => f.type.startsWith('image/'))) {
-    void insertImagesFrom(dt, view, event)
+    void insertImageFiles(dt, view, event)
     return true
   }
   const html = dt.getData('text/html')
@@ -539,6 +454,9 @@ function insertSnippet(text: string, cursorOffset: number, isBlock = false): voi
    行号带亚行小数（顶行内已滚过的像素比例）：预览按它做亚行插值。图片密集区
    左右行高差异巨大（左 ~20px/行、右一整张图），整数行号会让预览一格格跳图片 */
 let scrollPending = false
+/** 上次同步过的事件位置：内容变高/回车等布局变化也会派发 scroll 事件但
+ *  scrollTop 未动，若当成「滚到顶部」会把预览强行拉回 0（表现为闪跳） */
+let syncedScrollTop = -1
 function onScrollDom(): void {
   if (Date.now() < lockUntil || scrollPending) return
   scrollPending = true
@@ -547,6 +465,8 @@ function onScrollDom(): void {
     // 排队期间若刚发生过程序同步，丢弃本次陈旧行号，避免回声
     if (!view || Date.now() < lockUntil) return
     const sd = view.scrollDOM
+    if (sd.scrollTop === syncedScrollTop) return
+    syncedScrollTop = sd.scrollTop
     // 顶/底边缘发显式信号（编辑器底部有 40vh 内边距，「滚到底」时
     // 视口顶行远小于末行，插值模型无法把预览也带到同一端点）
     if (sd.scrollTop + sd.clientHeight >= sd.scrollHeight - 4) {

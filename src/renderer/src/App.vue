@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { onMounted, nextTick, defineAsyncComponent } from 'vue'
+import { onMounted, onBeforeUnmount, nextTick, defineAsyncComponent, ref } from 'vue'
 import type { MenuCommand, UpdateStatePayload } from '@shared/types'
 import { t } from '@/i18n'
 import { canonicalizeContent } from '@/services/markdown'
+import { isOpenablePath } from '@/services/openable'
 import { useUiStore } from '@/stores/ui'
 import { initImageContextMenu } from '@/editor/image-context-menu'
-import { useDocumentsStore } from '@/stores/documents'
+import { initTableContextMenu } from '@/editor/table-context-menu'
+import { insertImageFromDisk, uploadAllLocalImages } from '@/editor/insert-image'
+import { useDocumentsStore, samePath } from '@/stores/documents'
 import { useWorkspaceStore } from '@/stores/workspace'
 import TitleBar from '@/components/chrome/TitleBar.vue'
 import TabsBar from '@/components/chrome/TabsBar.vue'
@@ -16,8 +19,10 @@ import EditorArea from '@/components/editor/EditorArea.vue'
 import StatusBar from '@/components/chrome/StatusBar.vue'
 import ImageViewer from '@/components/chrome/ImageViewer.vue'
 import ImageContextMenu from '@/components/chrome/ImageContextMenu.vue'
+import TableContextMenu from '@/components/chrome/TableContextMenu.vue'
 import ConfirmDialog from '@/components/chrome/ConfirmDialog.vue'
 import Toast from '@/components/chrome/Toast.vue'
+import QuickOpen from '@/components/chrome/QuickOpen.vue'
 // 弹窗类按需加载（exporter 连带 pdf/字体资源链，设置页打开频率低）
 const SettingsDialog = defineAsyncComponent(() => import('@/components/chrome/SettingsDialog.vue'))
 const UpdateDialog = defineAsyncComponent(() => import('@/components/chrome/UpdateDialog.vue'))
@@ -52,6 +57,15 @@ function dispatch(cmd: MenuCommand): void {
       } else {
         ui.openExport()
       }
+      break
+    case 'file:insertImage':
+      void insertImageFromDisk()
+      break
+    case 'file:uploadImages':
+      void uploadAllLocalImages()
+      break
+    case 'file:quickOpen':
+      ui.toggleQuickOpen()
       break
     case 'file:closeTab':
       docs.closeActive()
@@ -103,6 +117,8 @@ useDrafts()
 onMounted(() => {
   // 图片右键菜单「转 PicGo 上传」的渲染层执行端（主进程菜单发 image:picgo-upload）
   initImageContextMenu()
+  // 表格右键菜单的全局识别（即显 table 元素 / 源码坐标处表格语法）
+  initTableContextMenu()
   // 开屏兜底：恢复流程万一卡住，8 秒后强制进入应用
   window.setTimeout(dismissSplash, 8000)
   // 启动编排：偏好 → 初始载荷（窗口键/拖出文档/崩溃标志）→ 备份恢复 → 会话恢复
@@ -193,6 +209,22 @@ onMounted(() => {
   window.api.watch.onWsChanged(({ root }) => void ws.handleWsChanged(root))
   // 禅模式 Esc 退出（弹层/查看器打开时让位给它们的 Esc 处理）
   window.addEventListener('keydown', onZenEsc)
+  // 拖文档文件进窗口打开（capture 先于编辑器的图片 drop 处理）
+  window.addEventListener('dragenter', onWindowDragEnter, true)
+  window.addEventListener('dragover', onWindowDragOver, true)
+  window.addEventListener('dragleave', onWindowDragLeave, true)
+  window.addEventListener('drop', onWindowDrop, true)
+  window.addEventListener('dragend', resetDragHint, true)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onZenEsc)
+  window.removeEventListener('dragenter', onWindowDragEnter, true)
+  window.removeEventListener('dragover', onWindowDragOver, true)
+  window.removeEventListener('dragleave', onWindowDragLeave, true)
+  window.removeEventListener('drop', onWindowDrop, true)
+  window.removeEventListener('dragend', resetDragHint, true)
+  window.clearTimeout(dragHideTimer)
 })
 
 /** 禅模式下的 Esc：无任何弹层时退出禅模式 */
@@ -200,6 +232,120 @@ function onZenEsc(e: KeyboardEvent): void {
   if (!ui.zenMode || e.key !== 'Escape') return
   if (ui.confirm || ui.choice || ui.viewerImage || ui.settingsOpen || ui.exportOpen) return
   ui.toggleZen()
+}
+
+/* ---------- 拖文档文件进窗口打开（支持多文件） ----------
+   capture 阶段拦在编辑器 drop 处理之前：编辑器只接管图片文件，文档文件归这里。
+   窗口内标签拖拽带的是自定义 MIME 载荷而非 Files，不会误入此路径。
+   悬停时显示「松开以打开」遮罩，替代系统默认的复制光标提示。 */
+const dragOverOpen = ref(false)
+const dragNames = ref<string[]>([])
+const dragCount = ref(0)
+let dragDepth = 0
+/** 兜底隐藏：拖拽离开事件可能丢失（拖出窗口/被系统取消），无 dragover 续命即收起 */
+let dragHideTimer = 0
+
+function armDragHide(): void {
+  window.clearTimeout(dragHideTimer)
+  dragHideTimer = window.setTimeout(() => {
+    dragDepth = 0
+    dragOverOpen.value = false
+    dragNames.value = []
+    dragCount.value = 0
+  }, 1500)
+}
+
+function resetDragHint(): void {
+  window.clearTimeout(dragHideTimer)
+  dragDepth = 0
+  dragOverOpen.value = false
+  dragNames.value = []
+  dragCount.value = 0
+}
+
+function isDocPath(p: string): boolean {
+  return isOpenablePath(p)
+}
+
+function onWindowDragEnter(e: DragEvent): void {
+  if (!e.dataTransfer?.types.includes('Files')) return
+  dragDepth++
+  dragOverOpen.value = true
+  armDragHide()
+}
+
+function onWindowDragOver(e: DragEvent): void {
+  if (!e.dataTransfer?.types.includes('Files')) return
+  // 允许 drop（否则 Chromium 判定不可放置）；copy 让系统光标显示可放置
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+  dragOverOpen.value = true
+  armDragHide()
+  // 拖入文件名的即时预览：优先 files（dragover 阶段部分环境已可用），
+  // 否则退化到 items；Chromium 在 dragover 阶段对 getAsFile 有限制时
+  // 至少用 items 数量给出「N 个文件」，落点后再 toast 列出实际打开的文件
+  const fileNames = [...(e.dataTransfer?.files ?? [])].map((f) => f.name).filter(Boolean)
+  const itemNames = [...(e.dataTransfer?.items ?? [])]
+    .filter((it) => it.kind === 'file')
+    .map((it) => it.getAsFile()?.name ?? '')
+    .filter(Boolean)
+  const names = fileNames.length > 0 ? fileNames : itemNames
+  if (names.length > 0) dragNames.value = names
+  else {
+    const itemCount = [...(e.dataTransfer?.items ?? [])].filter((it) => it.kind === 'file').length
+    dragCount.value = itemCount
+  }
+}
+
+function onWindowDragLeave(_e: DragEvent): void {
+  // 离开事件的 dataTransfer 可能为空，不能按类型过滤（否则遮罩残留）
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) resetDragHint()
+}
+
+function onWindowDrop(e: DragEvent): void {
+  if (!e.dataTransfer?.types.includes('Files')) return
+  e.preventDefault() // 恒阻止默认导航（拖入任意文件都不应让窗口跳到 file:// 页）
+  const files = [...e.dataTransfer.files]
+  resetDragHint()
+  if (files.length === 0) return
+  const paths = window.api.win.pathsForFiles(files)
+  // 按文件名/路径成对收集；不支持的类型（图片、html 等）直接过滤并计数
+  const entries = files
+    .map((f, i) => ({ name: f.name, path: paths[i] ?? '' }))
+    .filter((en) => en.path && isDocPath(en.path))
+  const ignored = files.length - entries.length
+  if (entries.length === 0) {
+    if (ignored > 0) ui.showToast(t('app.dropIgnored', { n: ignored }))
+    return
+  }
+  e.stopPropagation()
+  // 已在标签中打开的文件：激活而不是重复创建，并在提示中单独说明
+  const alreadyOpen = entries.filter((en) => docs.tabs.some((tb) => samePath(tb.path, en.path)))
+  const fresh = entries.filter((en) => !alreadyOpen.some((a) => samePath(a.path, en.path)))
+  void (async () => {
+    for (const en of entries) await docs.openPath(en.path)
+    const parts: string[] = []
+    if (fresh.length > 0) {
+      const names = fresh.map((en) => en.name).slice(0, 3).join('、')
+      parts.push(
+        t('app.dropOpened', {
+          n: fresh.length,
+          names: names + (fresh.length > 3 ? '…' : '')
+        })
+      )
+    }
+    if (alreadyOpen.length > 0) {
+      const names = alreadyOpen.map((en) => en.name).slice(0, 3).join('、')
+      parts.push(
+        t('app.dropAlready', {
+          names: names + (alreadyOpen.length > 3 ? '…' : '')
+        })
+      )
+    }
+    if (ignored > 0) parts.push(t('app.dropIgnored', { n: ignored }))
+    if (parts.length > 0) ui.showToast(parts.join('；'))
+  })()
 }
 
 /** 关窗流程进行中护栏：托盘退出会给每个窗口发 requestClose，防止重复弹窗 */
@@ -278,10 +424,65 @@ async function handleRequestClose(): Promise<void> {
     <StatusBar v-if="!ui.zenMode" />
     <ImageViewer />
     <ImageContextMenu />
+    <TableContextMenu />
     <SettingsDialog />
     <UpdateDialog />
     <ExportDialog />
     <ConfirmDialog />
+    <QuickOpen />
     <Toast />
+    <!-- 外部文档拖入提示：替代系统默认的复制提示，明确「松开即打开」 -->
+    <div v-if="dragOverOpen" class="drop-hint">
+      <div class="drop-hint-card">
+        <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 8V6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+          <path d="M12 11v6M9 14l3 3 3-3" />
+        </svg>
+        <div class="drop-hint-title">{{ $t('app.dropOpen') }}</div>
+        <div v-if="dragNames.length" class="drop-hint-names">
+          {{ dragNames.slice(0, 3).join('、') }}{{ dragNames.length > 3 ? ` 等 ${dragNames.length} 个文件` : '' }}
+        </div>
+        <div v-else-if="dragCount > 0" class="drop-hint-names">{{ dragCount }} 个文件</div>
+      </div>
+    </div>
   </div>
 </template>
+
+<style>
+.drop-hint {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+}
+
+.drop-hint-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 26px 40px;
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--accent-strong);
+  box-shadow: 0 12px 32px rgba(15, 12, 9, 0.22);
+}
+
+.drop-hint-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.drop-hint-names {
+  max-width: 420px;
+  color: var(--text-2);
+  font-size: 12px;
+  text-align: center;
+  word-break: break-all;
+}
+</style>

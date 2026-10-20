@@ -12,6 +12,10 @@ export const en: MsgSchema = {
 
   // App-level (App.vue)
   'app.exportNoDoc': 'Open a document first to export it',
+  'app.dropOpen': 'Release to open Markdown / text files',
+  'app.dropOpened': 'Opened {n} file(s): {names}',
+  'app.dropAlready': 'Already open in a tab: {names}',
+  'app.dropIgnored': 'Ignored {n} unsupported file(s)',
   'app.draftsRestored': 'Recovered from an abnormal exit — restored {n} unsaved document(s)',
   'app.closeTitle': 'Unsaved documents',
   'app.closeMsg': '{n} document(s) have unsaved changes. Your content has been backed up.',
@@ -165,6 +169,9 @@ export const en: MsgSchema = {
   'table.alignRight': 'Align this column right',
   'table.alignNone': 'Default alignment',
   'table.deleteTable': 'Delete the whole table',
+  'table.copyTable': 'Copy table',
+  'table.toText': 'Convert to plain text',
+  'table.autoWidth': 'Auto width (clear column widths)',
 
   // Block toolbar
   'block.bold': 'Bold (Ctrl+B)',
@@ -189,6 +196,7 @@ export const en: MsgSchema = {
   'img.delete': 'Delete Image',
   'img.copySrc': 'Copy image address',
   'img.srcCopied': 'Image address copied',
+  'img.resize': 'Drag to resize (writes |WxH| modifier)',
   'img.ctxCopyImage': 'Copy image',
   'img.ctxOpenDir': 'Open image folder',
   'img.ctxUploadPicgo': 'Upload via PicGo',
@@ -202,6 +210,16 @@ export const en: MsgSchema = {
     'Cannot reach the image host — check that local PicGo is running; saved to local .assets instead',
 
   'editor.imagesInserted': 'Inserted {n} image(s) into {dir}/',
+  'editor.uploadAllNeedPicgo': 'Enable image-host upload in settings before batch uploading',
+  'editor.uploadAllNone': 'No local image links in this document',
+  'editor.uploadAllDone': 'Uploaded {n} local image(s) to the image host',
+  'editor.uploadAllPartial': 'Uploaded {ok}, failed {fail} (original links kept)',
+
+  // Quick Open
+  'qo.title': 'Quick Open',
+  'qo.placeholder': 'Type to fuzzy-search file names…',
+  'qo.noWorkspace': 'Open a workspace folder first to quick-open by file name',
+  'qo.noMatch': 'No matching files',
 
   // Outline node / file tree node
   'outline.untitled': '(untitled)',
@@ -219,6 +237,9 @@ export const en: MsgSchema = {
   'sc.save': 'Save',
   'sc.saveAs': 'Save as',
   'sc.export': 'Export document',
+  'sc.insertImage': 'Insert image',
+  'sc.uploadImages': 'Upload all local images',
+  'sc.quickOpen': 'Quick Open',
   'sc.closeTab': 'Close tab',
   'sc.workspaceSearch': 'Search workspace',  'sc.gView': 'View & modes',
   'sc.nextTab': 'Next tab',

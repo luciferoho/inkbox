@@ -136,6 +136,16 @@ function activePreviewHtml(): string | null {
   const clone = preview.cloneNode(true) as HTMLElement
   clone.querySelectorAll('.md-code-bar').forEach((el) => el.remove())
   clone.querySelectorAll('.md-code').forEach((el) => el.replaceWith(...el.childNodes))
+  // 列宽拖拽是视图态（会话内记忆），不应固化进导出产物：清掉表格/单元格上的
+  // 宽度与布局样式，导出页按内容自适应（超宽表格由导出 CSS 兜底换行）
+  clone.querySelectorAll('table, th, td').forEach((el) => {
+    const s = el as HTMLElement
+    s.style.removeProperty('width')
+    s.style.removeProperty('min-width')
+    s.style.removeProperty('max-width')
+    s.style.removeProperty('table-layout')
+    if (!s.getAttribute('style')) s.removeAttribute('style')
+  })
   return clone.innerHTML
 }
 

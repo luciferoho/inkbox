@@ -3,7 +3,8 @@ import {
   completionStatus,
   type Completion,
   type CompletionContext,
-  type CompletionResult
+  type CompletionResult,
+  type CompletionSource
 } from '@codemirror/autocomplete'
 import { Prec, type Extension, type EditorState } from '@codemirror/state'
 import { keymap, type EditorView } from '@codemirror/view'
@@ -145,10 +146,11 @@ const enterCloseFence = (view: EditorView): boolean => {
   return true
 }
 
-export function fenceCompletion(): Extension[] {
+/** 补全装配：fence 语言源 + 调用方追加的源（emoji 短代码等），override 单数组生效 */
+export function fenceCompletion(...extra: CompletionSource[]): Extension[] {
   return [
     // override 替换默认补全源（原 autocompletion() 无其它来源，markdown 语言无内置补全）
-    autocompletion({ override: [fenceLangSource] }),
+    autocompletion({ override: [fenceLangSource, ...extra] }),
     // 高优先级 Enter：在 ```开栏 行上抢先于默认换行
     Prec.high(keymap.of([{ key: 'Enter', run: enterCloseFence }]))
   ]

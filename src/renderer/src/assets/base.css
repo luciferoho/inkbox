@@ -269,3 +269,12 @@ kbd {
   width: 0;
   opacity: 0;
 }
+
+/* ---------- 表格列宽拖拽：全局保持列宽光标与禁用选择 ----------
+   拖拽中鼠标可能离开表头/表格甚至编辑器，逐元素设置 cursor 会被覆盖；
+   body 上的高优先级规则保证整个过程光标稳定为 col-resize */
+body.inkbox-col-resizing,
+body.inkbox-col-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}

@@ -65,6 +65,8 @@ export const useUiStore = defineStore('ui', {
     findRequest: 0,
     jumpLine: null as { line: number; seq: number } | null,
     currentLine: 1,
+    /* 光标/内容变化序号：同一行连续输入时 currentLine 不变，预览靠它触发跟随 */
+    caretSeq: 0,
     /* 弹层 */
     settingsOpen: false,
     exportOpen: false,
@@ -73,6 +75,8 @@ export const useUiStore = defineStore('ui', {
     extReloadSeq: 0,
     /* 右侧快捷键面板 */
     shortcutPanelOpen: false,
+    /* Quick Open 快速打开（Ctrl+P，模糊搜索工作区文件名） */
+    quickOpenOpen: false,
     /* 保存状态（状态栏实时展示，替代易过期的"已保存"文本提示） */
     saveState: 'clean' as 'clean' | 'dirty' | 'saved',
     savedAt: 0,
@@ -329,6 +333,10 @@ export const useUiStore = defineStore('ui', {
     },
     toggleShortcutPanel(): void {
       this.shortcutPanelOpen = !this.shortcutPanelOpen
+    },
+    /** Quick Open：Ctrl+P 呼出/关闭（Esc 由组件自行处理） */
+    toggleQuickOpen(): void {
+      this.quickOpenOpen = !this.quickOpenOpen
     },
     /** 轻提示：显示 3 秒后自动消失 */
     showToast(message: string): void {

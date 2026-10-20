@@ -45,8 +45,19 @@ function findTarget(view: EditorView): Target | null {
   return null
 }
 
-/** 表格上下文:光标行列与可删性（结构统计,基于当前 selection） */
-function tableMeta(state: EditorState): Pick<ElToolbarState, 'row' | 'col' | 'canDeleteRow' | 'canDeleteCol'> {
+/** 当前选区所在表格的 { pos, row, col, canDeleteRow, canDeleteCol }；不在表格内返回 null。
+ *  表格右键菜单复用（导出 findTarget 的表格分支 + tableMeta 组合） */
+export function findTableSelection(
+  view: EditorView
+): { pos: number; row: number; col: number; canDeleteRow: boolean; canDeleteCol: boolean } | null {
+  const t = findTarget(view)
+  if (!t || t.kind !== 'table') return null
+  return { pos: t.pos, ...tableMeta(view.state) }
+}
+
+/** 表格上下文:光标行列与可删性（结构统计,基于当前 selection）。
+ *  导出供表格右键菜单在执行动作时复算（右键已把光标落到点击单元格） */
+export function tableMeta(state: EditorState): Pick<ElToolbarState, 'row' | 'col' | 'canDeleteRow' | 'canDeleteCol'> {
   const $h = state.selection.$head
   let cell: PMNode | null = null
   let row: PMNode | null = null
@@ -54,7 +65,8 @@ function tableMeta(state: EditorState): Pick<ElToolbarState, 'row' | 'col' | 'ca
   for (let d = $h.depth; d > 0; d--) {
     const n = $h.node(d)
     if (n.type.name === 'table_cell' || n.type.name === 'table_header') cell ??= n
-    else if (n.type.name === 'table_row') row ??= n
+    // gfm 表头行是独立类型 table_header_row，漏掉它表头选区算不出列号
+    else if (n.type.name === 'table_row' || n.type.name === 'table_header_row') row ??= n
     else if (n.type.name === 'table') table ??= n
   }
   let rowIndex = 0
@@ -68,7 +80,8 @@ function tableMeta(state: EditorState): Pick<ElToolbarState, 'row' | 'col' | 'ca
   return {
     row: rowIndex,
     col: colIndex,
-    canDeleteRow: !!table && table.childCount > 1,
+    // 表头（第 0 行）不可删；只有表头时也无行可删
+    canDeleteRow: !!table && rowIndex >= 1 && table.childCount > 1,
     canDeleteCol: !!table && table.childCount > 0 && table.child(0).childCount > 1
   }
 }
