@@ -357,16 +357,15 @@ watch(
 }
 
 /* 纸宽为可用宽度百分比；min(620px, 100%) 兜底：视口足够时防过窄，
-   视口不足时退化为 100%，绝不撑出横向溢出（同时消除"拖宽死区"） */
+   视口不足时退化为 100%，绝不撑出横向溢出（同时消除"拖宽死区"）。
+   内容面直接落在工作区底色上（不再用浮起的纸卡）：与 Typora 的整窗换肤
+   一致，自定义主题与内置主题统一——卡片描边/投影/圆角会和外框形成色差 */
 .paper {
   flex: 1;
   max-width: max(var(--paper-width, 80%), min(620px, 100%));
   margin: 0 auto;
   height: 100%;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-l);
-  box-shadow: var(--shadow-card);
+  background: var(--bg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -378,8 +377,8 @@ watch(
   justify-content: space-between;
   gap: 12px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-2);
+  /* 文档头条融进底色：仅留一道低对比细线与正文分界 */
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   flex-shrink: 0;
 }
 

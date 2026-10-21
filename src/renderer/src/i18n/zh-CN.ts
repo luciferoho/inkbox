@@ -78,7 +78,7 @@ export const zh = {
   // 标签栏
   'tabs.home': '主页',
   'tabs.dirty': '未保存',
-  'tabs.new': '新建文档 (Ctrl+N)',
+  'tabs.new': '新建文档',
   'tabs.ctxClose': '关闭标签页',
   'tabs.ctxDetach': '移到新窗口',
   'tabs.ctxCloseLeft': '关闭左侧（{n}）',
@@ -95,12 +95,13 @@ export const zh = {
   'status.readMin': '约 {n} 分钟',
   'status.focus': '专注',
   'status.typewriter': '打字机',
-  'status.focusTitle': '专注模式 (F8)',
-  'status.typewriterTitle': '打字机模式 (F9)',
+  'status.focusTitle': '专注模式',
+  'status.typewriterTitle': '打字机模式',
   'status.autosaveOn': '自动保存',
   'status.autosaveOff': '自动保存已关',
   'status.lineTitle': '第 {n} 行',
   'status.vimTitle': 'Vim 模式（设置中开关）：NORMAL 普通 / INSERT 插入',
+  'status.themeTitle': '当前主题样式：{name}（点击打开设置）',
 
   // 欢迎页
   'welcome.hero': '落笔即章',
@@ -142,7 +143,7 @@ export const zh = {
   'side.searchNoHit': '没有匹配的结果。',
   'side.searchStat': '{files} 个文件命中 · 已扫描 {scanned} 个',
   'side.searchTruncated': '结果已截断',
-  'side.collapse': '折叠侧栏 (Ctrl+\\)',
+  'side.collapse': '折叠侧栏',
   'side.resizeHint': '拖动调整宽度 · 双击折叠',
   'side.outlineEmpty': '打开文档后，这里会显示标题结构树。',
   'side.outlineNoHeadings': '文档中还没有标题。',
@@ -295,10 +296,10 @@ export const zh = {
   // 墨脊
   'rail.outline': '大纲',
   'rail.files': '工作区',
-  'rail.search': '全局搜索 (Ctrl+Shift+F)',
-  'rail.theme': '切换主题 (Ctrl+Alt+T)',
+  'rail.search': '全局搜索',
+  'rail.theme': '切换主题',
   'rail.shortcuts': '快捷键说明',
-  'rail.settings': '偏好设置 (Ctrl+,)',
+  'rail.settings': '偏好设置',
 
   // 图片查看器
   'viewer.hint': '滚轮缩放 · 拖拽移动 · 双击复位 · Esc 关闭',
@@ -442,7 +443,23 @@ export const zh = {
   'settings.autosaveSilent': '静默保存',
   'settings.autosaveSilentHint': '自动保存成功时不弹「已保存」提示；手动保存（Ctrl+S）始终提示',
   'settings.interval': '保存间隔',
-  'settings.sec': '{n} 秒'
+  'settings.sec': '{n} 秒',
+  /* M3 外观扩展 */
+  'settings.themeCss': '主题样式',
+  'settings.themeDefault': '内置（墨匣纸面）',
+  'settings.openThemesDir': '打开主题目录',
+  'settings.themeCssHint': 'themes 目录里的 .css 文件，覆盖设计令牌即可换肤；兼容常见 Typora 主题变量。',
+  'settings.bodyFont': '正文字体',
+  'settings.codeFont': '代码字体',
+  'settings.fontHint': '填 CSS font-family 值，留空用默认。',
+  'settings.userCss': '自定义 CSS',
+  'settings.openUserCss': '打开 base.user.css',
+  'settings.userCssHint': '全局自定义样式，保存后即时生效，对所有窗口生效。',
+  'settings.themeVariant': '主题变体',
+  'settings.variantAuto': '自动（跟随明暗）',
+  'settings.variantGrey': '灰色',
+  'settings.themeLockedHint': '当前主题样式只提供{mode}，主题已锁定。',
+  'settings.variantLockedHint': '已固定主题变体，明暗切换已禁用（改为「自动」后可跟随系统）。'
 } as const
 
 /** 词典形状：键必须逐一对齐，值放宽为 string（en.ts 缺键/多键都在编译期报错） */

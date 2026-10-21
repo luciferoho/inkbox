@@ -4,7 +4,7 @@
    ============================================================ */
 
 .md-preview {
-  font-family: var(--font-ui);
+  font-family: var(--font-body);
   font-size: var(--preview-font-size, 16px);
   line-height: var(--preview-line-height, 1.7);
   color: var(--text);
@@ -24,7 +24,7 @@
 .md-preview h4,
 .md-preview h5,
 .md-preview h6 {
-  font-family: var(--font-ui);
+  font-family: var(--font-body);
   font-weight: 700;
   line-height: 1.4;
   margin: 1.3em 0 0.6em;
@@ -67,9 +67,11 @@
 
 /* 行内代码 */
 .md-preview code {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 0.86em;
-  background: var(--surface-2);
+  background: var(--inline-code-bg);
+  color: var(--inline-code-fg);
+  border: 1px solid var(--inline-code-border);
   border-radius: 4px;
   padding: 0.13em 0.4em;
 }
@@ -113,7 +115,7 @@
   border-bottom: 1px solid var(--code-edge);
 }
 .md-preview .md-code-lang {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 11px;
   letter-spacing: 0.4px;
   color: var(--code-comment);
@@ -148,6 +150,29 @@
   margin: 0;
   border-radius: 0;
   box-shadow: none;
+}
+
+/* Typora 主题模式：代码块完全交给主题（.md-fences → pre）渲染。
+   语言栏/复制栏、外层描边、内阴影都是内置皮肤，会让主题圆角/底色/边框失效 */
+html[data-theme-css] .md-preview .md-code {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  overflow: visible;
+}
+html[data-theme-css] .md-preview .md-code-bar {
+  display: none;
+}
+html[data-theme-css] .md-preview pre {
+  box-shadow: none;
+}
+/* 主题模式：front matter 包装层让位（主题的 pre.md-meta-block 规则接管，
+   内置的奶油底/琥珀左条会叠在主题元信息块样式上） */
+html[data-theme-css] .md-preview .md-front-matter {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 0;
 }
 
 /* 引用：琥珀细条 */
@@ -207,7 +232,7 @@
 }
 .md-preview th {
   background: var(--surface-2);
-  font-family: var(--font-ui);
+  font-family: var(--font-body);
   font-weight: 600;
 }
 
@@ -269,7 +294,7 @@
   display: flex;
   justify-content: center;
   min-height: 40px;
-  font-family: var(--font-ui);
+  font-family: var(--font-body);
 }
 .md-preview .mermaid svg {
   max-width: 100%;
@@ -277,7 +302,7 @@
 }
 .md-preview .mermaid-error {
   color: var(--danger);
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 12px;
   white-space: pre-wrap;
   display: block;
@@ -333,6 +358,21 @@
   font-weight: 700;
 }
 
+/* Typora 主题模式：对齐 CodeMirror 的语义（cm-property/def/variable）。
+   Typora 里对象键是红色、函数定义是蓝色、普通标识符是正文色，而 highlight.js
+   把三者分到 property/title/variable，默认调色板与主题不一致 */
+html[data-theme-css] .hljs-property {
+  color: var(--code-attr);
+}
+html[data-theme-css] .hljs-variable,
+html[data-theme-css] .hljs-template-variable {
+  color: var(--code-fg);
+}
+html[data-theme-css] .hljs-title,
+html[data-theme-css] .hljs-section {
+  color: var(--code-type);
+}
+
 /* ---------- 扩展语法 ---------- */
 
 /* ==高亮==（markdown-it-mark → <mark>） */
@@ -352,7 +392,7 @@
   margin: 1.2em 0;
 }
 .md-preview .md-toc-title {
-  font-family: var(--font-ui);
+  font-family: var(--font-body);
   font-size: 0.78em;
   font-weight: 600;
   letter-spacing: 2px;
@@ -432,7 +472,7 @@
   padding: 0;
   background: none;
   border: none;
-  font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace;
+  font-family: var(--font-code);
   font-size: 0.86em;
   line-height: 1.6;
   color: var(--text-2);

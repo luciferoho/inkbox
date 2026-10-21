@@ -141,7 +141,17 @@ ${CODE_TOKENS_DARK}
 }
 `
 
-const EXPORT_TOKENS_COMMON = `* { box-sizing: border-box; margin: 0; padding: 0; }`
+const EXPORT_TOKENS_COMMON = `
+* { box-sizing: border-box; margin: 0; padding: 0; }
+/* 文档字族回落（M3）：外部主题/用户 CSS 覆盖 --font-body/--font-code 即生效 */
+:root {
+  --font-body: var(--font-ui);
+  --font-code: var(--font-mono);
+  --inline-code-bg: var(--surface-2);
+  --inline-code-fg: inherit;
+  --inline-code-border: transparent;
+}
+`
 
 function bufToBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf)
@@ -230,6 +240,8 @@ export interface BuildExportOptions {
   forPrint?: boolean
   /** 导出主题：代码块等配色跟随应用当前明暗（缺省 light） */
   theme?: 'light' | 'dark'
+  /** 附加 CSS（M3 3.4）：外部主题 + 用户自定义样式，注入在所有内置样式之后 */
+  extraCss?: string
 }
 
 export async function buildExportHtml(
@@ -324,6 +336,7 @@ body { background: var(--bg); padding: 40px 20px 64px; }
 <style>${katexInlined}</style>
 <style>${previewCss}</style>
 <style>${pageCss}</style>
+${opts.extraCss ? `<style>${opts.extraCss}</style>` : ''}
 </head>
 <body>
 <article class="md-preview export-page">

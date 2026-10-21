@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ensureMath, renderWithDir } from '@/services/markdown'
 import {
+  applyMermaidConfigInLock,
   configMermaidFor,
   getMermaidCache,
   isHealthyMermaidSvg,
@@ -292,12 +293,29 @@ watch(
   }
 )
 
+/** 主题切换时清空待渲染队列：队列里的节点尚未出图（无 data-mermaid-src，
+ *  rethemeMermaid 会跳过），若不打断，它们会以旧极性在后台泳道画出来——
+ *  「流程图浅色、时序图深色」同屏混排的根因。清空后由 rethemeMermaid 的
+ *  later 分支重新入队，按新极性渲染 */
+function resetMermaidQueueForTheme(): void {
+  mermaidQueue.length = 0
+  disconnectMermaidObserver()
+}
+
 let rethemeSeq = 0
+
+/** 主题令牌变化（换主题/改变体）：重配置 + 重绘图表。
+ *  与 effectiveTheme 的 watch 互补——同明暗换主题时前者不触发 */
+function onThemeApplied(): void {
+  rethemeMermaidConfig(ui.effectiveTheme === 'dark')
+  void rethemeMermaid()
+}
 
 /** 主题切换：视口内的图离屏按新主题重绘后原地替换（无闪烁）；
  *  视口外的回到占位态入后台队列慢慢补——mermaid 的 run 是全局配置串行的，
  *  两百张图全量重绘要一分多钟，首屏可见的先换色才是用户关心的 */
 async function rethemeMermaid(): Promise<void> {
+  resetMermaidQueueForTheme()
   const nodes = [...(body.value?.querySelectorAll<HTMLElement>('.mermaid') ?? [])]
   if (nodes.length === 0) return
   const seq = ++rethemeSeq
@@ -315,8 +333,14 @@ async function rethemeMermaid(): Promise<void> {
   const later: HTMLElement[] = []
   for (const node of nodes) {
     if (seq !== rethemeSeq) return // 主题连切：本轮作废
+    if (!node.isConnected) continue
     const code = node.dataset.mermaidSrc ?? ''
-    if (!code || !node.isConnected) continue // 无源码（未渲染占位）交给常规 render 流程
+    if (!code) {
+      // 从未渲染过的占位（源码就是 textContent）：队列已被本轮清空、observer
+      // 已断开，若直接跳过它将永远没人渲染——入队交给常规流程补齐
+      later.push(node)
+      continue
+    }
     const key = mermaidCacheKey(code, ui.effectiveTheme === 'dark')
     const hit = getMermaidCache(key)
     if (hit !== undefined) {
@@ -340,7 +364,10 @@ async function rethemeMermaid(): Promise<void> {
   if (offs.length > 0) {
     let requeued = 0
     try {
-      await withMermaidLock(() => m.run({ nodes: offs.map((o) => o.off), suppressErrors: true }))
+      await withMermaidLock(async () => {
+        applyMermaidConfigInLock(ui.effectiveTheme === 'dark')
+        await m.run({ nodes: offs.map((o) => o.off), suppressErrors: true })
+      })
     } catch (err) {
       console.error('[preview] mermaid retheme failed:', err)
     }
@@ -363,7 +390,10 @@ async function rethemeMermaid(): Promise<void> {
   if (seq !== rethemeSeq) return
   for (const node of later) {
     node.removeAttribute('data-processed')
-    node.textContent = node.dataset.mermaidSrc ?? ''
+    // 已渲染节点还原源码占位（textContent 曾被 SVG 顶替）；从未渲染的占位
+    // textContent 本身就是源码，不能清空（mermaidSrc 属性不存在）
+    const src = node.dataset.mermaidSrc
+    if (src) node.textContent = src
     mermaidQueue.push(node)
   }
   if (later.length > 0) void pumpMermaidQueue(m)
@@ -499,7 +529,12 @@ async function renderMermaidOffscreen(
     holder.textContent = code
     document.body.appendChild(holder)
     try {
-      await withMermaidLock(() => m.run({ nodes: [holder], suppressErrors: true }))
+      await withMermaidLock(async () => {
+        // run 读「执行时刻」的全局配置：排队期间主题翻转的话，轮次开头的
+        // configMermaidFor 已过期——锁内按当下极性重应用，保证不串色
+        applyMermaidConfigInLock(ui.effectiveTheme === 'dark')
+        await m.run({ nodes: [holder], suppressErrors: true })
+      })
     } catch {
       /* 失败在下方统一降级 */
     }
@@ -524,8 +559,15 @@ async function renderMermaidNode(m: MermaidInstance, node: HTMLElement): Promise
     return
   }
   const paneW = node.closest('.md-preview')?.clientWidth ?? 0
+  const darkAtStart = ui.effectiveTheme === 'dark'
   const html = await renderMermaidOffscreen(m, code, Math.max(paneW, node.clientWidth, 320))
   if (!node.isConnected) return
+  // 渲染期间主题翻转：成品是旧极性（缓存键也已错位）——按新极性重排本节点
+  if ((ui.effectiveTheme === 'dark') !== darkAtStart) {
+    node.removeAttribute('data-processed')
+    mermaidQueue.push(node)
+    return
+  }
   if (html !== null) {
     node.innerHTML = html
     node.setAttribute('data-processed', 'true')
@@ -1077,6 +1119,8 @@ function onImgLoad(e: Event): void {
 
 onMounted(() => {
   pullFind(docs.activeId, true) // 恢复当前标签共享的查找条状态
+  // 主题令牌落定 → 图表按新配色重绘（换主题但明暗不变时 effectiveTheme 不触发）
+  window.addEventListener('inkbox:theme-applied', onThemeApplied)
   // 即显侧拖列宽（广播）→ 本侧重放；预览面板保持挂载时切模式也要重放
   offTableWidths = onColWidthsChanged(() => {
     if (body.value) applyStoredTableWidths(body.value)
@@ -1093,6 +1137,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   offTableWidths?.()
+  window.removeEventListener('inkbox:theme-applied', onThemeApplied)
   scroller.value?.removeEventListener('mousemove', onPreviewMouseMoveTableCursor)
   pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   scroller.value?.removeEventListener('scroll', onScrollDom)

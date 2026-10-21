@@ -44,6 +44,10 @@ export function setMenuSuspended(on: boolean): void {
   }
 }
 
+export function isMenuSuspended(): boolean {
+  return suspended
+}
+
 export function createMenu(win: BrowserWindow): void {
   if (suspended) return
   const cmd = (c: string): Electron.MenuItemConstructorOptions['click'] => () => send(win, c)

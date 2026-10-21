@@ -2,7 +2,7 @@
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useUiStore, type ThemePref } from '@/stores/ui'
 import type { LocalePref } from '@/i18n'
-import type { AppInfo, MenuCommand, PluginInfo } from '@shared/types'
+import type { AppInfo, MenuCommand, PluginInfo, ThemeInfo } from '@shared/types'
 import {
   SHORTCUT_COMMANDS,
   effectiveShortcuts,
@@ -22,6 +22,93 @@ const THEMES: { key: ThemePref; labelKey: string }[] = [
   { key: 'light', labelKey: 'settings.thLight' },
   { key: 'dark', labelKey: 'settings.thDark' }
 ]
+
+/* ---------- M3 外观扩展：外部 CSS 主题 / 字体族 / 自定义 CSS ---------- */
+const themeFiles = ref<ThemeInfo[]>([])
+const VI_VARIANT_ORDER = ['light', 'dark', 'grey']
+function variantLabel(key: string): string {
+  if (key === 'light') return t('settings.thLight')
+  if (key === 'dark') return t('settings.thDark')
+  if (key === 'grey') return t('settings.variantGrey')
+  return key
+}
+/** 主题族：同族文件（xxx / xxx-dark / xxx-grey）合成一个下拉项 */
+const themeFamilies = computed(() => {
+  const map = new Map<string, ThemeInfo[]>()
+  for (const t of themeFiles.value) {
+    const arr = map.get(t.family)
+    if (arr) arr.push(t)
+    else map.set(t.family, [t])
+  }
+  return [...map.entries()]
+    .map(([family, files]) => {
+      const keys = [...new Set(files.map((f) => f.variantKey))].sort(
+        (a, b) => (VI_VARIANT_ORDER.indexOf(a) + 1 || 99) - (VI_VARIANT_ORDER.indexOf(b) + 1 || 99)
+      )
+      const hint = keys.map(variantLabel).join('/')
+      const name = files.length > 1 ? family : files[0].name
+      return { key: files.length > 1 ? family : files[0].name, label: `${name}（${hint}）` }
+    })
+    .sort((a, b) => a.key.localeCompare(b.key))
+})
+/** 当前主题族的全部变体（用于“主题变体”选择行） */
+const currentFamily = computed(() => {
+  const key = ui.appearance.themeCss
+  if (!key) return [] as ThemeInfo[]
+  const fam = themeFiles.value.filter((x) => x.family === key)
+  return fam.length ? fam : themeFiles.value.filter((x) => x.name === key)
+})
+const variantOptions = computed(() => {
+  const fam = currentFamily.value
+  if (fam.length <= 1) return [] as { key: string; label: string }[]
+  const hasLight = fam.some((x) => x.variant === 'light')
+  const hasDark = fam.some((x) => x.variant === 'dark')
+  const opts: { key: string; label: string }[] = []
+  if (hasLight && hasDark) opts.push({ key: 'auto', label: t('settings.variantAuto') })
+  const keys = [...new Set(fam.map((x) => x.variantKey))].sort(
+    (a, b) => (VI_VARIANT_ORDER.indexOf(a) + 1 || 99) - (VI_VARIANT_ORDER.indexOf(b) + 1 || 99)
+  )
+  for (const k of keys) opts.push({ key: k, label: variantLabel(k) })
+  return opts
+})
+function pickTheme(name: string): void {
+  const fam = themeFiles.value.filter((x) => x.family === name)
+  const hasPair = fam.some((x) => x.variant === 'light') && fam.some((x) => x.variant === 'dark')
+  // 有浅/深成对默认自动跟随；单变体族直接固定该变体，便于锁定判断
+  const variant = hasPair ? 'auto' : (fam[0]?.variantKey ?? 'auto')
+  void ui.setAppearance({ themeCss: name, themeVariant: variant })
+}
+function pickVariant(key: string): void {
+  void ui.setAppearance({ themeVariant: key })
+}
+async function reloadThemes(): Promise<void> {
+  themeFiles.value = await window.api.theme.list()
+  // 旧配置存的是变体文件名（xxx-dark / xxx-grey），归一成族键 + 固定变体
+  const cur = ui.appearance.themeCss
+  if (!cur || themeFamilies.value.some((f) => f.key === cur)) return
+  const hit = themeFiles.value.find((x) => x.name === cur)
+  if (!hit) return
+  const familyKey = hit.family !== hit.name ? hit.family : hit.name
+  if (themeFamilies.value.some((f) => f.key === familyKey)) {
+    void ui.setAppearance({
+      themeCss: familyKey,
+      themeVariant: hit.family !== hit.name ? hit.variantKey : ui.appearance.themeVariant
+    })
+  }
+}
+// 每次打开设置都刷新一次（用户可能刚往目录里放了新主题）
+watch(
+  () => ui.settingsOpen,
+  (open) => {
+    if (open) void reloadThemes()
+  }
+)
+function openThemesDir(): void {
+  void window.api.theme.openDir()
+}
+function openUserCss(): void {
+  void window.api.theme.openUserCss()
+}
 
 const LOCALES: { key: LocalePref; labelKey?: string; label?: string }[] = [
   { key: 'system', labelKey: 'settings.lSystem' },
@@ -206,12 +293,19 @@ function checkUpdate(): void {
                   v-for="t in THEMES"
                   :key="t.key"
                   :class="{ on: ui.themePref === t.key }"
+                  :disabled="!!(ui.themeLock || ui.themeSwitchLocked)"
                   @click="ui.setThemePref(t.key)"
                 >
                   {{ $t(t.labelKey) }}
                 </button>
               </div>
             </div>
+            <p v-if="ui.themeLock" class="row-hint">
+              {{ $t('settings.themeLockedHint', { mode: ui.themeLock === 'dark' ? $t('settings.thDark') : $t('settings.thLight') }) }}
+            </p>
+            <p v-else-if="ui.themeSwitchLocked" class="row-hint">
+              {{ $t('settings.variantLockedHint') }}
+            </p>
             <div class="row">
               <span class="label">{{ $t('settings.language') }}</span>
               <div class="segmented">
@@ -225,6 +319,56 @@ function checkUpdate(): void {
                 </button>
               </div>
             </div>
+
+            <!-- 主题样式与字体（M3） -->
+            <h3 class="group-title">{{ $t('settings.themeCss') }}</h3>
+            <div class="row">
+              <span class="label">{{ $t('settings.themeCss') }}</span>
+              <select class="theme-select" :value="ui.appearance.themeCss" @change="pickTheme(($event.target as HTMLSelectElement).value)">
+                <option value="">{{ $t('settings.themeDefault') }}</option>
+                <option v-for="th in themeFamilies" :key="th.key" :value="th.key">{{ th.label }}</option>
+              </select>
+              <button class="link-btn" @click="openThemesDir">{{ $t('settings.openThemesDir') }}</button>
+            </div>
+            <p class="row-hint">{{ $t('settings.themeCssHint') }}</p>
+            <div v-if="variantOptions.length" class="row">
+              <span class="label">{{ $t('settings.themeVariant') }}</span>
+              <div class="segmented">
+                <button
+                  v-for="v in variantOptions"
+                  :key="v.key"
+                  :class="{ on: (ui.appearance.themeVariant || 'auto') === v.key }"
+                  @click="pickVariant(v.key)"
+                >
+                  {{ v.label }}
+                </button>
+              </div>
+            </div>
+            <div class="row">
+              <span class="label">{{ $t('settings.bodyFont') }}</span>
+              <input
+                class="font-input"
+                type="text"
+                :value="ui.appearance.bodyFont"
+                :placeholder="$t('settings.fontHint')"
+                @change="ui.setAppearance({ bodyFont: ($event.target as HTMLInputElement).value.trim() })"
+              />
+            </div>
+            <div class="row">
+              <span class="label">{{ $t('settings.codeFont') }}</span>
+              <input
+                class="font-input"
+                type="text"
+                :value="ui.appearance.codeFont"
+                :placeholder="$t('settings.fontHint')"
+                @change="ui.setAppearance({ codeFont: ($event.target as HTMLInputElement).value.trim() })"
+              />
+            </div>
+            <div class="row">
+              <span class="label">{{ $t('settings.userCss') }}</span>
+              <button class="link-btn" @click="openUserCss">{{ $t('settings.openUserCss') }}</button>
+            </div>
+            <p class="row-hint">{{ $t('settings.userCssHint') }}</p>
 
             <!-- 排版 -->
             <h3 class="group-title">{{ $t('settings.gLayout') }}</h3>
@@ -688,6 +832,45 @@ function checkUpdate(): void {
   padding: 2px;
   border-radius: var(--radius-m);
   background: var(--surface-2);
+}
+
+/* M3：外部主题选择 / 字体输入 / 目录跳转按钮 */
+.theme-select {
+  min-width: 200px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.font-input {
+  flex: 1;
+  max-width: 360px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.font-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.link-btn {
+  padding: 4px 10px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--accent-strong);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.link-btn:hover {
+  background: var(--accent-soft);
 }
 
 .segmented button {

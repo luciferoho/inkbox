@@ -76,7 +76,7 @@ export const en: MsgSchema = {
   // Tabs bar
   'tabs.home': 'Home',
   'tabs.dirty': 'Unsaved',
-  'tabs.new': 'New document (Ctrl+N)',
+  'tabs.new': 'New document',
   'tabs.ctxClose': 'Close tab',
   'tabs.ctxDetach': 'Move to new window',
   'tabs.ctxCloseLeft': 'Close left ({n})',
@@ -93,12 +93,13 @@ export const en: MsgSchema = {
   'status.readMin': '{n} min read',
   'status.focus': 'Focus',
   'status.typewriter': 'Typewriter',
-  'status.focusTitle': 'Focus mode (F8)',
-  'status.typewriterTitle': 'Typewriter mode (F9)',
+  'status.focusTitle': 'Focus mode',
+  'status.typewriterTitle': 'Typewriter mode',
   'status.autosaveOn': 'Autosave',
   'status.autosaveOff': 'Autosave off',
   'status.lineTitle': 'Line {n}',
   'status.vimTitle': 'Vim mode (toggle in settings): NORMAL / INSERT',
+  'status.themeTitle': 'Current theme CSS: {name} (click to open settings)',
 
   // Welcome page
   'welcome.hero': 'Write, flow',
@@ -140,7 +141,7 @@ export const en: MsgSchema = {
   'side.searchNoHit': 'No matches.',
   'side.searchStat': '{files} file(s) matched · {scanned} scanned',
   'side.searchTruncated': 'results truncated',
-  'side.collapse': 'Collapse sidebar (Ctrl+\\)',
+  'side.collapse': 'Collapse sidebar',
   'side.resizeHint': 'Drag to resize · double-click to collapse',
   'side.outlineEmpty': 'Open a document to see its heading tree here.',
   'side.outlineNoHeadings': 'No headings in this document.',
@@ -294,10 +295,10 @@ export const en: MsgSchema = {
   // Activity rail
   'rail.outline': 'Outline',
   'rail.files': 'Files',
-  'rail.search': 'Search workspace (Ctrl+Shift+F)',
-  'rail.theme': 'Toggle theme (Ctrl+Alt+T)',
+  'rail.search': 'Search workspace',
+  'rail.theme': 'Toggle theme',
   'rail.shortcuts': 'Keyboard shortcuts',
-  'rail.settings': 'Preferences (Ctrl+,)',
+  'rail.settings': 'Preferences',
 
   // Image viewer
   'viewer.hint': 'Scroll to zoom · drag to pan · double-click to reset · Esc to close',
@@ -444,5 +445,21 @@ export const en: MsgSchema = {
   'settings.autosaveSilent': 'Silent save',
   'settings.autosaveSilentHint': 'No "saved" toast on autosave; manual save (Ctrl+S) always notifies',
   'settings.interval': 'Interval',
-  'settings.sec': '{n} s'
+  'settings.sec': '{n} s',
+  /* M3 appearance */
+  'settings.themeCss': 'Theme style',
+  'settings.themeDefault': 'Built-in (paper)',
+  'settings.openThemesDir': 'Open themes folder',
+  'settings.themeCssHint': 'CSS files in the themes folder override design tokens; common Typora theme variables are supported.',
+  'settings.bodyFont': 'Body font',
+  'settings.codeFont': 'Code font',
+  'settings.fontHint': 'A CSS font-family value; leave empty for the default.',
+  'settings.userCss': 'Custom CSS',
+  'settings.openUserCss': 'Open base.user.css',
+  'settings.userCssHint': 'Global custom stylesheet, applied instantly to all windows.',
+  'settings.themeVariant': 'Theme variant',
+  'settings.variantAuto': 'Auto (follow light/dark)',
+  'settings.variantGrey': 'Grey',
+  'settings.themeLockedHint': 'This theme only provides {mode}; the app theme is locked.',
+  'settings.variantLockedHint': 'A fixed theme variant is selected; light/dark switching is disabled (choose Auto to follow the system).'
 }

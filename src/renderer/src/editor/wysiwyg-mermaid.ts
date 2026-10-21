@@ -8,6 +8,7 @@ import type { EditorView, NodeView, ViewMutationRecord } from '@milkdown/kit/pro
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import { useUiStore } from '@/stores/ui'
 import {
+  applyMermaidConfigInLock,
   configMermaidFor,
   getMermaidCache,
   isHealthyMermaidSvg,
@@ -223,6 +224,9 @@ class MermaidCodeView implements NodeView {
         holder.textContent = code
         document.body.appendChild(holder)
         try {
+          // run 读执行时刻的全局配置：排队期间主题翻转会让上面的 configMermaidFor
+          // 过期——锁内按当下极性重应用，图表不串色
+          applyMermaidConfigInLock(isDark())
           await m.run({ nodes: [holder] })
         } catch {
           /* 失败在下方统一降级 */
@@ -236,6 +240,12 @@ class MermaidCodeView implements NodeView {
     })
 
     if (seq !== this.renderSeq) return // 已有更新一轮渲染（或视图销毁）
+    // 渲染期间主题翻转：成品是旧极性、缓存键也已错位——按新极性重画
+    if (isDark() !== dark) {
+      this.renderedCode = null
+      void this.render()
+      return
+    }
     if (html === null) {
       this.showError(seq, code)
       return

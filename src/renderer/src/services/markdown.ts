@@ -181,7 +181,9 @@ md.renderer.rules.luci_front_matter_block = (tokens, idx) => {
       return v !== null && v !== undefined ? ` ${n}="${escapeHtml(String(v))}"` : ''
     })
     .join('')
-  return `<section class="md-front-matter"${attrs}><pre class="md-fm-pre">${escapeHtml(tok.content)}</pre></section>\n`
+  // md-meta-block：Typora 的 front matter 惯用类，主题的 pre.md-meta-block
+  // 规则（night 虚线底边/blubook 圆角灰底）借此直接命中我们的元信息块
+  return `<section class="md-front-matter"${attrs}><pre class="md-fm-pre md-meta-block">${escapeHtml(tok.content)}</pre></section>\n`
 }
 
 /* 顶层块附源码行号（token.map 为 0 基，[start, end)）：供双栏同步滚动插值；
@@ -566,8 +568,13 @@ export function canonicalizeContent(src: string): string {
     )
   }
   flushFence()
-  // 列表项之前的引导空行：即显序列化常省略（无序列表可打断段落）
-  return out.join('\n').replace(/\n\n+(?=(?:[-*+]|\d+[.)])[\t ])/g, '\n')
+  // 列表项之前的引导空行：即显序列化常省略（无序列表可打断段落）。
+  // 尾随空行/换行同样抹平：milkdown 序列化不保证文末换行，与磁盘文本（Typora
+  // 惯例保留尾随换行）只差文末空行时不算真实编辑——否则"打开即未保存"
+  return out
+    .join('\n')
+    .replace(/\n\n+(?=(?:[-*+]|\d+[.)])[\t ])/g, '\n')
+    .replace(/[\s\n]+$/, '')
 }
 
 /** 空标题哨兵的渲染产物（splitAdjacentOrderedLists 注入，渲染后剥除） */

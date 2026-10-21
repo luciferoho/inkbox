@@ -1,7 +1,15 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useUiStore } from '@/stores/ui'
+import { t } from '@/i18n'
+import { shortcutTitle } from '@/services/shortcut-title'
 
 const ui = useUiStore()
+
+/** 按钮提示跟随用户改键（组合不能写死在词典里） */
+const themeTitle = computed(() => shortcutTitle('view:toggleTheme', t('rail.theme')))
+const searchTitle = computed(() => shortcutTitle('view:toggleSearch', t('rail.search')))
+const settingsTitle = computed(() => shortcutTitle('app:settings', t('rail.settings')))
 
 function pick(mode: 'outline' | 'files' | 'search'): void {
   // 再次点击当前模式 = 折叠侧栏（墨脊保留）
@@ -38,7 +46,7 @@ function pick(mode: 'outline' | 'files' | 'search'): void {
     <button
       class="rail-btn"
       :class="{ active: ui.sidebarOpen && ui.sidebarMode === 'search' }"
-      :title="$t('rail.search')"
+      :title="searchTitle"
       @click="pick('search')"
     >
       <svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
@@ -49,7 +57,12 @@ function pick(mode: 'outline' | 'files' | 'search'): void {
 
     <div class="spacer" />
 
-    <button class="rail-btn" :title="$t('rail.theme')" @click="ui.toggleTheme()">
+    <button
+      class="rail-btn"
+      :title="themeTitle"
+      :disabled="!!(ui.themeLock || ui.themeSwitchLocked)"
+      @click="ui.toggleTheme()"
+    >
       <svg v-if="ui.effectiveTheme === 'light'" viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
         <circle cx="10" cy="10" r="3.4" />
         <path d="M10 2.5v1.8M10 15.7v1.8M2.5 10h1.8M15.7 10h1.8M4.7 4.7l1.3 1.3M14 14l1.3 1.3M15.3 4.7L14 6M6 14l-1.3 1.3" />
@@ -71,7 +84,7 @@ function pick(mode: 'outline' | 'files' | 'search'): void {
       </svg>
     </button>
 
-    <button class="rail-btn" :title="$t('rail.settings')" @click="ui.openSettings()">
+    <button class="rail-btn" :title="settingsTitle" @click="ui.openSettings()">
       <svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
         <circle cx="10" cy="10" r="2.6" />
         <path d="M10 2.8l1.1 2 2.3-.4.4 2.3 2 1.1-1.1 2 1.1 2-2 1.1-.4 2.3-2.3-.4-1.1 2-1.1-2-2.3.4-.4-2.3-2-1.1 1.1-2-1.1-2 2-1.1.4-2.3 2.3.4z" />

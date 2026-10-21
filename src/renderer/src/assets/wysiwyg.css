@@ -13,7 +13,7 @@
 }
 
 .wysiwyg-host .luci-prose {
-  font-family: var(--font-ui);
+  font-family: var(--font-body);
   font-size: var(--preview-font-size, 16px);
   line-height: var(--preview-line-height, 1.7);
   color: var(--text);
@@ -40,7 +40,7 @@
 .wysiwyg-host .luci-prose h4,
 .wysiwyg-host .luci-prose h5,
 .wysiwyg-host .luci-prose h6 {
-  font-family: var(--font-ui);
+  font-family: var(--font-body);
   font-weight: 700;
   line-height: 1.4;
   margin: 1.3em 0 0.6em;
@@ -79,9 +79,11 @@
 
 /* 行内代码与代码块（墨块） */
 .wysiwyg-host .luci-prose code {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 0.86em;
-  background: var(--surface-2);
+  background: var(--inline-code-bg);
+  color: var(--inline-code-fg);
+  border: 1px solid var(--inline-code-border);
   border-radius: 4px;
   padding: 0.13em 0.4em;
 }
@@ -123,8 +125,21 @@
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
+
+/* Typora 主题模式：隐藏语言栏，代码块交给主题（.md-fences → pre）渲染。
+   主题把 pre margin 归零（依赖 Typora 的 #write flex gap），我们没有 flex，
+   这里补回块间距，否则代码块会贴着上下正文 */
+html[data-theme-css] .wysiwyg-host .luci-prose .md-code-bar {
+  display: none;
+}
+html[data-theme-css] .wysiwyg-host .luci-prose pre {
+  box-shadow: none;
+  margin: 1em 0 !important;
+  /* 语言栏隐藏后，“栏 + pre”的直角拼接规则仍在；圆角回到主题 .md-fences 的值 */
+  border-radius: var(--code-radius, 10px);
+}
 .wysiwyg-host .luci-prose .md-code-lang {
-  font-family: var(--font-mono);
+  font-family: var(--font-code);
   font-size: 11px;
   letter-spacing: 0.4px;
   color: var(--code-comment);
@@ -209,7 +224,7 @@
 
 .wysiwyg-host .luci-prose th {
   background: var(--surface-2);
-  font-family: var(--font-ui);
+  font-family: var(--font-body);
   font-weight: 600;
 }
 
@@ -345,7 +360,7 @@
 
 /* katex 未就绪时的 TeX 占位 */
 .wysiwyg-host .luci-prose .luci-math-render.luci-math-pending {
-  font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace;
+  font-family: var(--font-code);
   font-size: 0.88em;
   color: var(--text-2);
   white-space: pre-wrap;
@@ -365,7 +380,7 @@
 .wysiwyg-host .luci-prose .luci-math--editing .luci-math-src {
   display: block;
   min-width: 80px;
-  font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace;
+  font-family: var(--font-code);
   font-size: 0.92em;
   line-height: 1.55;
   color: var(--text);
@@ -475,7 +490,7 @@
   border-left: 3px solid var(--accent);
   border-radius: 6px;
   background: var(--surface-2);
-  font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace;
+  font-family: var(--font-code);
   font-size: 0.86em;
   line-height: 1.6;
   color: var(--text-2);
@@ -538,27 +553,36 @@
 }
 
 /* ---------- 标题折叠（ROADMAP 2.9，pm-heading-fold 装饰器打标）---------- */
-/* 箭头挂在标题元素内部首位：hover 显现，折叠时常显并指向右侧 */
+/* 箭头绝对定位到标题左侧留白：不占标题内容宽度，标题文字与正文左缘对齐。
+   之前作为行内 widget 挂在标题首位，会把 h1/h2 文字整体右推 ~20px，
+   主题模式（#write h1 padding 等）下更明显，还会吃到主题的 button 描边 */
+.wysiwyg-host :is(h1, h2, h3, h4, h5, h6):has(> .pm-fold-arrow) {
+  position: relative;
+}
 .wysiwyg-host h1 .pm-fold-arrow,
 .wysiwyg-host h2 .pm-fold-arrow,
 .wysiwyg-host h3 .pm-fold-arrow,
 .wysiwyg-host h4 .pm-fold-arrow,
 .wysiwyg-host h5 .pm-fold-arrow,
 .wysiwyg-host h6 .pm-fold-arrow {
+  position: absolute;
+  left: -20px;
+  top: calc((1.3em - 18px) / 2);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 18px;
   height: 18px;
-  margin-right: 2px;
+  margin: 0;
   padding: 0;
-  border: none;
+  border: 0 !important;
   border-radius: 4px;
-  background: transparent;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
   color: var(--text-2);
   opacity: 0;
   cursor: pointer;
-  vertical-align: middle;
   transition: opacity 0.12s, background 0.12s;
 }
 

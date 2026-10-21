@@ -39,8 +39,35 @@ export interface AppConfig {
   plugins?: {
     disabled: string[]
   }
+  /** 外观扩展（M3）：外部 CSS 主题 + 字体族。字段为空串 = 用内置默认 */
+  appearance?: {
+    /** 主题族键（同族文件去掉明暗/风格后缀；旧配置可能存完整文件名） */
+    themeCss?: string
+    /** 主题变体：auto = 跟随应用明暗（浅/深成对时）；light/dark/灰色等 = 指定变体 */
+    themeVariant?: string
+    /** 正文字体族（CSS font-family 值，作用于文档内容） */
+    bodyFont?: string
+    /** 代码字体族（CSS font-family 值，作用于代码块/行内代码） */
+    codeFont?: string
+  }
   /** 最近文件，新的在前 */
   recent: RecentFile[]
+}
+
+/** userData/themes 下发现的外部 CSS 主题（M3）。
+ *  Typora 社区习惯把明暗做成两个文件（xxx.css / xxx-dark.css），
+ *  这里把同族文件归到一个 family，应用按当前明暗自动选变体 */
+export interface ThemeInfo {
+  /** 文件显示名（不含 .css 扩展名；也是旧配置的兼容键） */
+  name: string
+  /** 文件名（含相对子目录与 .css，theme:readCss 参数） */
+  file: string
+  /** 同族键：去掉 -dark/-midnight/-paper/-grey 等后缀后的名字（选择时存这个） */
+  family: string
+  /** 该文件的明暗极性（文件名后缀优先，其次按 --bg-color 亮度判断） */
+  variant: 'light' | 'dark' | 'other'
+  /** 变体键：light / dark / 灰色等风格词（无后缀时按极性取 light/dark） */
+  variantKey: string
 }
 
 /** 插件清单（userData/plugins/<目录>/plugin.json） */
@@ -108,6 +135,7 @@ export const defaultConfig: AppConfig = {
   upload: { enabled: false, server: 'http://127.0.0.1:36677/upload' },
   vimMode: false,
   plugins: { disabled: [] },
+  appearance: { themeCss: '', themeVariant: 'auto', bodyFont: '', codeFont: '' },
   recent: []
 }
 

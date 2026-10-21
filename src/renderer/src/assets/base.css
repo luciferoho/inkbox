@@ -50,6 +50,13 @@
   --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
   --font-mono: 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
   --font-serif: Georgia, 'Source Serif SC', 'Noto Serif SC', 'Times New Roman', serif;
+  /* 文档内容字族（M3 设置页可覆盖，默认回落上面两族；外观服务写根节点行内样式） */
+  --font-body: var(--font-ui);
+  --font-code: var(--font-mono);
+  /* 行内代码（主题可覆盖：Typora 的 --inline-code-* / --bg-inline-code） */
+  --inline-code-bg: var(--surface-2);
+  --inline-code-fg: inherit;
+  --inline-code-border: transparent;
 
   /* 排版偏好（设置页实时覆盖：ui.applyEditorPrefs） */
   --preview-font-size: 16px;
@@ -277,4 +284,25 @@ body.inkbox-col-resizing,
 body.inkbox-col-resizing * {
   cursor: col-resize !important;
   user-select: none !important;
+}
+
+/* ---------- 主题模式：任务复选框防护 ----------
+   复选框是功能件不是内容。主题的 input 规则按 Typora 的绝对定位复选框设计
+   （newsprint 的 appearance:button + 全局 input 边框、night 的自绘 ::before），
+   套到我们内联的原生复选框上会渲染成巨型控件——统一恢复原生外观和尺寸，
+   仅保留主题强调色（accent-color 由 preview/wysiwyg 的默认规则提供） */
+html[data-theme-css] .task-item-checkbox {
+  -webkit-appearance: checkbox !important;
+  appearance: checkbox !important;
+  width: 13px !important;
+  height: 13px !important;
+  margin: 0 7px 0 0 !important;
+  border: 0 !important;
+  border-radius: 3px !important;
+  background: none !important;
+  vertical-align: -1.5px !important;
+}
+
+html[data-theme-css] .task-item-checkbox::before {
+  content: none !important;
 }

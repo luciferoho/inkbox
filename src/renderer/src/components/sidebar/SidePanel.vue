@@ -5,6 +5,7 @@ import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { t } from '@/i18n'
+import { shortcutTitle } from '@/services/shortcut-title'
 import { parseOutline, type OutlineItem } from '@/services/markdown'
 import OutlineNode, { type OutlineTreeNode } from './OutlineNode.vue'
 import FileTreeNode from './FileTreeNode.vue'
@@ -200,7 +201,7 @@ function fileDir(p: string): string {
           {{ $t('side.search') }}
         </button>
       </div>
-      <button class="collapse-btn" :title="$t('side.collapse')" @click="ui.toggleSidebar()">
+      <button class="collapse-btn" :title="shortcutTitle('view:toggleSidebar', $t('side.collapse'))" @click="ui.toggleSidebar()">
         <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
           <path d="M6.5 1.5L3 5l3.5 3.5" />
         </svg>
@@ -386,7 +387,7 @@ function fileDir(p: string): string {
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border-right: 1px solid var(--border);
+  border-right: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
 }
 
 /* 右缘拖拽手柄 */

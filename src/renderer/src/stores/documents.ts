@@ -117,6 +117,10 @@ export const useDocumentsStore = defineStore('documents', {
               ts: Date.now()
             })
             .catch((err) => console.error('[drafts] save failed:', err))
+        } else if (tab.path) {
+          // 已保存（含撤销回原文）的标签清掉残留草稿：草稿与磁盘一致本无害，
+          // 但异常退出恢复时会以脏标签复活——从源头不让陈旧草稿存在
+          window.api.drafts.clear(this.draftKey(tab.id)).catch(() => undefined)
         }
       }
     },
@@ -133,7 +137,8 @@ export const useDocumentsStore = defineStore('documents', {
         path: null,
         name: t('docs.untitled', { n }),
         content: '',
-        dirty: false
+        dirty: false,
+        savedContent: ''
       }
       this.tabs.push(tab)
       this.activeId = tab.id
@@ -156,7 +161,8 @@ export const useDocumentsStore = defineStore('documents', {
         path: null,
         name: '示例.md',
         content: sampleDoc,
-        dirty: false
+        dirty: false,
+        savedContent: ''
       }
       this.tabs.push(tab)
       this.activeId = tab.id
@@ -376,10 +382,22 @@ export const useDocumentsStore = defineStore('documents', {
       if (this.closing) return // 关闭确认后编辑器可能异步回推一次旧序列化，忽略
       const tab = this.tabs.find((t) => t.id === id)
       if (tab && !tab.isHome && tab.content !== content) {
-        // 即显挂载/切换会把 `*`→`-`、`1)`→`1.`、编号重排等序列化风格差异回推——
-        // 用户没有真实编辑，不算脏（否则恢复到即显模式的标签"打开即未保存"）
-        if (!tab.dirty && canonicalizeContent(content) === canonicalizeContent(tab.content)) return
+        // 即显挂载/切换会把 `*`→`-`、`1)`→`1.`、编号重排、尾随空行增删等序列化
+        // 风格差异回推——用户没有真实编辑，不算脏（否则"打开即未保存"）。
+        // 已脏标签的等价回推同样只采纳内容、不动脏标记（真实编辑保留）
+        if (canonicalizeContent(content) === canonicalizeContent(tab.content)) {
+          tab.content = content
+          return
+        }
         tab.content = content
+        // 撤销回已保存状态：脏标记跟随清除（否则脏草稿残留，异常退出后
+        // 恢复出来就是一个"打开即未保存"的标签）
+        if (tab.savedContent != null && content === tab.savedContent) {
+          tab.dirty = false
+          useUiStore().saveState = 'clean'
+          this.scheduleDraftFlush() // 草稿随清除流程落地（flushDrafts 会清掉残留草稿）
+          return
+        }
         tab.dirty = true
         useUiStore().saveState = 'dirty'
         this.scheduleDraftFlush() // 停止输入 800ms 后草稿即最新（修"退出后草稿不是最新"）
@@ -450,6 +468,21 @@ export const useDocumentsStore = defineStore('documents', {
           content: d.content,
           dirty: true
         }
+        // 恢复的脏标签以磁盘内容为基线：内容其实与磁盘一致（编辑后撤销回原文的
+        // 陈旧草稿等）时直接开成干净标签——否则"打开即未保存"且永远好不了。
+        // 比较走 canonicalize：挂载回推可能已把内容采纳成序列化等价文本
+        if (d.path) {
+          void window.api.fs
+            .readFile(d.path)
+            .then((disk) => {
+              tab.savedContent = disk
+              if (canonicalizeContent(disk) === canonicalizeContent(tab.content)) {
+                tab.dirty = false
+                if (this.activeId === tab.id) useUiStore().saveState = 'clean'
+              }
+            })
+            .catch(() => undefined)
+        }
         this.tabs.push(tab)
         last = tab.id
         if (d.path) {
@@ -472,6 +505,8 @@ export const useDocumentsStore = defineStore('documents', {
         content: doc.content,
         dirty: doc.dirty
       }
+      // 不脏的转移文档补写盘基线，后续脏判定/外部修改检测才有参照
+      if (!doc.dirty) tab.savedContent = doc.content
       this.tabs.push(tab)
       this.activeId = tab.id
       if (doc.path) {

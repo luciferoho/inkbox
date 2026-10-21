@@ -106,7 +106,13 @@ export const useUiStore = defineStore('ui', {
     /* 窗口私有偏好：各窗口尺寸不同，纸宽/侧栏宽独立调整、不同步 */
     winPrefs: { pageWidthPct: 80, sidebarWidth: 264 } as WindowPrefs,
     /* 纸宽滑杆的动态最小值（保证纸面不窄于 620px，随窗口/侧栏状态变化） */
-    pageWidthMinPct: 50
+    pageWidthMinPct: 50,
+    /* 外观扩展（M3）：外部 CSS 主题 + 字体族；'' = 内置默认 */
+    appearance: { themeCss: '', themeVariant: 'auto', bodyFont: '', codeFont: '' },
+    /* 单变体主题锁定：主题只提供浅色/深色其一时，主题切换锁定到该模式并禁用 */
+    themeLock: null as 'light' | 'dark' | null,
+    /* 明暗切换禁用（单变体主题，或多变体主题固定了某个变体）：按钮置灰、快捷键无效 */
+    themeSwitchLocked: false
   }),
   actions: {
     /** 跳过指定更新版本：不再自动提示（设置里手动检查不受影响） */
@@ -141,8 +147,18 @@ export const useUiStore = defineStore('ui', {
       this.vimMode = cfg.vimMode ?? false
       this.pluginsDisabled = cfg.plugins?.disabled ?? []
       this.editorPrefs = { ...cfg.editor }
+      const a = cfg.appearance ?? {}
+      this.appearance = {
+        themeCss: a.themeCss ?? '',
+        themeVariant: a.themeVariant ?? 'auto',
+        bodyFont: a.bodyFont ?? '',
+        codeFont: a.codeFont ?? ''
+      }
       this.applyTheme()
       this.applyEditorPrefs()
+      void this.syncThemeLock()
+      // 外观扩展（M3）：外部主题 CSS/字体族/用户 CSS；异步注入，不阻塞首帧
+      void import('@/services/appearance').then((m) => m.applyAppearanceConfig(cfg))
       // 插件发现/禁用表可能变了：动态 import 避免与 pluginHost 形成模块环
       void import('@/services/pluginHost').then((m) => m.syncPlugins())
     },
@@ -193,6 +209,61 @@ export const useUiStore = defineStore('ui', {
       this.editorPrefs = { ...this.editorPrefs, ...patch }
       this.applyEditorPrefs()
       await window.api.app.setConfig({ editor: { ...this.editorPrefs } })
+    },
+    /** 外观扩展（M3）：主题样式/字体族。广播后各窗口 applyConfig 重注入 */
+    async setAppearance(patch: Partial<AppConfig['appearance']>): Promise<void> {
+      this.appearance = { ...this.appearance, ...patch }
+      // 代理过不了 IPC 结构化克隆，必须展开成普通对象（同 setEditorPrefs）
+      await window.api.app.setConfig({ appearance: { ...this.appearance } })
+      await this.syncThemeLock()
+    },
+    /** 单变体主题：把主题锁定到它自身的浅/深模式（应用切换按钮随之禁用）。
+     *  浅+深成对（或含灰色等第三变体）时不锁定；内置主题不锁定。 */
+    async syncThemeLock(): Promise<void> {
+      const key = this.appearance.themeCss
+      const variant = this.appearance.themeVariant || 'auto'
+      if (!key) {
+        this.themeLock = null
+        this.themeSwitchLocked = false
+        await this.applyPersistedThemePref()
+        return
+      }
+      const list = await window.api.theme.list()
+      const entries = list.filter((t) => t.family === key)
+      const family = entries.length ? entries : list.filter((t) => t.name === key)
+      const hasLight = family.some((t) => t.variant === 'light')
+      const hasDark = family.some((t) => t.variant === 'dark')
+      const pinned = variant !== 'auto'
+      let lock: 'light' | 'dark' | null = null
+      if (family.length === 1) {
+        // 单变体主题：能判定浅/深就强制该模式；灰色等风格变体只禁用切换
+        const only = family[0]
+        if (only.variant === 'light' || only.variant === 'dark') lock = only.variant
+        this.themeSwitchLocked = true
+      } else if (pinned) {
+        // 多主题但用户固定了变体：明暗切换不再影响显示，禁用
+        this.themeSwitchLocked = true
+        const chosen = family.find((t) => t.variantKey === variant)
+        if (chosen && (chosen.variant === 'light' || chosen.variant === 'dark')) lock = chosen.variant
+      } else {
+        this.themeSwitchLocked = hasLight && hasDark ? false : true
+      }
+      this.themeLock = lock
+      // 锁定只改内存生效值、不落盘：持久化的 theme 仍是用户偏好，
+      // 解除锁定时（换内置/多变体主题）自然恢复，不会被锁定期的写盘覆盖
+      const target = lock ?? (await window.api.app.getConfig()).theme
+      if (this.themePref !== target) {
+        this.themePref = target
+        this.applyTheme()
+      }
+    },
+    /** 解除锁定：回到配置里持久化的明暗偏好 */
+    async applyPersistedThemePref(): Promise<void> {
+      const cfg = await window.api.app.getConfig()
+      if (this.themePref !== cfg.theme) {
+        this.themePref = cfg.theme
+        this.applyTheme()
+      }
     },
     /** 纸面宽度（窗口私有，不广播）：立即生效并按窗口键持久化 */
     async setPageWidth(pageWidthPct: number): Promise<void> {
@@ -276,6 +347,8 @@ export const useUiStore = defineStore('ui', {
     await window.api.plugin.openDir()
   },
     async setThemePref(pref: ThemePref): Promise<void> {
+      // 主题决定了明暗（单变体或固定变体）时忽略切换（按钮已禁用，此处兜底菜单/插件调用）
+      if ((this.themeLock || this.themeSwitchLocked) && pref !== this.themePref) return
       this.themePref = pref
       this.applyTheme()
       await window.api.app.setConfig({ theme: pref })
@@ -295,8 +368,12 @@ export const useUiStore = defineStore('ui', {
             : 'light'
           : this.themePref
       document.documentElement.dataset.theme = this.effectiveTheme
+      // 主题族按明暗自动换变体（xxx / xxx-dark）：明暗切换后重新解析并注入
+      const appearance = { ...this.appearance }
+      void import('@/services/appearance').then((m) => m.applyAppearanceConfig({ appearance }))
     },
     async toggleTheme(): Promise<void> {
+      if (this.themeLock || this.themeSwitchLocked) return // 明暗由当前主题/变体决定
       // system 时切入当前解析结果的反面；之后 light ⇄ dark 往返
       this.themePref = this.effectiveTheme === 'dark' ? 'light' : 'dark'
       this.applyTheme()

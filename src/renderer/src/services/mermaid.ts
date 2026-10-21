@@ -15,7 +15,7 @@ export type { MermaidInstance }
 const MERMAID_FONT = "'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', sans-serif"
 
 /** 主题配置版本：进渲染缓存 key——改配色后旧缓存自动失效 */
-const MERMAID_THEME_VERSION = '2'
+const MERMAID_THEME_VERSION = '3'
 
 const MERMAID_LIGHT = {
   background: 'transparent',
@@ -72,31 +72,39 @@ const MERMAID_DARK = {
   background: 'transparent',
   fontFamily: MERMAID_FONT,
   fontSize: '14px',
-  primaryColor: '#3b3128',
-  primaryTextColor: '#eae2d6',
+  // 节点底色不能与页面底同深（值过接近时序列图的双层文本会糊成一团）：
+  // 页面 #1d1814，节点用更亮的暖灰棕，形成清晰层次
+  primaryColor: '#4a4035',
+  primaryTextColor: '#f0e9df',
   primaryBorderColor: '#e6a054',
-  lineColor: '#a89d8e',
-  textColor: '#eae2d6',
+  lineColor: '#b5a999',
+  textColor: '#f0e9df',
   edgeLabelBackground: '#1d1814',
-  actorBkg: '#3b3128',
-  actorTextColor: '#eae2d6',
+  // 序列图专用（mermaid 不读上面的 textColor）：参与者/信号/标签一律浅色，
+  // 底色与节点同档——深棕 #3b3128 配浅字对比不足，标签框里会显脏
+  actorBkg: '#4a4035',
+  actorTextColor: '#f0e9df',
   actorBorder: '#e6a054',
-  actorLineColor: '#4a4036',
-  signalColor: '#c0b4a4',
-  signalTextColor: '#eae2d6',
-  labelBoxBkgColor: '#3b3128',
+  actorLineColor: '#6b5f52',
+  signalColor: '#d8cfc0',
+  signalTextColor: '#f0e9df',
+  labelBoxBkgColor: '#4a4035',
   labelBoxBorderColor: '#e6a054',
-  labelTextColor: '#eae2d6',
-  loopTextColor: '#eae2d6',
-  noteBkgColor: '#332a21',
-  noteTextColor: '#eae2d6',
-  noteBorderColor: '#5b5044',
-  activationBkgColor: '#3b3128',
-  pieTitleTextColor: '#eae2d6',
+  labelTextColor: '#f0e9df',
+  loopTextColor: '#f0e9df',
+  noteBkgColor: '#3f362b',
+  noteTextColor: '#f0e9df',
+  noteBorderColor: '#8a7a62',
+  activationBkgColor: '#4a4035',
+  activationBorderColor: '#e6a054',
+  sequenceNumberColor: '#1d1814',
+  // 类图 / 状态图标签
+  labelColor: '#f0e9df',
+  pieTitleTextColor: '#f0e9df',
   pieTitleTextSize: '19px',
   pieSectionTextColor: '#1d1814',
   pieSectionTextSize: '13px',
-  pieLegendTextColor: '#eae2d6',
+  pieLegendTextColor: '#f0e9df',
   pieLegendTextSize: '13px',
   pieStrokeColor: '#1d1814',
   pieStrokeWidth: '2px',
@@ -123,8 +131,117 @@ const mermaidCache = new Map<string, string>()
 /** 渲染串行链：任何 m.run 都要挂到链尾（预览队列与即显 nodeView 共用） */
 let mermaidChain: Promise<unknown> = Promise.resolve()
 
+/** 浏览器解析出的颜色 → 标准 rgb()/rgba()。
+ *  Chromium 对 color-mix() 的结果返回 `color(srgb 0.18 0.2 0.25 / 1)` 形式，
+ *  mermaid 的颜色解析器只认 rgb()/rgba()/hex，直接传会整图渲染失败；
+ *  oklch()/lab() 等无法安全转换的形式返回 null（调用方保留内置色）。 */
+function toCssRgb(c: string): string | null {
+  const s = c.trim()
+  const srgb = s.match(
+    /^color\(\s*srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\s*\)$/i
+  )
+  if (srgb) {
+    const rgb = [srgb[1], srgb[2], srgb[3]].map((n) => Math.round(Number(n) * 255))
+    const a = srgb[4] === undefined ? 1 : Number(srgb[4])
+    return a >= 1
+      ? `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`
+      : `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${Number(a.toFixed(3))})`
+  }
+  if (/^rgba?\(/i.test(s)) return s
+  const hex = s.match(/^#([0-9a-f]{3,8})$/i)
+  if (hex) return s
+  return null
+}
+
+/** 令牌颜色解析：getComputedStyle 读自定义属性返回的是原文（未解析的
+ *  color-mix()/var()），直接交给 mermaid 会解析失败退化成源码展示。
+ *  经 CSS.supports 校验 + 探针元素交给浏览器解析，再归一成 rgb()；
+ *  解析不了返回 null（调用方保留内置调色板，宁可主色差一点也不能让图表渲染失败）。 */
+let probeEl: HTMLElement | null = null
+function resolveTokenColor(raw: string): string | null {
+  const v = raw.trim()
+  if (!v) return null
+  try {
+    if (!CSS.supports('color', v)) return null
+    if (!probeEl) {
+      probeEl = document.createElement('span')
+      probeEl.style.cssText = 'position:absolute;left:-9999px;top:0;width:0;height:0'
+      document.body.appendChild(probeEl)
+    }
+    probeEl.style.color = v
+    return toCssRgb(getComputedStyle(probeEl).color)
+  } catch {
+    return null
+  }
+}
+
 function themeVars(dark: boolean): Record<string, string> {
-  return dark ? MERMAID_DARK : MERMAID_LIGHT
+  const base: Record<string, string> = { ...(dark ? MERMAID_DARK : MERMAID_LIGHT) }
+  // 跟随主题：图表的节点底/文字/描边取应用令牌（主题模式下这些令牌由主题
+  // 变量桥写成主题色），图表与所选主题色调一致，而不是永远内置琥珀系。
+  // 令牌缺失/无法解析（内置主题、导出环境）时保留内置调色板
+  const read = (name: string): string | null => {
+    try {
+      const raw = getComputedStyle(document.documentElement).getPropertyValue(name)
+      return resolveTokenColor(raw)
+    } catch {
+      return null
+    }
+  }
+  try {
+    const bg = read('--bg')
+    const text = read('--text')
+    const accent = read('--accent')
+    const surface2 = read('--surface-2')
+    const text2 = read('--text-2')
+    if (bg) base.edgeLabelBackground = bg
+    if (text) {
+      base.textColor = text
+      base.primaryTextColor = text
+      base.actorTextColor = text
+      base.signalTextColor = text
+      base.labelTextColor = text
+      base.loopTextColor = text
+      base.noteTextColor = text
+      base.labelColor = text
+      base.pieTitleTextColor = text
+      base.pieLegendTextColor = text
+    }
+    if (surface2) {
+      base.primaryColor = surface2
+      base.actorBkg = surface2
+      base.labelBoxBkgColor = surface2
+      base.noteBkgColor = surface2
+      base.activationBkgColor = surface2
+    }
+    if (accent) {
+      base.primaryBorderColor = accent
+      base.actorBorder = accent
+      base.labelBoxBorderColor = accent
+      base.activationBorderColor = accent
+    }
+    if (text2) {
+      base.lineColor = text2
+      base.signalColor = text2
+      base.actorLineColor = text2
+      base.noteBorderColor = text2
+    }
+  } catch {
+    /* 任何解析异常都退回内置调色板：图表可用性优先 */
+  }
+  return base
+}
+
+/** 主题令牌签名：进缓存 key——换主题（即使明暗不变）时旧图配色也要失效 */
+function tokenSignature(): string {
+  try {
+    const cs = getComputedStyle(document.documentElement)
+    return ['--bg', '--text', '--accent', '--surface-2', '--text-2']
+      .map((n) => cs.getPropertyValue(n).trim())
+      .join('|')
+  } catch {
+    return ''
+  }
 }
 
 function configMermaid(inst: MermaidInstance, dark: boolean): void {
@@ -162,6 +279,13 @@ export function configMermaidFor(dark: boolean): void {
   )
 }
 
+/** 串行锁内同步应用当前主题配置：run 读取的是「执行时刻」的全局配置，
+ *  排队前的 configMermaidFor 可能已过期（主题在队列消化期间翻转）——
+ *  渲染闭包里调用本函数保证每张图按当下极性出图 */
+export function applyMermaidConfigInLock(dark: boolean): void {
+  if (mermaidMod) configMermaid(mermaidMod, dark)
+}
+
 /** 主题切换：清缓存 + 重配置（两侧渲染方各自随后重画自己的图）。
  *  initialize 排串行链（理由同 configMermaidFor） */
 export function rethemeMermaid(dark: boolean): void {
@@ -174,9 +298,10 @@ export function rethemeMermaid(dark: boolean): void {
   )
 }
 
-/** 缓存 key（主题版本 | 亮暗 | 源码） */
+/** 缓存 key（主题版本 | 亮暗 | 令牌签名 | 源码）：签名含主题色，
+ *  换主题（即使明暗相同）时旧配色缓存自然失效 */
 export function mermaidCacheKey(code: string, dark: boolean): string {
-  return `${MERMAID_THEME_VERSION}|${dark ? 'dark' : 'light'}|${code}`
+  return `${MERMAID_THEME_VERSION}|${dark ? 'dark' : 'light'}|${tokenSignature()}|${code}`
 }
 
 export function getMermaidCache(key: string): string | undefined {

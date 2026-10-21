@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { createMainWindow } from './window'
 import { createMenu, setShortcutOverrides } from './menu'
 import { registerIpcHandlers } from './ipc'
+import { registerThemeResourceProtocol } from './ipc/themes'
 import { registerImageContextMenu } from './ipc/contextMenu'
 import { createTray, markQuitting, resetQuitting, showMainWindow } from './tray'
 import { initUpdateController } from './updater'
@@ -30,6 +31,21 @@ if (!gotLock) {
   app.quit()
 } else {
   app.on('second-instance', () => showMainWindow())
+
+  // 主题资源协议（M3）：standard + fetchable，CSS url()/导出管线 fetch 都能用；
+  // 必须在 app ready 前注册
+  protocol.registerSchemesAsPrivileged([
+    {
+      scheme: 'theme-resource',
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        corsEnabled: true,
+        stream: true
+      }
+    }
+  ])
 
   // 禁用沙箱外的特权页面，收敛安全面
   app.enableSandbox()
@@ -72,6 +88,9 @@ if (!gotLock) {
       const filePath = decodeURIComponent(request.url.replace(/^luci-img:\/\//, ''))
       return net.fetch(pathToFileURL(filePath).toString())
     })
+
+    // 主题资源协议（M3）：主题 CSS 里相对 url() 的字体/图片
+    registerThemeResourceProtocol()
 
     const win = createMainWindow()
     // 快捷键覆盖表先于菜单注入（6.7 自定义加速键随启动生效）

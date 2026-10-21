@@ -77,6 +77,7 @@ interface Window {
       setConfig(patch: Partial<import('@shared/types').AppConfig>): Promise<import('@shared/types').AppConfig>
       setLocale(locale: import('@shared/types').AppConfig['locale']): Promise<void>
       setShortcutsCapture(on: boolean): void
+      setThemeBackground(color: string): void
       getInfo(): Promise<import('@shared/types').AppInfo>
       debugMenuAccels(): Promise<Record<string, string | null>>
       debugMenuInvoke(id: string): Promise<boolean>
@@ -96,6 +97,14 @@ interface Window {
       list(): Promise<import('@shared/types').PluginInfo[]>
       readCode(id: string): Promise<string | null>
       openDir(): Promise<void>
+    }
+    theme: {
+      list(): Promise<import('@shared/types').ThemeInfo[]>
+      readCss(file: string): Promise<string | null>
+      openDir(): Promise<void>
+      userCssPath(): Promise<string>
+      readUserCss(): Promise<string>
+      openUserCss(): Promise<void>
     }
     win: {
       minimize(): void

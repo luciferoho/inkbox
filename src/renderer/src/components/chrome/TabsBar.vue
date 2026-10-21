@@ -3,6 +3,7 @@ import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useDocumentsStore, type DocTab } from '@/stores/documents'
 import { useUiStore } from '@/stores/ui'
 import { t } from '@/i18n'
+import { shortcutTitle } from '@/services/shortcut-title'
 
 const docs = useDocumentsStore()
 const ui = useUiStore()
@@ -330,9 +331,9 @@ function menuItems(id: number): MenuItem[] {
         </svg>
       </button>
       <!-- 新建按钮：标签放得下时跟在最后（随标签滚动），放不下时吸附到栏右端 -->
-      <button v-if="!tabsOverflow" class="new-tab" :title="$t('tabs.new')" @click="docs.newDoc()">＋</button>
+      <button v-if="!tabsOverflow" class="new-tab" :title="shortcutTitle('file:new', $t('tabs.new'))" @click="docs.newDoc()">＋</button>
     </div>
-    <button v-if="tabsOverflow" class="new-tab pinned" :title="$t('tabs.new')" @click="docs.newDoc()">＋</button>
+    <button v-if="tabsOverflow" class="new-tab pinned" :title="shortcutTitle('file:new', $t('tabs.new'))" @click="docs.newDoc()">＋</button>
 
     <!-- 右键菜单 -->
     <Teleport to="body">
@@ -365,7 +366,7 @@ function menuItems(id: number): MenuItem[] {
   gap: 6px;
   padding: 0 10px;
   background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
 }
 
 .tabs {

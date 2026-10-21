@@ -7,6 +7,7 @@ import { registerDraftsIpc } from './drafts'
 import { registerSearchIpc } from './search'
 import { registerNetIpc } from './net'
 import { registerPluginsIpc } from './plugins'
+import { registerThemesIpc } from './themes'
 import { registerUpdateIpc } from './update'
 import { registerSessionIpc } from '../session'
 import { registerDocRegistryIpc } from '../docRegistry'
@@ -22,6 +23,7 @@ export function registerIpcHandlers(): void {
   registerSearchIpc()
   registerNetIpc()
   registerPluginsIpc()
+  registerThemesIpc()
   registerUpdateIpc()
   registerSessionIpc()
   registerDocRegistryIpc()

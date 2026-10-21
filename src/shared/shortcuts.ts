@@ -30,7 +30,8 @@ export const SHORTCUT_COMMANDS: ShortcutCommand[] = [
   { id: 'file:prevTab', labelKey: 'sc.prevTab', group: 'file', accel: 'CmdOrCtrl+Shift+Tab' },
   { id: 'edit:find', labelKey: 'sc.find', group: 'edit', accel: 'CmdOrCtrl+F' },
   { id: 'view:toggleSidebar', labelKey: 'sc.toggleSidebar', group: 'view', accel: 'CmdOrCtrl+\\' },
-  { id: 'view:toggleTheme', labelKey: 'sc.toggleTheme', group: 'view', accel: 'CmdOrCtrl+Alt+T' },
+  // 避让 QQ 闪传等系统级全局热键（Ctrl+Alt+T 常被其占用，按键根本到不了应用）
+  { id: 'view:toggleTheme', labelKey: 'sc.toggleTheme', group: 'view', accel: 'CmdOrCtrl+Alt+Shift+T' },
   { id: 'view:toggleFocus', labelKey: 'sc.focus', group: 'view', accel: 'F8' },
   { id: 'view:toggleTypewriter', labelKey: 'sc.typewriter', group: 'view', accel: 'F9' },
   { id: 'view:toggleZen', labelKey: 'sc.zen', group: 'view', accel: 'F10' },

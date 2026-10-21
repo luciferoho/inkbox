@@ -14,7 +14,7 @@ const luciBase = EditorView.theme({
     height: '100%'
   },
   '.cm-scroller': {
-    fontFamily: 'var(--font-mono)',
+    fontFamily: 'var(--font-code)',
     fontSize: 'var(--editor-font-size, 13.5px)',
     lineHeight: 'var(--editor-line-height, 1.75)'
   },
@@ -30,8 +30,10 @@ const luciBase = EditorView.theme({
   },
   '.cm-gutters': {
     /* 不透明背景 + z-index 200（CM 默认）：横向滚动时行号列固定在左、
-       内容从它下面穿过。此前透明背景会让长行文字透出来叠印行号 */
-    backgroundColor: 'var(--surface)',
+       内容从它下面穿过。此前透明背景会让长行文字透出来叠印行号。
+       用工作区底色（而非提亮的 --surface）：行号列与内容面同色贴合，
+       不在源码面板左侧留一条色带 */
+    backgroundColor: 'var(--bg)',
     color: 'color-mix(in srgb, var(--text-2) 70%, transparent)',
     border: 'none',
     minWidth: '38px'

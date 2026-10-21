@@ -124,6 +124,12 @@ onMounted(() => {
   // 启动编排：偏好 → 初始载荷（窗口键/拖出文档/崩溃标志）→ 备份恢复 → 会话恢复
   void (async () => {
     await ui.init()
+    // 用户自定义样式表（M3 3.3）：监听外部编辑，改动即时重注入
+    const userCssPath = await window.api.theme.userCssPath()
+    window.api.watch.watch(userCssPath)
+    window.api.watch.onFileChanged(({ path }) => {
+      if (path === userCssPath) void import('@/services/appearance').then((m) => m.refreshUserCss())
+    })
     const init = await window.api.win.takeInitialDoc()
     docs.setWindowKey(init.windowKey)
     // 窗口私有偏好（纸宽/侧栏宽）按窗口键加载；其余全局配置已在 ui.init 应用
