@@ -333,8 +333,14 @@ async function rethemeMermaid(): Promise<void> {
   const later: HTMLElement[] = []
   for (const node of nodes) {
     if (seq !== rethemeSeq) return // 主题连切：本轮作废
+    if (!node.isConnected) continue
     const code = node.dataset.mermaidSrc ?? ''
-    if (!code || !node.isConnected) continue // 无源码（未渲染占位）交给常规 render 流程
+    if (!code) {
+      // 从未渲染过的占位（源码就是 textContent）：队列已被本轮清空、observer
+      // 已断开，若直接跳过它将永远没人渲染——入队交给常规流程补齐
+      later.push(node)
+      continue
+    }
     const key = mermaidCacheKey(code, ui.effectiveTheme === 'dark')
     const hit = getMermaidCache(key)
     if (hit !== undefined) {
@@ -384,7 +390,10 @@ async function rethemeMermaid(): Promise<void> {
   if (seq !== rethemeSeq) return
   for (const node of later) {
     node.removeAttribute('data-processed')
-    node.textContent = node.dataset.mermaidSrc ?? ''
+    // 已渲染节点还原源码占位（textContent 曾被 SVG 顶替）；从未渲染的占位
+    // textContent 本身就是源码，不能清空（mermaidSrc 属性不存在）
+    const src = node.dataset.mermaidSrc
+    if (src) node.textContent = src
     mermaidQueue.push(node)
   }
   if (later.length > 0) void pumpMermaidQueue(m)

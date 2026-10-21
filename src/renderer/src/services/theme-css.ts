@@ -730,6 +730,11 @@ export function typoraValueBridge(css: string): string {
   })()
   const bg = set.get('--bg') ?? valueOf('--bg-color') ?? bodyBg
   const text = set.get('--text') ?? valueOf('--text-color') ?? bodyFg
+  // 兜底得到的页面底/前景也要进令牌集：nord（--bg-color1 + body 声明）、
+  // blubook（只有 body background）这类不用标准变量名的主题，应用主底色
+  // 才能跟随主题，而不是停在内置调色板
+  if (bg && !set.has('--bg')) set.set('--bg', bg)
+  if (text && !set.has('--text')) set.set('--text', text)
   const light = bg ? isLightColor(bg) : true
   const mix = (color: string, toward: string, pct: number): string =>
     `color-mix(in srgb, ${color} ${pct}%, ${toward})`
