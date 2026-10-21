@@ -23,6 +23,30 @@ const saveLabel = computed(() => {
     time: `${pad(time.getHours())}:${pad(time.getMinutes())}:${pad(time.getSeconds())}`
   })
 })
+
+/** 当前主题样式徽标：名字 + 生效变体（auto 跟随明暗实时显示，截图排查用） */
+const themeBadge = computed(() => {
+  const name = ui.appearance.themeCss
+  if (!name) return ''
+  const variant = ui.appearance.themeVariant
+  const vLabel =
+    variant && variant !== 'auto'
+      ? variant === 'dark'
+        ? t('settings.thDark')
+        : variant === 'light'
+          ? t('settings.thLight')
+          : variant === 'grey'
+            ? t('settings.variantGrey')
+            : variant
+      : ui.effectiveTheme === 'dark'
+        ? t('settings.thDark')
+        : t('settings.thLight')
+  return `${name} · ${vLabel}`
+})
+
+function openThemeSettings(): void {
+  ui.settingsOpen = true
+}
 </script>
 
 <template>
@@ -44,6 +68,14 @@ const saveLabel = computed(() => {
       </template>
     </div>
     <div class="right">
+      <button
+        v-if="themeBadge"
+        class="badge toggle theme-badge"
+        :title="$t('status.themeTitle', { name: ui.appearance.themeCss })"
+        @click="openThemeSettings"
+      >
+        <i class="pip accent" />{{ themeBadge }}
+      </button>
       <button
         class="badge toggle"
         :class="{ on: ui.focusMode }"
@@ -76,7 +108,7 @@ const saveLabel = computed(() => {
   justify-content: space-between;
   padding: 0 12px;
   background: var(--bg);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   color: var(--text-2);
   font-size: 12px;
 }
@@ -163,6 +195,19 @@ const saveLabel = computed(() => {
 
 .badge.ok .pip {
   background: var(--ok);
+  opacity: 1;
+}
+
+/* 主题徽标：琥珀点 + 名字·变体，点击进设置外观页 */
+.theme-badge {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-badge .pip.accent {
+  background: var(--accent);
   opacity: 1;
 }
 </style>

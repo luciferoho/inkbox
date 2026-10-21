@@ -1019,8 +1019,9 @@ watch(
   align-items: center;
   gap: 1px;
   padding: 3px 8px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  /* 融进底色：停靠工具条不是卡片，仅留低对比细线与代码区分界 */
+  background: transparent;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   flex-shrink: 0;
 }
 

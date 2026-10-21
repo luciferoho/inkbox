@@ -63,6 +63,9 @@ export async function applyAppearanceConfig(cfg: { appearance?: AppConfig['appea
   applyUserCss(user)
   applyFonts(a.bodyFont ?? '', a.codeFont ?? '')
   reportWindowBackground()
+  // 主题令牌已落定：通知图表等「渲染时内联颜色」的模块按新令牌重绘
+  // （CSS 变量能自动跟随，mermaid 的 SVG 配色不能）
+  window.dispatchEvent(new CustomEvent('inkbox:theme-applied'))
 }
 
 /** 用户样式表被外部修改后重读注入（主题与字体不动） */

@@ -1226,6 +1226,8 @@ const elToolbarStyle = computed(() => {
 
 onMounted(() => {
   if (!host.value) return
+  // 主题令牌落定 → 图表按新配色重绘（换主题但明暗不变时 effectiveTheme 不触发）
+  window.addEventListener('inkbox:theme-applied', onThemeApplied)
   // 预览侧拖列宽（广播）→ 本侧装饰器重算
   offTableWidths = onColWidthsChanged(() => {
     const v = getView()
@@ -1417,6 +1419,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   offTableWidths?.()
+  window.removeEventListener('inkbox:theme-applied', onThemeApplied)
   // 滚动锚落袋必须在这里：模式切换/跨模式切签都会 v-if 卸载本组件，
   // 卸载会跳过排队的 pre-watcher（切签的保存已由 activeId watch 完成，
   // 这里 tabId 与视图内容恒一致，重复保存无害）
@@ -1502,6 +1505,12 @@ watch(
   () => ui.effectiveTheme,
   (t) => rethemeMermaidViews(t === 'dark')
 )
+
+/* 主题令牌落定（换主题/改变体）→ 图表按新配色重绘：同明暗换主题时
+   effectiveTheme 的 watch 不触发，配色会停在旧主题上 */
+function onThemeApplied(): void {
+  rethemeMermaidViews(ui.effectiveTheme === 'dark')
+}
 
 /* 专注/打字机开关 → 派发空事务，驱动装饰器重算（开关本身不产生事务） */
 watch([() => ui.focusMode, () => ui.typewriterMode], () => {

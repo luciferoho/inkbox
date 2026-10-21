@@ -387,7 +387,7 @@ function fileDir(p: string): string {
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border-right: 1px solid var(--border);
+  border-right: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
 }
 
 /* 右缘拖拽手柄 */

@@ -366,7 +366,7 @@ function menuItems(id: number): MenuItem[] {
   gap: 6px;
   padding: 0 10px;
   background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
 }
 
 .tabs {

@@ -181,7 +181,9 @@ md.renderer.rules.luci_front_matter_block = (tokens, idx) => {
       return v !== null && v !== undefined ? ` ${n}="${escapeHtml(String(v))}"` : ''
     })
     .join('')
-  return `<section class="md-front-matter"${attrs}><pre class="md-fm-pre">${escapeHtml(tok.content)}</pre></section>\n`
+  // md-meta-block：Typora 的 front matter 惯用类，主题的 pre.md-meta-block
+  // 规则（night 虚线底边/blubook 圆角灰底）借此直接命中我们的元信息块
+  return `<section class="md-front-matter"${attrs}><pre class="md-fm-pre md-meta-block">${escapeHtml(tok.content)}</pre></section>\n`
 }
 
 /* 顶层块附源码行号（token.map 为 0 基，[start, end)）：供双栏同步滚动插值；

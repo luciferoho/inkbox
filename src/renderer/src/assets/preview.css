@@ -166,6 +166,14 @@ html[data-theme-css] .md-preview .md-code-bar {
 html[data-theme-css] .md-preview pre {
   box-shadow: none;
 }
+/* 主题模式：front matter 包装层让位（主题的 pre.md-meta-block 规则接管，
+   内置的奶油底/琥珀左条会叠在主题元信息块样式上） */
+html[data-theme-css] .md-preview .md-front-matter {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 0;
+}
 
 /* 引用：琥珀细条 */
 .md-preview blockquote {

@@ -34,6 +34,11 @@ const README = `# Inkbox 主题目录
 兼容 Typora 约定：一个 CSS 文件 + 同名资源文件夹（字体/图片按相对路径引用）、
 @import 拆分文件、:root 变量（--bg-color/--text-color/--primary-color/
 --side-bar-bg-color/--code-bg-color 等）与 #write 正文容器选择器。
+社区主题常用的内部类也能识别：.md-fences（代码块，不会误染 front matter）、
+.md-table（表格）、.md-task-list-item（任务列表）、pre.md-meta-block（YAML
+元信息块）、.cm-*（代码语法色，源码模式调色板自动排除）。
+主题自定义根字号（如 html{font-size:14px}）会自动换算成等值 px，
+rem 字号与 Typora 显示一致。
 
 Inkbox 会把主题样式限制在文档内容区（不影响应用界面），并把常见 Typora
 变量映射到应用主题色；示例见 example-paper.css。
@@ -117,15 +122,25 @@ function parseCssColor(v: string): [number, number, number] | null {
   return null
 }
 
-/** 变体判定：文件名后缀最可靠；否则读 --bg-color/--bg-page 的亮度。
+/** 变体判定：文件名后缀最可靠；否则依次看
+ *  1) --bg-color/--bg-color1/--bg-page/--bg 变量（nord 用 --bg-color1 这类带号命名）
+ *  2) html/body 规则里的 background 声明（newsprint/vue 只给 body 底色不给变量）
  *  无后缀的主题按亮度归入 light/dark（用于与同族 dark/light 文件配对）。 */
 function detectVariant(name: string, absPath: string): { variant: ThemeInfo['variant']; variantKey: string } {
   const suffixed = VARIANT_SUFFIX.find((s) => s.re.test(name))
   if (suffixed) return { variant: suffixed.kind, variantKey: suffixed.key }
   try {
     const css = readFileSync(absPath, 'utf-8').slice(0, 200_000)
-    const m = css.match(/--(?:bg-color|bg-page|bg)\s*:\s*(#[0-9a-f]{3,8}|rgba?\([^)]+\))/i)
-    const c = m ? parseCssColor(m[1]) : null
+    const pick = (v: string | undefined): [number, number, number] | null =>
+      v ? parseCssColor(v) : null
+    const m = css.match(/--(?:bg-color\d*|bg-page|bg)\s*:\s*(#[0-9a-f]{3,8}|rgba?\([^)]+\))/i)
+    let c = pick(m?.[1])
+    if (!c) {
+      const bm = css.match(
+        /(?:^|[}\n])\s*(?:html[\s,]*)?body\b[^{}]*\{[^}]*?background(?:-color)?\s*:\s*(#[0-9a-f]{3,8}|rgba?\([^)]+\))/i
+      )
+      c = pick(bm?.[1])
+    }
     if (c) {
       const lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255
       const kind: ThemeInfo['variant'] = lum > 0.5 ? 'light' : 'dark'

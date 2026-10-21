@@ -149,8 +149,20 @@ function scopeSelector(sel: string): string {
       /(^|[\s>+~(])(:root|html|body|content|#write|\.write)(?![\w-])/gi,
       (_m, pre) => `${pre}${SCOPE}`
     )
-    .replace(/\.md-fences(?![\w-])/gi, 'pre')
+    // pre.md-fences 复合写法先剥类（night 等官方主题），再于通用替换兜底——
+    // 否则 `.md-fences → pre` 会产出非法的 prepre，整条规则作废（底色丢失）。
+    // 两处都排除 md-meta-block：裸 pre/类映射不能命中 front matter（nord 的
+    // .md-fences 底色在 Typora 里不会染到元信息块，这里同样不能）
+    .replace(/(^|[\s>+~(])pre\.md-fences(?![\w-])/gi, '$1pre:not(.md-meta-block)')
+    .replace(/\.md-fences(?![\w-])/gi, 'pre:not(.md-meta-block)')
     .replace(/\.CodeMirror-lines(?![\w-])/gi, 'code')
+    // Typora 惯用内部类 → 我们预览/即显两侧 DOM 都命中的等价物
+    .replace(/\.md-table(?![\w-])/gi, 'table')
+    .replace(/\.md-footnote(?![\w-])/gi, '.footnote-ref')
+    .replace(
+      /\.md-task-list-item(?![\w-])/gi,
+      ":is(li.task-list-item, li[data-item-type='task'])"
+    )
   const scoped = (() => {
     const scopePat = SCOPE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const onlyScope = new RegExp(`^${scopePat}([\\s>+~]+${scopePat})*$`, 'i')
@@ -159,6 +171,14 @@ function scopeSelector(sel: string): string {
     if (t.startsWith(SCOPE) || t.startsWith(':root') || t.startsWith('[')) return t
     return `${SCOPE} ${t}`
   })()
+  // .md-fences 的装饰性伪元素（orangeheart 的 mac 圆点条、语言徽标等）依赖
+  // CodeMirror 包装 DOM，直接叠到普通 pre 上会盖住首行代码——丢弃
+  if (/::?(before|after)\s*$/i.test(s.trim())) {
+    const stripped = scoped.replace(/::?(before|after)\s*$/i, '').trim()
+    if (stripped === 'pre:not(.md-meta-block)' || stripped.endsWith(' pre:not(.md-meta-block)')) {
+      return ''
+    }
+  }
   return statePrefix ? `${statePrefix} ${scoped}` : scoped
 }
 
@@ -277,6 +297,49 @@ function scopeBlocks(css: string): string {
 function scopeThemeCss(css: string): string {
   const { text, restore } = protectComments(css)
   return restore(scopeBlocks(text))
+}
+
+/* ---------- 3.5 rem 基准换算 ---------- */
+
+/** 主题根字号（rem 基准）：顶层 html/:root 规则里的 font-size（px）。
+ *  作用域化后 html 规则不再作用于真实根元素，而 rem 永远按真实根解析——
+ *  blubook（14px）/ nord（18px）这类改根字号的主题，全部 rem 字号会整体
+ *  偏大/偏小 12–14%。这里读出主题想要的基准，由 convertRem 把 rem 换算成
+ *  等值 px（基准 16px 的主题是恒等变换，不做替换）。
+ *  @media 内的 html font-size（如 vue 打印时 13px）不改屏幕 rem 基准，跳过。 */
+function themeRootFontSize(css: string): number | null {
+  let root: number | null = null
+  let i = 0
+  while (i < css.length) {
+    const open = css.indexOf('{', i)
+    if (open < 0) break
+    const headStart = Math.max(css.lastIndexOf('}', open), css.lastIndexOf(';', open)) + 1
+    const head = css.slice(headStart, open).trim()
+    let depth = 1
+    let j = open + 1
+    while (j < css.length && depth > 0) {
+      if (css[j] === '{') depth++
+      else if (css[j] === '}') depth--
+      j++
+    }
+    const body = css.slice(open + 1, j - 1)
+    if (!head.startsWith('@') && /(^|[\s,>+~])(html|:root)(?![\w-])/i.test(head)) {
+      const m = body.match(/(?:^|;)\s*font-size\s*:\s*(\d*\.?\d+)px/i)
+      if (m) root = Number(m[1]) // 同文件多条 html 字号规则按级联取最后一条
+    }
+    i = j
+  }
+  return root
+}
+
+/** rem → px 换算（含变量定义值与 calc 内的 rem；url() 里带数字 rem 的文件名
+ *  属天文数字级别的巧合，不设防） */
+function convertRem(css: string, rootPx: number): string {
+  if (!rootPx || Math.abs(rootPx - 16) < 0.01) return css
+  return css.replace(/(-?\d*\.?\d+)rem\b/gi, (_m, n: string) => {
+    const px = Number(n) * rootPx
+    return `${Math.round(px * 100) / 100}px`
+  })
 }
 
 /* ---------- 4. 双向变量桥 ---------- */
@@ -532,12 +595,18 @@ const CM_TOKEN_MAP: [RegExp, string][] = [
   [/^attribute$|^property$|^qualifier$|^link$/, '--code-attr'],
   [/^def$/, '--code-type'],
   [/^tag$/, '--code-keyword'],
+  [/^header$/, '--code-title'],
   [/^variable$|^operator$|^bracket$/, '--code-fg']
 ]
 
 function extractCmTokenColors(css: string, set: Map<string, string>, defs: Map<string, string>): void {
   for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    const cmHits = [...m[1].matchAll(/\.cm-([\w-]+)/g)]
+    const sel = m[1]
+    // Typora 源码模式调色板（.cm-s-typora-default / #typora-source）不是内容
+    // 围栏的配色（blubook 内嵌了一套 Source Code Pro 绿字调色板，混进来会把
+    // 围栏前景染成源码模式的绿），一律排除
+    if (/cm-s-typora-default|typora-source|#typora-/.test(sel)) continue
+    const cmHits = [...sel.matchAll(/\.cm-([\w-]+)/g)]
     if (cmHits.length === 0) continue
     const colorHit = m[2].match(/(?:^|;)\s*color\s*:\s*([^;!}]+)/i)
     if (!colorHit) continue
@@ -555,6 +624,38 @@ function extractCmTokenColors(css: string, set: Map<string, string>, defs: Map<s
         break
       }
     }
+  }
+}
+
+/** CodeMirror 包装层的围栏外形：blubook 等主题把代码块底色/前景/圆角写在
+ *  .cm-s-inner.CodeMirror（或裸 .CodeMirror / -gutters）上而不是 .md-fences，
+ *  不提取会出现「深藏青代码块变白底」的重大观感偏差。仅在对应令牌缺席时兜底，
+ *  排除 Typora 源码模式（#typora-source 等）的编辑器规则。 */
+function extractCmWrapperStyle(css: string, set: Map<string, string>, defs: Map<string, string>): void {
+  const resolve = (v: string): string | null => {
+    let out = v.replace(/!important/i, '').trim()
+    if (/^var\(/i.test(out)) {
+      const inner = defs.get(out.slice(4, -1).trim())
+      if (!inner) return null
+      out = inner.trim()
+    }
+    return out || null
+  }
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const sel = m[1]
+    if (/cm-s-typora-default|#[\w-]*source|#typora-|\.typora-/.test(sel)) continue
+    // .CodeMirror-lines/.CodeMirror-selected 等由别的通道处理，不算包装层
+    if (!/\.cm-s-inner|\.CodeMirror(?![\w-])/.test(sel)) continue
+    const pick = (re: RegExp): string | null => {
+      const hit = m[2].match(re)
+      return hit ? resolve(hit[1]) : null
+    }
+    const bg = pick(/(?:^|;)\s*background(?:-color)?\s*:\s*([^;!}]+)/i)
+    if (bg && parseColor(bg) && !set.has('--code-bg')) set.set('--code-bg', bg)
+    const fg = pick(/(?:^|;)\s*color\s*:\s*([^;!}]+)/i)
+    if (fg && parseColor(fg) && !set.has('--code-fg')) set.set('--code-fg', fg)
+    const radius = pick(/(?:^|;)\s*border-radius\s*:\s*([^;!}]+)/i)
+    if (radius && !set.has('--code-radius')) set.set('--code-radius', radius)
   }
 }
 
@@ -584,9 +685,18 @@ export function typoraValueBridge(css: string): string {
   // 才是用户实际看到的（sonnet 的 --pre-inputfont-color 只是编辑输入态色）；
   // 直接定义 --code-* 变量的主题不受影响（cm 规则引用同名变量时解析结果一致）
   extractCmTokenColors(css, set, defs)
-  // 围栏代码块的外形参数：Typora 由 .md-fences 的圆角、.CodeMirror-lines 的字号定义，
-  // 我们没有等价类名（.md-fences → pre 只带声明），提取成令牌供主题模式复位使用
+  // 包装层外形其次（blubook 把围栏底色/圆角写在 .cm-s-inner.CodeMirror 上，
+  // 这才是 Typora 里实际可见的盒子），.md-fences 的底色作缺席兜底
+  extractCmWrapperStyle(css, set, defs)
+  // 围栏代码块的外形参数：Typora 由 .md-fences 的圆角、底色，.CodeMirror-lines
+  // 的字号定义，我们没有等价类名（.md-fences → pre 只带声明），提取成令牌供
+  // 主题模式复位使用
   for (const m of css.matchAll(/\.md-fences(?![\w-])[^{}]*\{([^}]*)\}/gi)) {
+    if (!set.has('--code-bg')) {
+      const bg = m[1].match(/(?:^|;)\s*background(?:-color)?\s*:\s*([^;}]+)/i)
+      const v = bg?.[1].replace(/!important/i, '').trim()
+      if (v && parseColor(v)) set.set('--code-bg', v)
+    }
     const r = m[1].match(/border-radius\s*:\s*([^;}]+)/i)
     if (r) {
       set.set('--code-radius', r[1].replace(/!important/i, '').trim())
@@ -604,8 +714,22 @@ export function typoraValueBridge(css: string): string {
 
   // 派生缺失的表面令牌：主题只给 bg/text 时，卡片/表头/边框也要跟着明暗走，
   // 否则「浅色主题 + 应用深色模式」会出现深色表头配浅色正文（Typora 是整窗换肤）
-  const bg = set.get('--bg') ?? valueOf('--bg-color')
-  const text = set.get('--text') ?? valueOf('--text-color')
+  // 页面底/前景兜底：nord 这类主题用 --bg-color1 + body{background} 而非标准
+  // 变量名——从 body/html 规则声明里取值（var() 引用就地解析），整应用皮肤才能跟随
+  const bodyBg = (() => {
+    const m = css.match(
+      /(?:^|[}\n])\s*(?:html[\s,]*)?body\b[^{}]*\{[^}]*?background(?:-color)?\s*:\s*([^;}]+)/i
+    )
+    const v = m ? resolve(m[1]) : null
+    return v && parseColor(v) ? v : null
+  })()
+  const bodyFg = (() => {
+    const m = css.match(/(?:^|[}\n])\s*(?:html[\s,]*)?body\b[^{}]*\{[^}]*?(?:^|[;{])\s*color\s*:\s*([^;}]+)/i)
+    const v = m ? resolve(m[1]) : null
+    return v && parseColor(v) ? v : null
+  })()
+  const bg = set.get('--bg') ?? valueOf('--bg-color') ?? bodyBg
+  const text = set.get('--text') ?? valueOf('--text-color') ?? bodyFg
   const light = bg ? isLightColor(bg) : true
   const mix = (color: string, toward: string, pct: number): string =>
     `color-mix(in srgb, ${color} ${pct}%, ${toward})`
@@ -699,8 +823,16 @@ const ALIAS_BLOCK = `
   --code-text-color: var(--code-fg);
   --border-color: var(--border);
   --select-text-bg-color: var(--selection);
+  /* 常被引用但主题常忘定义的：围栏/字体族/内部标记色 */
+  --pre-bg-color: var(--code-bg);
+  --pre-border-color: var(--code-edge);
+  --md-char-color: var(--text-2);
+  --meta-content-color: var(--text-2);
   --monospace: var(--font-code);
   --font-main: var(--font-body);
+  --sans-serif: var(--font-body);
+  --font-sans-serif: var(--font-body);
+  --font-monospace: var(--font-code);
 }
 `
 
@@ -710,10 +842,16 @@ const THEME_RESET = `
 /* 主题模式：表格默认底色让位（主题的 thead/tr 规则接管） */
 ${SCOPE} th { background: transparent; }
 /* 表格：Typora 的表格默认占满正文宽度、按内容分配列宽（用户手动拖过列宽
-   的表格带 data-colwidth，保持固定布局不动） */
+   的表格带 data-colwidth，保持固定布局不动）。min-width 防挤压：列总宽超出
+   容器时 auto 布局会把「可断行」的列压到一字宽（CJK 内容 min-content 极小），
+   抬高列下限让表格溢出交给 md-table-wrap 横向滚动 */
 ${SCOPE} table:not(:has([data-colwidth])) {
   table-layout: auto;
   width: 100%;
+}
+${SCOPE} th,
+${SCOPE} td {
+  min-width: 4em;
 }
 /* 单元格换行交给主题：内置的 anywhere 会让表格按「最短可断行」压窄列，
    Typora 主题按最长单词定列宽（sonnet 实测 pagingParams 被拆成 pagingParam+s） */
@@ -739,6 +877,13 @@ ${SCOPE} pre code {
   color: inherit;
   font-size: var(--code-font-size, inherit);
 }
+/* 分割线：内置样式给 hr 限宽 62% 居中（纸面装饰），Typora 主题的 hr 是
+   全宽色条——宽度/水平边距约束会让主题 hr「显示不全」；主题自己想画
+   短分割线时它的 width/margin 规则在本条之后，照常覆盖 */
+${SCOPE} hr {
+  width: auto;
+  margin-inline: 0;
+}
 /* 内容字体跟随主题容器（Typora 标题/表头继承 #write 的字族，我们内置 h1/th 写死了 UI 字体） */
 ${SCOPE} :is(h1, h2, h3, h4, h5, h6, th) {
   font-family: inherit;
@@ -747,12 +892,27 @@ ${SCOPE} :is(h1, h2, h3, h4, h5, h6, th) {
 
 /** 主题样式之后的兜底：Typora 的 #write 由 base 居中（max-width + margin auto），
  *  主题只给 max-width；我们的容器必须补 margin-inline:auto 才能居中（否则内容
- *  列贴左、右侧大片空白，sonnet 实测）。字号/行距保持用户设置优先。 */
+ *  列贴左、右侧大片空白，sonnet 实测）。字号/行距保持用户设置优先。
+ *  放在主题 CSS 之后是必须的：与主题规则同特异度时靠后即可覆盖（THEME_RESET
+ *  在主题之前，只适合主题不会写同选择器的场景）。 */
 const CONTENT_FINAL = `
 ${SCOPE} {
   margin-inline: auto;
   font-size: var(--preview-font-size, 16px);
   line-height: var(--preview-line-height, 1.7);
+}
+/* Mermaid 图表容器：Typora 里图表不是代码块——主题的 pre/.md-fences 底色
+   不能画在图表外壳上（即显侧图表外壳就是 pre.md-mermaid，语言栏留位会
+   露出主题 pre 的近黑底色，变成图表上方一道黑带）。内置卡片底/内边距
+   一并让位，图表直接落在页面底上，与 Typora 观感一致 */
+${SCOPE} :is(.mermaid, .md-mermaid, pre.md-mermaid, .md-mermaid-render) {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+${SCOPE} .md-mermaid-render {
+  margin-top: 0;
 }
 `
 
@@ -810,6 +970,9 @@ export async function processThemeCss(
     mode === 'export'
       ? raw.replace(exportOnly, '@import $1;')
       : raw.replace(exportOnly, '')
+  // 根字号 ≠ 16px 的主题（blubook 14px / nord 18px）：rem 先按主题基准换算成
+  // 等值 px，再走作用域化——html 规则已不作用于真实根元素，不换算会整体偏大/偏小
+  raw = convertRem(raw, themeRootFontSize(raw) ?? 16)
   const withUrls = await rewriteUrls(raw, dir, mode)
   return ALIAS_BLOCK + THEME_RESET + scopeThemeCss(withUrls) + CONTENT_FINAL + typoraValueBridge(withUrls)
 }

@@ -99,6 +99,7 @@ export const en: MsgSchema = {
   'status.autosaveOff': 'Autosave off',
   'status.lineTitle': 'Line {n}',
   'status.vimTitle': 'Vim mode (toggle in settings): NORMAL / INSERT',
+  'status.themeTitle': 'Current theme CSS: {name} (click to open settings)',
 
   // Welcome page
   'welcome.hero': 'Write, flow',

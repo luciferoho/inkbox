@@ -101,6 +101,7 @@ export const zh = {
   'status.autosaveOff': '自动保存已关',
   'status.lineTitle': '第 {n} 行',
   'status.vimTitle': 'Vim 模式（设置中开关）：NORMAL 普通 / INSERT 插入',
+  'status.themeTitle': '当前主题样式：{name}（点击打开设置）',
 
   // 欢迎页
   'welcome.hero': '落笔即章',
