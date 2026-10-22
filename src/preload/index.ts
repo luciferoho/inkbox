@@ -197,6 +197,8 @@ const api = {
     list: (): Promise<import('@shared/types').ThemeInfo[]> => ipcRenderer.invoke('theme:list'),
     /** 读取主题 CSS 内容（文件名限 themes 目录内白名单名） */
     readCss: (file: string): Promise<string | null> => ipcRenderer.invoke('theme:readCss', file),
+    /** 扫描 themes 目录下的字体文件（相对路径列表，设置里下拉选自定义字体） */
+    listFonts: (): Promise<string[]> => ipcRenderer.invoke('theme:listFonts'),
     /** 打开（不存在则创建）主题目录 */
     openDir: (): Promise<void> => ipcRenderer.invoke('theme:openDir'),
     /** 用户自定义样式表绝对路径（userData/base.user.css） */

@@ -101,6 +101,7 @@ interface Window {
     theme: {
       list(): Promise<import('@shared/types').ThemeInfo[]>
       readCss(file: string): Promise<string | null>
+      listFonts(): Promise<string[]>
       openDir(): Promise<void>
       userCssPath(): Promise<string>
       readUserCss(): Promise<string>
