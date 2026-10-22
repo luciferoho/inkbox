@@ -391,8 +391,10 @@ export const useDocumentsStore = defineStore('documents', {
         }
         tab.content = content
         // 撤销回已保存状态：脏标记跟随清除（否则脏草稿残留，异常退出后
-        // 恢复出来就是一个"打开即未保存"的标签）
-        if (tab.savedContent != null && content === tab.savedContent) {
+        // 恢复出来就是一个"打开即未保存"的标签）。
+        // 比较走 canonicalize：即显序列化回推带表格列对齐/分割线写法/CRLF 等
+        // 风格差异，与磁盘文本精确相等永远差一点，精确比对会让脏标记粘住
+        if (tab.savedContent != null && canonicalizeContent(content) === canonicalizeContent(tab.savedContent)) {
           tab.dirty = false
           useUiStore().saveState = 'clean'
           this.scheduleDraftFlush() // 草稿随清除流程落地（flushDrafts 会清掉残留草稿）
