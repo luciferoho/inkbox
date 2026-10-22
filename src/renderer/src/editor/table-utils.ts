@@ -25,6 +25,8 @@ export type TableOp =
   | { kind: 'col-left' }
   | { kind: 'col-right' }
   | { kind: 'col-delete' }
+  | { kind: 'col-move-left' }
+  | { kind: 'col-move-right' }
   | { kind: 'align'; how: 'left' | 'center' | 'right' | 'none' }
   | { kind: 'table-delete' }
 
@@ -152,6 +154,21 @@ export function applyTableOp(
       if (colCount <= 1) return null
       mapCells(info.colIndex, true, '')
       return { lines, cursorLine: idx, cursorCol: Math.max(0, info.colIndex - 1) }
+    }
+    case 'col-move-left':
+    case 'col-move-right': {
+      // 整列（含分隔行对齐标记）与相邻列交换；到边界返回不可执行
+      const to = op.kind === 'col-move-left' ? info.colIndex - 1 : info.colIndex + 1
+      if (to < 0 || to >= colCount) return null
+      for (let i = 0; i < lines.length; i++) {
+        const cells = splitCells(lines[i])
+        while (cells.length < colCount) cells.push(i === 1 ? '---' : '')
+        const tmp = cells[info.colIndex] ?? ''
+        cells[info.colIndex] = cells[to] ?? (i === 1 ? '---' : '')
+        cells[to] = tmp
+        lines[i] = joinCells(cells)
+      }
+      return { lines, cursorLine: idx, cursorCol: to }
     }
     case 'align': {
       const cells = splitCells(lines[1])

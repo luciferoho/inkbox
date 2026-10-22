@@ -165,6 +165,8 @@ export const en: MsgSchema = {
   'table.addColLeft': 'Insert column left',
   'table.addColRight': 'Insert column right',
   'table.deleteCol': 'Delete current column',
+  'table.moveColLeft': 'Move column left',
+  'table.moveColRight': 'Move column right',
   'table.alignLeft': 'Align this column left',
   'table.alignCenter': 'Center this column',
   'table.alignRight': 'Align this column right',

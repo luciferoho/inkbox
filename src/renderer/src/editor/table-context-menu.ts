@@ -38,6 +38,8 @@ export type TableMenuAction =
   | 'col-left'
   | 'col-right'
   | 'col-delete'
+  | 'col-move-left'
+  | 'col-move-right'
   | 'align-left'
   | 'align-center'
   | 'align-right'
@@ -54,6 +56,9 @@ export const tableMenu = reactive({
   canRow: true,
   canCol: true,
   canAbove: true,
+  /** 当前列是否还能左移/右移（第一列禁左移、最后一列禁右移） */
+  canMoveLeft: true,
+  canMoveRight: true,
   /** 预览（只读）面板：仅复制/列宽重置可用 */
   readOnly: false
 })
@@ -71,21 +76,29 @@ export function registerPmTableExecutor(fn: PmTableExecutor | null): void {
   pmExecutor = fn
 }
 
+export interface OpenTableMenuOpts {
+  canRow: boolean
+  canCol: boolean
+  canAbove: boolean
+  canMoveLeft?: boolean
+  canMoveRight?: boolean
+}
+
 export function openTableMenu(
   x: number,
   y: number,
-  canRow: boolean,
-  canCol: boolean,
-  canAbove: boolean,
+  opts: OpenTableMenuOpts,
   tgt: Target
 ): void {
   target = tgt
   tableMenu.open = true
   tableMenu.x = x
   tableMenu.y = y
-  tableMenu.canRow = canRow
-  tableMenu.canCol = canCol
-  tableMenu.canAbove = canAbove
+  tableMenu.canRow = opts.canRow
+  tableMenu.canCol = opts.canCol
+  tableMenu.canAbove = opts.canAbove
+  tableMenu.canMoveLeft = opts.canMoveLeft ?? false
+  tableMenu.canMoveRight = opts.canMoveRight ?? false
   tableMenu.readOnly = tgt.kind === 'preview'
 }
 
@@ -110,6 +123,8 @@ export function tableMenuItems(): TableMenuItem[] {
     { action: 'col-left', label: t('table.addColLeft'), disabled: ro },
     { action: 'col-right', label: t('table.addColRight'), disabled: ro },
     { action: 'col-delete', label: t('table.deleteCol'), disabled: ro || !tableMenu.canCol },
+    { action: 'col-move-left', label: t('table.moveColLeft'), disabled: ro || !tableMenu.canMoveLeft },
+    { action: 'col-move-right', label: t('table.moveColRight'), disabled: ro || !tableMenu.canMoveRight },
     { action: 'align-left', label: t('table.alignLeft'), disabled: ro },
     { action: 'align-center', label: t('table.alignCenter'), disabled: ro },
     { action: 'align-right', label: t('table.alignRight'), disabled: ro },
@@ -281,12 +296,19 @@ function onContext(e: MouseEvent): void {
     }
     // 行列可删性按落位后的选区复算：表头不可删/不可上方插入、只剩单列时不可删列
     const meta = findTableSelection(view)
+    const tNode = meta ? view.state.doc.nodeAt(meta.pos) : null
+    const colCount = tNode && tNode.childCount > 0 ? tNode.child(0).childCount : 0
     openTableMenu(
       e.clientX,
       e.clientY,
-      meta?.canDeleteRow ?? false,
-      meta?.canDeleteCol ?? false,
-      (meta?.row ?? 0) >= 1,
+      {
+        canRow: meta?.canDeleteRow ?? false,
+        canCol: meta?.canDeleteCol ?? false,
+        canAbove: (meta?.row ?? 0) >= 1,
+        // 第一列禁左移、最后一列禁右移（与删列的边界一致）
+        canMoveLeft: !!meta && meta.col > 0,
+        canMoveRight: !!meta && colCount > 0 && meta.col < colCount - 1
+      },
       { kind: 'pm', view }
     )
     return
@@ -297,7 +319,23 @@ function onContext(e: MouseEvent): void {
   if (pvTable instanceof HTMLTableElement) {
     e.preventDefault()
     e.stopPropagation()
-    openTableMenu(e.clientX, e.clientY, true, true, false, { kind: 'preview', table: pvTable })
+    // 预览只读，移动列禁用；禁用态仍按落点列号计算（第一列左移灰、末列右移灰）
+    const cell = el.closest('td, th')
+    const idx = cell instanceof HTMLTableCellElement ? cell.cellIndex : 0
+    const parent = cell instanceof HTMLTableCellElement ? cell.parentElement : null
+    const count = parent instanceof HTMLTableRowElement ? parent.cells.length : 1
+    openTableMenu(
+      e.clientX,
+      e.clientY,
+      {
+        canRow: true,
+        canCol: true,
+        canAbove: false,
+        canMoveLeft: idx > 0,
+        canMoveRight: idx < count - 1
+      },
+      { kind: 'preview', table: pvTable }
+    )
     return
   }
 
@@ -323,9 +361,13 @@ function onContext(e: MouseEvent): void {
     openTableMenu(
       e.clientX,
       e.clientY,
-      info.cursorLine > info.startLine + 1,
-      info.colCount > 1,
-      info.cursorLine > info.startLine + 1,
+      {
+        canRow: info.cursorLine > info.startLine + 1,
+        canCol: info.colCount > 1,
+        canAbove: info.cursorLine > info.startLine + 1,
+        canMoveLeft: info.colIndex > 0,
+        canMoveRight: info.colIndex < info.colCount - 1
+      },
       { kind: 'cm', view, info }
     )
     return

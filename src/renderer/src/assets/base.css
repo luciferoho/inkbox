@@ -286,6 +286,24 @@ body.inkbox-col-resizing * {
   user-select: none !important;
 }
 
+/* ---------- 表格列拖拽（表头拖动换位）：grab 光标 + 禁用选择 ----------
+   与列宽拖拽同思路：拖拽中指针可能离开表格，body 级规则保证光标稳定 */
+body.inkbox-col-dragging,
+body.inkbox-col-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/* 拖拽中的列高亮（挂在 body 的 fixed overlay，不进 PM 管理的表格 DOM） */
+.inkbox-col-drag-indicator {
+  position: fixed;
+  z-index: 90;
+  pointer-events: none;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  outline: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
 /* ---------- 主题模式：任务复选框防护 ----------
    复选框是功能件不是内容。主题的 input 规则按 Typora 的绝对定位复选框设计
    （newsprint 的 appearance:button + 全局 input 边框、night 的自绘 ::before），

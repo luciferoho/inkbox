@@ -167,6 +167,8 @@ export const zh = {
   'table.addColLeft': '在左侧插入列',
   'table.addColRight': '在右侧插入列',
   'table.deleteCol': '删除当前列',
+  'table.moveColLeft': '左移此列',
+  'table.moveColRight': '右移此列',
   'table.alignLeft': '此列左对齐',
   'table.alignCenter': '此列居中',
   'table.alignRight': '此列右对齐',

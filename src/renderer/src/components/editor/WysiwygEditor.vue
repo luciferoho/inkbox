@@ -32,7 +32,7 @@ import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { history } from '@milkdown/kit/plugin/history'
 import { replaceAll, $prose, callCommand } from '@milkdown/kit/utils'
 import { NodeSelection, TextSelection, type EditorState } from '@milkdown/kit/prose/state'
-import type { Node as PMNode } from '@milkdown/kit/prose/model'
+import { Fragment, type Node as PMNode } from '@milkdown/kit/prose/model'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { lift } from '@milkdown/kit/prose/commands'
 import { liftListItem, sinkListItem } from '@milkdown/kit/prose/schema-list'
@@ -728,6 +728,128 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
   window.addEventListener('mouseup', onUp)
 }
 
+/** 表头按下横向拖动 → 实时移动列（跨列时逐相邻步交换，跟手）。
+ *  - 列宽边界命中时列宽拖拽优先（先注册且已 preventDefault，defaultPrevented 短路）
+ *  - 拖动超过阈值才启动：纯点击表头仍可编辑表头文字
+ *  - 高亮是挂在 body 上的 overlay（fixed），完全不碰 PM 管理的表格 DOM
+ *    （外部属性写入会被 DOM 观察器当成文档变更，实测会卡死渲染） */
+function onHostMouseDownTableDrag(e: MouseEvent): void {
+  if (e.button !== 0 || e.defaultPrevented) return
+  const el = e.target as HTMLElement | null
+  const table = el?.closest?.('table')
+  if (!(table instanceof HTMLTableElement)) return
+  const header = table.rows[0]
+  if (!header || !el?.closest?.('th') || !header.contains(el)) return // 只在表头行启动
+  if (hitColumnBoundary(table, e.clientX) !== null) return // 边界让位列宽拖拽
+  const view = getView()
+  if (!view) return
+  const startCol = Array.from(header.cells).findIndex((c) => c.contains(el as Node))
+  if (startCol < 0) return
+  // DOM 表头单元格 → PM 表格文档位置（交换事务按文档位置寻址）
+  let tablePos = -1
+  try {
+    const $cell = view.state.doc.resolve(view.posAtDOM(header.cells[startCol], 0))
+    for (let d = $cell.depth; d > 0; d--) {
+      if ($cell.node(d).type.name === 'table') {
+        tablePos = $cell.before(d)
+        break
+      }
+    }
+  } catch {
+    /* DOM 与文档失配（重绘瞬间）：放弃本次拖拽 */
+  }
+  if (tablePos < 0) return
+  // 拖拽前表格快照：松手时回滚逐帧交换（不入历史）后整体重放，
+  // 让「拖一次」= 恰好一个撤销步（undo 回拖拽前、redo 恢复结果）
+  const startNode = view.state.doc.nodeAt(tablePos)
+  if (!startNode || startNode.type.name !== 'table') return
+
+  const startX = e.clientX
+  let active = false
+  let moved = false
+  let cur = startCol
+  let indicator: HTMLDivElement | null = null
+
+  /** 指针 x 落在哪一列（按表头实时 rects；交换后列位置已变，必须重算） */
+  const colAtX = (x: number): number => {
+    const cells = header.cells
+    for (let i = 0; i < cells.length; i++) {
+      if (x < cells[i].getBoundingClientRect().right) return i
+    }
+    return cells.length - 1
+  }
+  const moveIndicator = (): void => {
+    if (!indicator) return
+    const cell = header.cells[Math.min(cur, header.cells.length - 1)]
+    if (!cell) return
+    const r = cell.getBoundingClientRect()
+    indicator.style.left = `${r.left}px`
+    indicator.style.top = `${r.top}px`
+    indicator.style.width = `${r.width}px`
+    indicator.style.height = `${r.height}px`
+  }
+  const cleanup = (): void => {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    document.body.classList.remove('inkbox-col-dragging')
+    indicator?.remove()
+    indicator = null
+  }
+  const onMove = (ev: MouseEvent): void => {
+    // PM 重绘制换了 table 节点（拖拽中标签切换等）：静默终止
+    if (!table.isConnected) {
+      cleanup()
+      return
+    }
+    if (!active) {
+      if (Math.abs(ev.clientX - startX) < 6) return
+      active = true
+      document.body.classList.add('inkbox-col-dragging')
+      window.getSelection()?.removeAllRanges() // 清掉按住拖出的文字选区
+      indicator = document.createElement('div')
+      indicator.className = 'inkbox-col-drag-indicator'
+      document.body.appendChild(indicator)
+    }
+    ev.preventDefault()
+    const hover = colAtX(ev.clientX)
+    if (hover < 0 || hover === cur) {
+      moveIndicator()
+      return
+    }
+    // 从当前位置向目标列逐相邻步交换（每帧事务不入历史，松手统一重放）
+    while (cur !== hover && table.isConnected) {
+      const dir: -1 | 1 = hover > cur ? 1 : -1
+      if (!movePmColumn(view, tablePos, cur, cur + dir, { recordHistory: false })) break
+      cur += dir
+      moved = true
+    }
+    moveIndicator()
+  }
+  const onUp = (): void => {
+    // 有过实际交换：回滚逐帧步（不入历史）→ 以单一历史项重放整段移动
+    if (active && moved && cur !== startCol) {
+      const curNode = view.state.doc.nodeAt(tablePos)
+      if (curNode && curNode.type.name === 'table' && curNode.nodeSize === startNode.nodeSize) {
+        const back = view.state.tr
+        back.replaceWith(tablePos, tablePos + curNode.nodeSize, startNode)
+        back.setMeta('addToHistory', false)
+        view.dispatch(back)
+        movePmColumn(view, tablePos, startCol, cur, { recordHistory: true, scroll: false })
+      }
+    }
+    cleanup()
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
+/** 表格按下统一入口（Vue 模板不允许同名事件修饰符写两遍）：
+ *  先列宽（命中边界即接管并 preventDefault），未命中再看表头列拖拽 */
+function onHostMouseDownTable(e: MouseEvent): void {
+  onHostMouseDownTableWidths(e)
+  onHostMouseDownTableDrag(e)
+}
+
 /** 表头列边界 hover：光标变 col-resize（el-table 手感）；rAF 节流避免每次移动查布局 */
 let cursorRaf = 0
 function onHostMouseMoveTableCursor(e: MouseEvent): void {
@@ -743,6 +865,8 @@ function onHostMouseMoveTableCursor(e: MouseEvent): void {
     }
     const col = hitColumnBoundary(table, x)
     if (col !== null) host.value?.style.setProperty('cursor', 'col-resize')
+    // 表头单元格非边界处提示可拖拽整列
+    else if (target?.closest?.('th')) host.value?.style.setProperty('cursor', 'grab')
     else host.value?.style.removeProperty('cursor')
   })
 }
@@ -1128,6 +1252,38 @@ function elTableAlign(how: 'left' | 'center' | 'right' | 'none'): void {
   setColumnAlign(view, t.pos, t.col, how === 'none' ? null : how)
 }
 
+/** 整列移动到目标位置（splice 语义：把第 from 列拔出插到 to 处）。
+ *  右键「左移/右移此列」与表头拖拽共用：alignment 等 cell attrs 跟随节点走，
+ *  单事务可撤销。recordHistory=false 供拖拽逐帧交换（松手时回滚重放，
+ *  保证一次 Ctrl+Z 撤销整段拖拽）；scroll=false 避免与拖动争滚动条。 */
+function movePmColumn(
+  view: EditorView,
+  tablePos: number,
+  from: number,
+  to: number,
+  opts: { scroll?: boolean; recordHistory?: boolean } = {}
+): boolean {
+  const { scroll = true, recordHistory = true } = opts
+  const table = view.state.doc.nodeAt(tablePos)
+  if (!table || table.type.name !== 'table') return false
+  if (table.childCount < 1) return false
+  const colCount = table.child(0).childCount
+  if (from === to || from < 0 || to < 0 || from >= colCount || to >= colCount) return false
+  const tr = view.state.tr
+  table.forEach((row, rowOffset) => {
+    // 行列数不足（异常表格）跳过，不影响其余行对齐交换
+    if (row.childCount < colCount) return
+    const cells: PMNode[] = []
+    row.forEach((cell) => cells.push(cell))
+    cells.splice(to, 0, cells.splice(from, 1)[0])
+    const rowPos = tablePos + 1 + rowOffset
+    tr.replaceWith(rowPos, rowPos + row.nodeSize, row.copy(Fragment.fromArray(cells)))
+  })
+  if (!recordHistory) tr.setMeta('addToHistory', false)
+  view.dispatch(scroll ? tr.scrollIntoView() : tr)
+  return true
+}
+
 /* ---------- 表格右键菜单（2.3）：菜单动作 → Milkdown gfm 命令 ----------
    contextmenu 已把光标落到点击单元格（Chromium 原生行为），行列定位用
    findTableSelection 按当前选区复算，不依赖浮层工具条的状态。 */
@@ -1165,6 +1321,15 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
       elTable(callCommand(deleteSelectedCellsCommand.key))
       if (action !== 'table-delete') collapseTableSelection(view, t.row, t.col)
       return true
+    }
+    case 'col-move-left':
+    case 'col-move-right': {
+      // 菜单动作不依赖工具条状态：按落位选区重新定位表格与列
+      const view = getView()
+      const meta = view ? findTableSelection(view) : null
+      if (!view || !meta) return false
+      const to = meta.col + (action === 'col-move-left' ? -1 : 1)
+      return movePmColumn(view, meta.pos, meta.col, to)
     }
     case 'align-left':
     case 'align-center':
@@ -1592,7 +1757,7 @@ watch(
       @replace-all="doReplaceAll"
       @close="closeFind"
     />
-    <div ref="host" class="wysiwyg-host" @mousedown.capture="onHostMouseDownTableWidths">
+    <div ref="host" class="wysiwyg-host" @mousedown.capture="onHostMouseDownTable">
       <!-- 图片悬浮地址:贴图片下缘内侧的轻提示,pointer-events 不挡交互 -->
       <div v-if="imgTip" class="img-src-tip" :style="imgTipStyle">{{ imgTip.text }}</div>
       <!-- 元素工具条:点击图片/表格时的浮动操作条(与源码模式工具条同按钮集) -->
