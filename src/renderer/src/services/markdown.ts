@@ -515,6 +515,85 @@ function applyCenter(html: string): string {
     .replace(/<p[^>]*>@@CENTER_END@@<\/p>/g, '</div>')
 }
 
+/* ---------- 风格归一（内容等价比对专用，不回写文档） ---------- */
+
+/** 表格分隔行单元格（`:---`/`--:` 等） */
+const SEP_CELL_RE = /^\s*:?-+:?\s*$/
+/** 整行主题分割线：`***`/`---`/`___` 系列（内部可含空格） */
+const HR_LINE_RE = /^[ \t]{0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/
+
+/** 表格行判定：以 | 开头且含未转义 |（即显序列化恒补行首管道；无行首管道的
+ *  写法不归一，宁可保守漏配也不误伤普通含 | 的段落） */
+function isTableRow(line: string): boolean {
+  return /^\|/.test(line) && /(?<!\\)\|/.test(line)
+}
+
+/** 行 → 单元格（与 editor/table-utils.splitCells 同规则：去首尾管道、
+ *  按未转义 | 切分并 trim；结尾 \| 是转义内容不算收尾管道） */
+function splitRowCells(line: string): string[] {
+  let t = line.trim()
+  if (t.startsWith('|')) t = t.slice(1)
+  if (t.endsWith('|') && !t.endsWith('\\|')) t = t.slice(0, -1)
+  return t.split(/(?<!\\)\|/).map((c) => c.trim())
+}
+
+const joinRowCells = (cells: string[]): string => `| ${cells.join(' | ')} |`
+
+/** 分隔行单元格定长化：`:-`/`--:`/按列宽补横线等写法与 `:---`/`---:` 对齐语义一致 */
+function canonicalSepCell(cell: string): string {
+  const l = cell.startsWith(':')
+  const r = cell.endsWith(':')
+  return l && r ? ':---:' : l ? ':---' : r ? '---:' : '---'
+}
+
+/**
+ * 风格归一（masked = 围栏代码块内行，原样保留）：
+ * - 表格块：即显序列化会给单元格按列宽补空格、分隔行写最短 `:-` 或按列宽补
+ *   横线——同一张表两种写法渲染完全一致，逐字比对不等（"打开即未保存"的主因）。
+ *   「表头行 + 整行皆分隔单元格的第 2 行 + 紧随的数据行」整块归一为
+ *   `| c1 | c2 |`：单元格去首尾空白，分隔行标记定长。
+ * - 主题分割线：`***`/`___`/`- - -` 统一 `---`；仅前行为空行时归一——
+ *   紧贴段落的 `---` 是 setext 标题下划线，语义不同，不能碰。
+ * - 链接/图片目标的 `./` 前缀（管线把相对路径补成 `./x` 回推）。
+ */
+function normalizeStyleLines(lines: string[], masked: Set<number>): string[] {
+  // 第一遍：链接目标 ./ 前缀（围栏内容不动）
+  const out = lines.map((l, i) => (masked.has(i) ? l : l.replace(/\]\(\.\//g, '](')))
+  const res: string[] = []
+  let i = 0
+  while (i < out.length) {
+    const l = out[i]
+    if (masked.has(i)) {
+      res.push(l)
+      i++
+      continue
+    }
+    // 表格块（第 2 行整行都是分隔单元格才算，普通含 | 的段落不动）
+    const sepCells =
+      i + 1 < out.length && !masked.has(i + 1) && isTableRow(l) && isTableRow(out[i + 1])
+        ? splitRowCells(out[i + 1])
+        : null
+    if (sepCells && sepCells.length > 0 && sepCells.every((c) => SEP_CELL_RE.test(c))) {
+      let j = i + 2
+      while (j < out.length && !masked.has(j) && isTableRow(out[j])) j++
+      res.push(joinRowCells(splitRowCells(l)))
+      res.push(joinRowCells(sepCells.map(canonicalSepCell)))
+      for (let k = i + 2; k < j; k++) res.push(joinRowCells(splitRowCells(out[k])))
+      i = j
+      continue
+    }
+    // 主题分割线（前行为空行才归一，避开 setext 下划线）
+    if (HR_LINE_RE.test(l) && (i === 0 || !out[i - 1].trim())) {
+      res.push('---')
+      i++
+      continue
+    }
+    res.push(l)
+    i++
+  }
+  return res
+}
+
 /**
  * 内容规范化（草稿新旧比对用，纯文本变换）：与「打开归一化 + 即显序列化归一化」
  * 同规则——编号重排、`1)`→`1.`、`*`/`+` 项→`-` 项、空白行归一、列表项行首缩进
@@ -524,16 +603,22 @@ function applyCenter(html: string): string {
  * 引导空行剥除。围栏代码块内的内容原样保留（真实编辑）。
  * 若两版本仅在这些风格差异上不同（用户没有真实编辑，只是即显序列化回写过），
  * 视为等价：崩溃恢复时草稿丢弃、即显回推不算脏，避免"打开即未保存"。
+ * 表格列对齐/分隔行写法、分割线写法、链接目标 ./ 前缀的归一见 normalizeStyleLines。
  */
 export function canonicalizeContent(src: string): string {
   const lines = normalizeOrderedNumbering(src.replace(/\r\n?/g, '\n')).split('\n')
   const out: string[] = []
+  // 围栏内容/标记行在 out 中的下标（真实内容，风格归一不得触碰）
+  const masked = new Set<number>()
   let inFence = false
   let fence: string[] = []
   const flushFence = (): void => {
     const indents = fence.filter((l) => l.trim()).map((l) => /^[\t ]*/.exec(l)![0].length)
     const cut = indents.length ? Math.min(...indents) : 0
-    for (const l of fence) out.push(cut ? l.slice(Math.min(cut, /^[\t ]*/.exec(l)![0].length)) : l)
+    for (const l of fence) {
+      masked.add(out.length)
+      out.push(cut ? l.slice(Math.min(cut, /^[\t ]*/.exec(l)![0].length)) : l)
+    }
     fence = []
   }
   for (const l of lines) {
@@ -541,6 +626,7 @@ export function canonicalizeContent(src: string): string {
       if (/^[\t ]*(?:```|~~~)/.test(l)) {
         inFence = false
         flushFence()
+        masked.add(out.length)
         out.push(l.replace(/^[\t ]+/, ''))
       } else {
         fence.push(l)
@@ -557,6 +643,7 @@ export function canonicalizeContent(src: string): string {
       .replace(/^([\t ]*\d+)\)/, '$1.')
     if (/^[\t ]*(?:```|~~~)/.test(stripped)) {
       inFence = true
+      masked.add(out.length)
       out.push(stripped.replace(/^[\t ]+/, ''))
       continue
     }
@@ -571,7 +658,7 @@ export function canonicalizeContent(src: string): string {
   // 列表项之前的引导空行：即显序列化常省略（无序列表可打断段落）。
   // 尾随空行/换行同样抹平：milkdown 序列化不保证文末换行，与磁盘文本（Typora
   // 惯例保留尾随换行）只差文末空行时不算真实编辑——否则"打开即未保存"
-  return out
+  return normalizeStyleLines(out, masked)
     .join('\n')
     .replace(/\n\n+(?=(?:[-*+]|\d+[.)])[\t ])/g, '\n')
     .replace(/[\s\n]+$/, '')
