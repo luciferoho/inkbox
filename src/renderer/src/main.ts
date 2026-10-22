@@ -206,6 +206,7 @@ function installBrowserMock(): void {
       // 浏览器 mock：无主题目录，恒为空表；用户 CSS 恒为空
       list: async () => [],
       readCss: async () => null,
+      listFonts: async () => [],
       openDir: async () => undefined,
       userCssPath: async () => 'mock://base.user.css',
       readUserCss: async () => '',

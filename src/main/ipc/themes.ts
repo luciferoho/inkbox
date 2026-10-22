@@ -1,6 +1,6 @@
 import { app, ipcMain, protocol, shell } from 'electron'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join, normalize, sep } from 'node:path'
+import { join, normalize, relative, sep } from 'node:path'
 import type { ThemeInfo } from '@shared/types'
 
 /** M3 主题生态（Typora 兼容）：
@@ -309,10 +309,38 @@ export function registerThemeResourceProtocol(): void {
   })
 }
 
+/** 扫描 themes/fonts/ 目录下的字体文件（设置里下拉选自定义字体用）：
+ *  只认这个目录（主题自带的字体资源目录不管），返回相对 themes 的
+ *  / 分隔路径，最多 500 个 */
+export function scanFontFiles(): string[] {
+  const out: string[] = []
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 4 || out.length >= 500) return
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      if (e.name.startsWith('.') || e.name === '__MACOSX') continue
+      const abs = join(dir, e.name)
+      if (e.isDirectory()) walk(abs, depth + 1)
+      else if (FONT_EXTS.includes(e.name.slice(e.name.lastIndexOf('.')).toLowerCase())) {
+        out.push(relative(themesDir(), abs).split(sep).join('/'))
+      }
+    }
+  }
+  walk(join(themesDir(), 'fonts'), 0)
+  return out.sort()
+}
+
 /* ---------- IPC ---------- */
 
 export function registerThemesIpc(): void {
   ipcMain.handle('theme:list', (): ThemeInfo[] => scanThemes())
+
+  ipcMain.handle('theme:listFonts', (): string[] => scanFontFiles())
 
   ipcMain.handle('theme:readCss', (_e, file: string): string | null => {
     const rel = safeRelPath(file)

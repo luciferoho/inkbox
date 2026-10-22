@@ -13,6 +13,14 @@ import {
   RESERVED_ACCELS
 } from '@shared/shortcuts'
 import { t, type MsgKey } from '@/i18n'
+import {
+  BODY_FONT_OPTIONS,
+  CODE_FONT_OPTIONS,
+  customFontOptions,
+  isGeneratedName,
+  scanFontFaces,
+  type ScannedFontFace
+} from '@/services/font-scan'
 
 /** 偏好设置弹层：所有改动即时生效并持久化（userData/config.json） */
 const ui = useUiStore()
@@ -96,11 +104,41 @@ async function reloadThemes(): Promise<void> {
     })
   }
 }
-// 每次打开设置都刷新一次（用户可能刚往目录里放了新主题）
+/* ---------- 字体下拉：内置系统字体 + themes/fonts/ 扫描的自定义字体 ---------- */
+const fontFaces = ref<ScannedFontFace[]>([])
+const customBodyFonts = computed(() => customFontOptions(fontFaces.value, 'sans-serif').filter((o) => !isGeneratedName(o.label)))
+const customCodeFonts = computed(() => customFontOptions(fontFaces.value, 'monospace').filter((o) => !isGeneratedName(o.label)))
+const otherBodyFonts = computed(() => customFontOptions(fontFaces.value, 'sans-serif').filter((o) => isGeneratedName(o.label)))
+const otherCodeFonts = computed(() => customFontOptions(fontFaces.value, 'monospace').filter((o) => isGeneratedName(o.label)))
+function fontValues(kind: 'bodyFont' | 'codeFont'): Set<string> {
+  const built = kind === 'bodyFont' ? BODY_FONT_OPTIONS : CODE_FONT_OPTIONS
+  const custom = kind === 'bodyFont' ? customBodyFonts.value : customCodeFonts.value
+  const other = kind === 'bodyFont' ? otherBodyFonts.value : otherCodeFonts.value
+  return new Set([...built, ...custom, ...other].map((o) => o.value))
+}
+function fontChoice(kind: 'bodyFont' | 'codeFont'): string {
+  return (kind === 'bodyFont' ? ui.appearance.bodyFont : ui.appearance.codeFont) ?? ''
+}
+function pickFont(kind: 'bodyFont' | 'codeFont', sel: string): void {
+  void ui.setAppearance(kind === 'bodyFont' ? { bodyFont: sel } : { codeFont: sel })
+}
+/** 历史手输值不在选项表里：补一个同值选项让它可见（换选任意项即被替换） */
+function fontLegacy(kind: 'bodyFont' | 'codeFont'): string {
+  const v = fontChoice(kind)
+  return v && !fontValues(kind).has(v) ? v : ''
+}
+async function reloadFonts(): Promise<void> {
+  fontFaces.value = scanFontFaces(await window.api.theme.listFonts())
+}
+
+// 每次打开设置都刷新一次（用户可能刚往目录里放了新主题/新字体）
 watch(
   () => ui.settingsOpen,
   (open) => {
-    if (open) void reloadThemes()
+    if (open) {
+      void reloadThemes()
+      void reloadFonts()
+    }
   }
 )
 function openThemesDir(): void {
@@ -346,24 +384,45 @@ function checkUpdate(): void {
             </div>
             <div class="row">
               <span class="label">{{ $t('settings.bodyFont') }}</span>
-              <input
-                class="font-input"
-                type="text"
-                :value="ui.appearance.bodyFont"
-                :placeholder="$t('settings.fontHint')"
-                @change="ui.setAppearance({ bodyFont: ($event.target as HTMLInputElement).value.trim() })"
-              />
+              <select
+                class="theme-select font-select"
+                :value="fontChoice('bodyFont')"
+                @change="pickFont('bodyFont', ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="">{{ $t('settings.fontDefault') }}</option>
+                <option v-if="fontLegacy('bodyFont')" :value="fontLegacy('bodyFont')">{{ fontLegacy('bodyFont') }}</option>
+                <optgroup :label="$t('settings.fontSystemGroup')">
+                  <option v-for="f in BODY_FONT_OPTIONS" :key="f.value" :value="f.value">{{ f.label }}</option>
+                </optgroup>
+                <optgroup v-if="customBodyFonts.length" :label="$t('settings.fontCustomGroup')">
+                  <option v-for="f in customBodyFonts" :key="f.value" :value="f.value">{{ f.label }}</option>
+                </optgroup>
+                <optgroup v-if="otherBodyFonts.length" :label="$t('settings.fontOtherGroup')">
+                  <option v-for="f in otherBodyFonts" :key="f.value" :value="f.value">{{ f.label }}</option>
+                </optgroup>
+              </select>
             </div>
             <div class="row">
               <span class="label">{{ $t('settings.codeFont') }}</span>
-              <input
-                class="font-input"
-                type="text"
-                :value="ui.appearance.codeFont"
-                :placeholder="$t('settings.fontHint')"
-                @change="ui.setAppearance({ codeFont: ($event.target as HTMLInputElement).value.trim() })"
-              />
+              <select
+                class="theme-select font-select"
+                :value="fontChoice('codeFont')"
+                @change="pickFont('codeFont', ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="">{{ $t('settings.fontDefault') }}</option>
+                <option v-if="fontLegacy('codeFont')" :value="fontLegacy('codeFont')">{{ fontLegacy('codeFont') }}</option>
+                <optgroup :label="$t('settings.fontSystemGroup')">
+                  <option v-for="f in CODE_FONT_OPTIONS" :key="f.value" :value="f.value">{{ f.label }}</option>
+                </optgroup>
+                <optgroup v-if="customCodeFonts.length" :label="$t('settings.fontCustomGroup')">
+                  <option v-for="f in customCodeFonts" :key="f.value" :value="f.value">{{ f.label }}</option>
+                </optgroup>
+                <optgroup v-if="otherCodeFonts.length" :label="$t('settings.fontOtherGroup')">
+                  <option v-for="f in otherCodeFonts" :key="f.value" :value="f.value">{{ f.label }}</option>
+                </optgroup>
+              </select>
             </div>
+            <p class="row-hint">{{ $t('settings.fontScanHint') }}</p>
             <div class="row">
               <span class="label">{{ $t('settings.userCss') }}</span>
               <button class="link-btn" @click="openUserCss">{{ $t('settings.openUserCss') }}</button>
