@@ -244,6 +244,10 @@ function stripContainerDecls(body: string): string {
     .replace(/(^|[;{\n])\s*background(?:-color|-image)?\s*:[^;}]*;?/gi, '$1')
 }
 
+/** 注释占位符（protectComments 产物，NUL 包裹的 C<n>）整体剥离。
+ *  源码用 fromCharCode 构造，避免转义写法 */
+const commentHolderRe = new RegExp(String.fromCharCode(0) + 'C[0-9]+' + String.fromCharCode(0), 'g')
+
 /** 遍历块结构做作用域化；@font-face/@keyframes 等原样，@media/@supports 递归 */
 function scopeBlocks(css: string): string {
   let out = ''
@@ -268,7 +272,9 @@ function scopeBlocks(css: string): string {
     const body = css.slice(open + 1, j - 1)
     // head 里可能残留前一条无块语句（@import/@charset 的 ;）：前缀原样保留
     const headPrefix = openHead >= 0 ? head.slice(0, openHead + 1) : ''
-    const at = headPart.trim().match(/^@([\w-]+)/)
+    // 注释占位符会破坏 ^@ 判定（注释后跟 @media 会掉进普通规则分支，产出
+    // `:is(scope) @media print` 非法样式、打印规则整体丢失）：判定前先剥占位符
+    const at = headPart.replace(commentHolderRe, '').trim().match(/^@([\w-]+)/)
     if (at) {
       const name = at[1].toLowerCase()
       if (name === 'media' || name === 'supports' || name === 'container' || name === 'layer' || name === 'scope') {

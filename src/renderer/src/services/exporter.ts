@@ -153,6 +153,29 @@ const EXPORT_TOKENS_COMMON = `
 }
 `
 
+/* 任务列表几何加固：主题的 `.md-task-list-item > input { margin-left: -1.3em }`
+   （Typora 结构假设）与 preview.css 的 li 负 margin 叠加，再叠上表单控件
+   固定的 em 基准（input 恒 13.33px ≠ 正文 13px），会把复选框拉出内容盒——
+   打印无外层 padding 时贴页缘被裁、续行与首行错位压到复选框（导出 PDF 实测）。
+   复选框改绝对定位钉在行首、文本块统一缩进，与主题/字号解耦。
+   必须注入在主题（extraCss）之后才能压住主题的负 margin */
+const EXPORT_TASK_LIST_FIX = `
+.md-preview.md-preview li.task-list-item,
+.md-preview.md-preview li[data-item-type='task'] {
+  position: relative;
+  margin-left: 0 !important;
+  padding-left: 1.7em !important;
+  text-indent: 0 !important;
+}
+.md-preview.md-preview li.task-list-item > input.task-item-checkbox,
+.md-preview.md-preview li[data-item-type='task'] > input.task-item-checkbox {
+  position: absolute;
+  left: 0;
+  top: 0.32em;
+  margin: 0 !important;
+}
+`
+
 function bufToBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf)
   let bin = ''
@@ -337,6 +360,7 @@ body { background: var(--bg); padding: 40px 20px 64px; }
 <style>${previewCss}</style>
 <style>${pageCss}</style>
 ${opts.extraCss ? `<style>${opts.extraCss}</style>` : ''}
+<style>${EXPORT_TASK_LIST_FIX}</style>
 </head>
 <body>
 <article class="md-preview export-page">
