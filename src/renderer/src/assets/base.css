@@ -324,3 +324,149 @@ html[data-theme-css] .task-item-checkbox {
 html[data-theme-css] .task-item-checkbox::before {
   content: none !important;
 }
+
+/* ---------- 主题模式：侧栏大纲跟随主题（Typora/phycat outline 观感） ----------
+   一级行主色加粗、hover 软胶囊+下划线、活动项实底+✦ 闪烁、层级 18px 步长、
+   展开⌄/折叠›角标；自动编号沿用主题 --autonum-h{1..6}（未定义的变体不编号）。
+   规则顺序：data-level 字体规则在前、.on 活动规则在后（同特异性靠后胜出） */
+html[data-theme-css] .outline {
+  counter-reset: h1;
+  gap: 6px;
+  padding-top: 6px;
+  padding-bottom: 8px;
+}
+
+/* 行：全圆角胶囊基形，层级缩进 18px/级（builtin 为 14px） */
+html[data-theme-css] .outline .node {
+  height: 30px;
+  font-size: 13px;
+  border-radius: 999px;
+  padding-left: calc(8px + (var(--depth, 1) - 1) * 18px);
+  padding-right: 12px;
+  position: relative;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* 层级隐藏叶子圆点（Typora 只有 expander 没有 tick） */
+html[data-theme-css] .outline .tick {
+  display: none;
+}
+
+/* 计数器：平铺行上按层级递增/复位（与 Typora 嵌套结构等价） */
+html[data-theme-css] .outline .node[data-level='1'] {
+  counter-increment: h1;
+  counter-reset: h2;
+}
+html[data-theme-css] .outline .node[data-level='2'] {
+  counter-increment: h2;
+  counter-reset: h3;
+}
+html[data-theme-css] .outline .node[data-level='3'] {
+  counter-increment: h3;
+  counter-reset: h4;
+}
+html[data-theme-css] .outline .node[data-level='4'] {
+  counter-increment: h4;
+  counter-reset: h5;
+}
+html[data-theme-css] .outline .node[data-level='5'] {
+  counter-increment: h5;
+  counter-reset: h6;
+}
+html[data-theme-css] .outline .node[data-level='6'] {
+  counter-increment: h6;
+}
+
+/* 一级标题：更大、加粗、主色（phycat: larger/700/element-color-deep） */
+html[data-theme-css] .outline .node[data-level='1'] {
+  margin-top: 8px;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--accent-strong);
+}
+
+/* hover：软胶囊 + 主色字 + 下划线，层级参考线让位（phycat 同款） */
+html[data-theme-css] .outline .node:hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+html[data-theme-css] .outline .node.has-guide:hover::before {
+  content: none;
+}
+
+/* 活动项：实底胶囊 + 白字 + 光晕 + ✦ 闪烁。
+   保留层级缩进（不学 phycat 的对齐左缘——凸出破坏层级结构），右侧留 ✦ 位 */
+html[data-theme-css] .outline .node.on,
+html[data-theme-css] .outline .node.on:hover {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  padding-right: 30px;
+  box-shadow: 0 4px 10px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+html[data-theme-css] .outline .node.on.has-guide::before {
+  content: none;
+}
+html[data-theme-css] .outline .node.on .chev {
+  color: #fff;
+}
+html[data-theme-css] .outline .node.on::after {
+  content: '✦';
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.9);
+  animation: outline-twinkle 1.5s infinite alternate;
+  pointer-events: none;
+}
+@keyframes outline-twinkle {
+  from {
+    opacity: 0.7;
+    transform: translateY(-50%) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) scale(1.1);
+  }
+}
+
+/* 编号：主题变量给出 content（counter 格式串），未定义则不显示 */
+html[data-theme-css] .outline .node[data-level='1'] .name::before {
+  content: var(--autonum-h1, none);
+}
+html[data-theme-css] .outline .node[data-level='2'] .name::before {
+  content: var(--autonum-h2, none);
+}
+html[data-theme-css] .outline .node[data-level='3'] .name::before {
+  content: var(--autonum-h3, none);
+}
+html[data-theme-css] .outline .node[data-level='4'] .name::before {
+  content: var(--autonum-h4, none);
+}
+html[data-theme-css] .outline .node[data-level='5'] .name::before {
+  content: var(--autonum-h5, none);
+}
+html[data-theme-css] .outline .node[data-level='6'] .name::before {
+  content: var(--autonum-h6, none);
+}
+html[data-theme-css] .outline .node .name::before {
+  margin-right: 4px;
+  opacity: 0.85;
+}
+
+/* 嵌套行缩进参考线（按 --depth 随步长走） */
+html[data-theme-css] .outline .node.has-guide::before {
+  content: '';
+  position: absolute;
+  left: calc(8px + (var(--depth, 2) - 2) * 18px + 7px);
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+  pointer-events: none;
+}

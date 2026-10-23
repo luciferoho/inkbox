@@ -794,17 +794,24 @@ watch(
   }
 )
 
-/* 大纲点击跳转：光标落行，目标行定位到视口上方（贴近阅读习惯，顶部留一点边距） */
+/* 大纲点击跳转：光标落行，目标行定位到视口上方（贴近阅读习惯，顶部留一点边距）。
+   跳转期间临时开 CSS 平滑滚动（scrollIntoView 的 scrollTop 赋值遵守 scroll-behavior），
+   400ms 后收回——同步滚动（syncToLine 等）必须保持即时跟随，不能常开 */
 watch(
   () => ui.jumpLine,
   (j) => {
     if (!view || !j) return
     const ln = Math.min(Math.max(1, j.line), view.state.doc.lines)
     const pos = view.state.doc.line(ln).from
+    const sd = view.scrollDOM
+    sd.style.scrollBehavior = 'smooth'
     view.dispatch({
       selection: { anchor: pos },
       effects: EditorView.scrollIntoView(pos, { y: 'start', yMargin: 100 })
     })
+    window.setTimeout(() => {
+      if (sd.isConnected) sd.style.removeProperty('scroll-behavior')
+    }, 400)
   }
 )
 

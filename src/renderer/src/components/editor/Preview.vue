@@ -1091,7 +1091,22 @@ function runPendingJump(): void {
   // 块映射可能已过期（如双栏半宽 → 预览全宽，内容回流变矮，ResizeObserver
   // 的重收集存在时序缺口）：落位前按当前 DOM 重收集，跳转才不会按旧几何算偏
   collectBlocks()
-  syncToLine(line, 0)
+  const el = scroller.value
+  if (!el || blocks.length === 0) return
+  // 目标顶（与 syncToLine 同式：块顶 + 块内行距插值 − 上边距），平滑滚过去。
+  // 不设 lockUntil：滚动事件照常上报 → viewLine 跟随动画逐步更新，高亮同移动
+  let i = 0
+  for (let k = 0; k < blocks.length; k++) {
+    if (blocks[k].line <= line) i = k
+    else break
+  }
+  const cur = blocks[i]
+  const next = blocks[i + 1]
+  const lineSpan = next ? next.line - cur.line : Math.max(1, cur.end - cur.line)
+  const f = Math.min(1, Math.max(0, (line - cur.line) / lineSpan))
+  const topSpan = next ? next.top - cur.top : Math.max(1, cur.height)
+  const maxTop = Math.max(0, el.scrollHeight - el.clientHeight)
+  el.scrollTo({ top: Math.max(0, Math.min(maxTop, cur.top + f * topSpan - 6)), behavior: 'smooth' })
 }
 
 /* 预览模式 Ctrl+F：只搜索定位，不做替换（不再切回双栏） */

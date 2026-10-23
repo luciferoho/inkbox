@@ -931,6 +931,45 @@ function withView(fn: (view: EditorView) => void): void {
   editor.action((ctx) => fn(ctx.get(editorViewCtx)))
 }
 
+/* ---------- 即显滚动 → 大纲高亮跟随 ----------
+   host 是即显的滚动容器（jumpLine 跳转同款参照系）。视口顶所在的标题
+   （PM 位置序）映射回源码大纲行写入 ui.viewLine
+   （第 N 个标题 = parseOutline 第 N 项，与 jumpLine 跳转同约定） */
+let wysiwygScrollRaf = 0
+function onWysiwygFollow(): void {
+  if (!editor || wysiwygScrollRaf) return
+  wysiwygScrollRaf = window.requestAnimationFrame(() => {
+    wysiwygScrollRaf = 0
+    // 跳转动画期间不抢 viewLine（jumpTo 已即时高亮目标，动画逐段上报会拽回旧章节）
+    if (Date.now() < ui.viewLineLockUntil) return
+    if (!editor) return
+    const hostEl = host.value
+    if (!hostEl) return
+    withView((view) => {
+      const rect = hostEl.getBoundingClientRect()
+      const coords = view.posAtCoords({ left: rect.left + 24, top: rect.top + 8 })
+      if (!coords) return
+      const headings: number[] = []
+      view.state.doc.descendants((n, pos) => {
+        if (n.type.name === 'heading') {
+          headings.push(pos)
+          return false
+        }
+        return true
+      })
+      if (headings.length === 0) return
+      let idx = -1
+      for (let k = 0; k < headings.length; k++) {
+        if (headings[k] <= coords.pos) idx = k
+        else break
+      }
+      if (idx < 0) return
+      const outline = parseOutline(docs.active?.content ?? '')
+      if (outline[idx]) ui.viewLine = outline[idx].line
+    })
+  })
+}
+
 /** 选中图片的展示地址（工具条地址行;luci-img:// 已解回用户写的路径） */
 const elImgSrcFull = computed(() => {
   const t = elToolbar.value
@@ -1531,6 +1570,7 @@ onMounted(() => {
     .use(wysiwygTypewriterPlugin)
   void instance.create().then((e) => {
     editor = e
+
     // 开发期调试钩子：CDP 查 PM 文档 JSON / 序列化输出 / 内部 remark mdast
     // （定位解析/序列化丢失层）
     if (!import.meta.env.PROD) {
@@ -1642,6 +1682,7 @@ function onHostMousedown(): void {
 
 function onHostScroll(): void {
   imgTip.value = null
+  onWysiwygFollow() // 大纲高亮跟随滚动
   saveWysiwygProgress(tabId) // 浏览进度随滚动持续写入（切模式/切签用它恢复）
 }
 

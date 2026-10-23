@@ -653,7 +653,21 @@ function extractCmWrapperStyle(css: string, set: Map<string, string>, defs: Map<
   }
   for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const sel = m[1]
-    if (/cm-s-typora-default|#[\w-]*source|#typora-|\.typora-/.test(sel)) continue
+    // 源码模式/选区/光标等不是围栏盒子的外观：CodeMirror-selected 的底色是
+    // 文本选中高亮（blubook 的 #5b808d），误提取会把围栏底染成选区色；
+    // 语法色规则（.cm-s-inner .cm-error 的红底等）同理——只认选择器终点
+    // 就是包装层自身的规则
+    if (
+      /cm-s-typora-default|#[\w-]*source|#typora-|\.typora-|CodeMirror-selected|CodeMirror-cursor|CodeMirror-activeline|CodeMirror-highlight|CodeMirror-crosshair/i.test(
+        sel
+      )
+    ) {
+      continue
+    }
+    if (/(\.cm-s-inner|\.CodeMirror)\s+\.cm-[\w-]/i.test(sel)) continue
+    // 带伪元素的选择器（::selection/::-moz-selection/::before…）画的是
+    // 选区/装饰不是盒子外观，一并跳过（blubook 的 ::selection 10% 白实测漏网）
+    if (/::/.test(sel)) continue
     // .CodeMirror-lines/.CodeMirror-selected 等由别的通道处理，不算包装层
     if (!/\.cm-s-inner|\.CodeMirror(?![\w-])/.test(sel)) continue
     const pick = (re: RegExp): string | null => {
@@ -720,10 +734,28 @@ export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): str
   const linesRule = css.match(/\.CodeMirror-lines(?![\w-])[^{}]*\{([^}]*)\}/i)
   const linesFont = linesRule?.[1].match(/font-size\s*:\s*([^;}]+)/i)
   if (linesFont) set.set('--code-font-size', linesFont[1].replace(/!important/i, '').trim())
+  // 侧栏底色（Typora --side-bar-bg-color）：控制文本色是侧栏专用文字色，
+  // 侧栏与页面底色不同极性时（blubook 藏青侧栏 + 白页面）不能映射进 --text-2
+  //（#ddd 落到白底页面的次要文字上全不可读），这类主题的 text-2 走派生
+  const sideBg = (() => {
+    const v = valueOf('--side-bar-bg-color')
+    return v && parseColor(v) ? v : null
+  })()
   for (const [from, to] of VALUE_BRIDGE) {
     if (set.has(to)) continue // 前面的映射优先级更高
+    if (from === '--control-text-color' && sideBg) {
+      // 极性判定延后到页面底色已知（下面单独处理）
+      continue
+    }
     const v = valueOf(from)
     if (v) set.set(to, v)
+  }
+
+  // 大纲自动编号变量透传：侧栏大纲适配（base.css 主题模式）要用它们给
+  // 大纲行加编号，typoraValueBridge 只发映射令牌，这里单独带过去
+  for (let n = 1; n <= 6; n++) {
+    const v = valueOf(`--autonum-h${n}`)
+    if (v) set.set(`--autonum-h${n}`, v)
   }
 
   // 派生缺失的表面令牌：主题只给 bg/text 时，卡片/表头/边框也要跟着明暗走，
@@ -758,6 +790,12 @@ export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): str
   const light = bg ? isLightColor(bg) : true
   const mix = (color: string, toward: string, pct: number): string =>
     `color-mix(in srgb, ${color} ${pct}%, ${toward})`
+  // 控制文本色→次要文字：仅在侧栏与页面同极性时映射（blubook 的 #ddd 是
+  // 藏青侧栏专用，白页面上不可读——这类主题 text-2 由上面的派生兜底）
+  if (sideBg && light === isLightColor(sideBg)) {
+    const v = valueOf('--control-text-color')
+    if (v && !set.has('--text-2')) set.set('--text-2', v)
+  }
   if (bg) {
     const derived: [string, string][] = [
       ['--surface', mix(bg, '#fff', light ? 45 : 92)],
@@ -815,10 +853,12 @@ export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): str
       set.set('--code-edge', `color-mix(in srgb, ${text} 14%, transparent)`)
     }
   }
-  // 侧栏图标随主题前景色走（rail 自身不参与 Typora 变量体系）
-  if (text) {
-    set.set('--rail-icon', `color-mix(in srgb, ${text} 62%, transparent)`)
-    set.set('--rail-hover', `color-mix(in srgb, ${text} 8%, transparent)`)
+  // 侧栏图标颜色：优先主题的侧栏文字色（blubook 的 #ddd 配藏青 rail 才可读，
+  // 用页面文字色混出来是深灰贴藏青近乎不可见）；没有则用页面前景色派生
+  const railText = valueOf('--control-text-color') ?? text
+  if (railText) {
+    set.set('--rail-icon', `color-mix(in srgb, ${railText} 70%, transparent)`)
+    set.set('--rail-hover', `color-mix(in srgb, ${railText} 8%, transparent)`)
   }
   const accent = set.get('--accent')
   if (accent) set.set('--rail-icon-hover', accent)
@@ -913,21 +953,23 @@ ${SCOPE} td > p {
    主题的 code:not(.md-fencescode) 是 (0,4,1)，普通 pre code 重置 (0,3,1)
    会被压过（phycat 行内代码底色染红整块围栏实测）；带 :hover 的成对规则
    (0,5,1) 再高一级，同样补一条 :hover 形态（phycat 悬停给行内代码上底色
-   + scale，围栏是跨行 inline 元素一悬停整块每行都亮实测） */
+   + scale，围栏是跨行 inline 元素一悬停整块每行都亮实测）。
+   !important 必须带：主题的行内代码规则可以带 !important（blubook 的
+   code:not(.md-search-expand) 芯片底实测），同为 important 时靠 (0,4,2) 胜 */
 ${SCOPE} :is(pre code, pre code:not(.md-fencescode)),
 ${SCOPE} :is(pre code, pre code:not(.md-fencescode)):hover {
-  background: none;
-  border: none;
-  box-shadow: none;
-  text-decoration: none;
-  color: inherit;
-  font-size: var(--code-font-size, inherit);
-  padding: 0;
-  margin: 0;
-  letter-spacing: normal;
-  vertical-align: baseline;
-  transform: none;
-  transition: none;
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  text-decoration: none !important;
+  color: inherit !important;
+  font-size: var(--code-font-size, inherit) !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  letter-spacing: normal !important;
+  vertical-align: baseline !important;
+  transform: none !important;
+  transition: none !important;
 }
 /* 分割线：内置样式给 hr 限宽 62% 居中（纸面装饰），Typora 主题的 hr 是
    全宽色条——宽度/水平边距约束会让主题 hr「显示不全」；主题自己想画
@@ -963,6 +1005,13 @@ ${SCOPE} {
   margin-inline: auto;
   font-size: var(--preview-font-size, 16px);
   line-height: var(--preview-line-height, 1.7);
+}
+/* 围栏底色回收到令牌：主题的 .md-fences 直涂底色（特异性 (0,3,1) 压过内置
+   pre 规则）盖掉了 --code-bg——而 Typora 里实际可见的是 CodeMirror 包装层
+   底色（blubook 藏青 !important 压浅灰），令牌提取时已按可见值取
+   （选区/光标规则除外），这里统一以令牌为底，语法色与底色才同源 */
+${SCOPE} pre:not(.md-meta-block) {
+  background: var(--code-bg);
 }
 /* Mermaid 图表容器：Typora 里图表不是代码块——主题的 pre/.md-fences 底色
    不能画在图表外壳上（即显侧图表外壳就是 pre.md-mermaid，语言栏留位会
