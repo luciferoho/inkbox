@@ -703,11 +703,15 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
   let latest: number[] = startWidths
 
   const onMove = (ev: MouseEvent): void => {
+    // 拖拽全程禁默认行为 + 每次移动清一次选区：mousedown 后 PM 的拖选跟踪
+    // 会在 mousemove 里重新扩展选区，只清一次压不住
+    ev.preventDefault()
     const dx = ev.clientX - startX
     if (!active) {
       if (Math.abs(dx) < 3) return // 阈值内视为点击：不改布局
       active = true
     }
+    window.getSelection()?.removeAllRanges()
     const next = [...startWidths]
     next[col] = Math.max(24, Math.round(startWidths[col] + dx))
     latest = next
@@ -811,6 +815,9 @@ function onHostMouseDownTableDrag(e: MouseEvent): void {
       document.body.appendChild(indicator)
     }
     ev.preventDefault()
+    // PM（prosemirror-tables）在 mousedown 后的拖选跟踪会随 mousemove 重新
+    // 扩展单元格/文字选区，每次移动都清一次才压得住
+    window.getSelection()?.removeAllRanges()
     const hover = colAtX(ev.clientX)
     if (hover < 0 || hover === cur) {
       moveIndicator()

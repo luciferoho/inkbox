@@ -183,6 +183,9 @@ export function dragColumnWidth(
   let latest = startWidths
 
   const onMove = (e: MouseEvent): void => {
+    // 拖拽全程禁掉默认行为：preventDefault 掉 mousemove 的选区扩展
+    // （mousedown 已拦过一次，这里兜住边界误差/组合手势的漏网情形）
+    e.preventDefault()
     const dx = e.clientX - startX
     if (!active) {
       if (Math.abs(dx) < 3) return // 阈值内视为点击，不改布局
