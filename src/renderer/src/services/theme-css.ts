@@ -945,6 +945,12 @@ ${SCOPE} :is(h1, h2, h3, h4, h5, h6, th) {
 ${SCOPE} li {
   position: relative;
 }
+/* 警告块不吃普通引用块的装饰伪元素：主题的 blockquote::before（phycat 的 ✨，
+   钉在 left:16px top:18px）正好压在 .md-alert 标题胶囊的图标位置，隔着半透明
+   胶囊底透出来像被遮挡；(0,4,2) 高于主题 blockquote::before 的 (0,4,1) */
+${SCOPE} blockquote.md-alert::before {
+  content: none;
+}
 `
 
 /** 主题样式之后的兜底：Typora 的 #write 由 base 居中（max-width + margin auto），

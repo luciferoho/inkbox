@@ -277,6 +277,89 @@ md.renderer.rules.luci_toc_block = (tokens, idx) => {
   return tok.content.replace('<nav class="md-toc">', `<nav class="md-toc"${attrs}>`)
 }
 
+/* GitHub / Typora 1.15+ 警告块：`> [!NOTE]` 等标记的 blockquote 渲染为
+   .md-alert 结构（Typora 的 DOM 约定，主题按它上色——phycat 全套配色/水印） */
+const GH_ALERT_ICONS: Record<string, string> = {
+  note: 'M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z',
+  tip: 'M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259-.095.115-.184.22-.268.319-.207.245-.383.453-.541.681-.208.3-.33.565-.37.847a.75.75 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z',
+  important:
+    'M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 .75-.75ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z',
+  warning:
+    'M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.083 15H1.917a1.75 1.75 0 0 1-1.542-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z',
+  caution:
+    'M4.47.22A.749.749 0 0 1 5 0h6c.199 0 .389.079.53.22l4.25 4.25c.141.14.22.331.22.53v6a.749.749 0 0 1-.22.53l-4.25 4.25a.749.749 0 0 1-.53.22H5a.749.749 0 0 1-.53-.22L.22 11.53A.749.749 0 0 1 0 11V5c0-.199.079-.389.22-.53Zm.84 3.564a.749.749 0 1 0-1.06 1.06L5.939 7 4.25 8.656a.749.749 0 1 0 1.06 1.06L7 9.061l1.656 1.655a.749.749 0 1 0 1.06-1.06L8.061 8l1.655-1.656a.749.749 0 1 0-1.06-1.06L7 6.939Z'
+}
+const GH_ALERT_TITLES: Record<string, string> = {
+  note: 'Note',
+  tip: 'Tip',
+  important: 'Important',
+  warning: 'Warning',
+  caution: 'Caution'
+}
+
+md.core.ruler.push('luci_alerts', (state: StateCore) => {
+  const toks = state.tokens
+  for (let i = 0; i < toks.length; i++) {
+    if (toks[i].type !== 'blockquote_open') continue
+    const pOpen = toks[i + 1]
+    const inline = toks[i + 2]
+    const pClose = toks[i + 3]
+    if (
+      !pOpen || pOpen.type !== 'paragraph_open' ||
+      !inline || inline.type !== 'inline' ||
+      !pClose || pClose.type !== 'paragraph_close'
+    ) {
+      continue
+    }
+    // 允许可选的前置反斜杠：即显序列化器会把 [ 转义成 \[ 回写文档（防误判
+    // 链接语法），圆括号标记被写成 \[!TIP]，按字面匹配就永远命不中了
+    const m = /^\s*\\?\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*/i.exec(inline.content)
+    if (!m) continue
+    const type = m[1].toLowerCase()
+    toks[i].attrJoin('class', `md-alert md-alert-${type}`)
+    const rest = inline.content.slice(m[0].length).trim()
+    const title =
+      `<p class="md-alert-text-container">` +
+      `<span class="md-alert-text md-alert-text-${type}">` +
+      `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="${GH_ALERT_ICONS[type]}"/></svg>` +
+      `${GH_ALERT_TITLES[type]}</span></p>\n`
+    const t = new state.Token('luci_alert_title', '', 0)
+    t.content = title
+    if (rest) {
+      // 标记行带正文：剥掉标记保留该段，标题容器插在它前面
+      inline.content = rest
+      const first = inline.children?.[0]
+      if (first && first.type === 'text') {
+        first.content = rest
+        inline.children!.length = 1 // 标记行的硬换行等子 token 一并丢弃
+      }
+      toks.splice(i + 1, 0, t)
+    } else {
+      // 标记独占一行：整段替换为标题容器
+      toks.splice(i + 1, 3, t)
+    }
+  }
+})
+md.renderer.rules.luci_alert_title = (tokens, idx) => tokens[idx].content
+
+/* Typora 分页标记：`<p class="page-break"/>`（html:false 下会被转义成字面文本），
+   渲染为隐藏的 .md-pagebreak（应用内不可见，导出/PDF 凭 break-after 分页） */
+md.core.ruler.push('luci_page_break', (state: StateCore) => {
+  const toks = state.tokens
+  for (const tok of toks) {
+    if (tok.type !== 'inline' || !tok.children) continue
+    const children = tok.children
+    for (let k = 0; k < children.length; k++) {
+      const child = children[k]
+      if (child.type !== 'text') continue
+      if (!/^\s*<(p|div)\s+class="page-break"\s*\/?>\s*$/i.test(child.content)) continue
+      const br = new state.Token('html_inline', '', 0)
+      br.content = '<span class="md-pagebreak"></span>'
+      children[k] = br
+    }
+  }
+})
+
 /* 任务列表：把行首 [ ] / [x] / [X] 变成禁用复选框（预览只读） */
 md.core.ruler.push('luci_task_lists', (state: StateCore) => {
   const toks = state.tokens

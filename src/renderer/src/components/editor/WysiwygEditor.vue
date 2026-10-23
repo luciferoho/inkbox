@@ -49,6 +49,7 @@ import {
   findReplaceAll
 } from '@/editor/pm-find'
 import { createCenterPlugin } from '@/editor/pm-center'
+import { createGhAlertsPlugin } from '@/editor/gh-alerts'
 import { findState, sameQuery } from '@/editor/find-state'
 import { saveViewProgress, loadView } from '@/editor/tab-view-state'
 import { applyCachedImageSizes, rememberImgSize } from '@/editor/img-size-cache'
@@ -676,6 +677,8 @@ const pasteLinkPlugin = $prose(() => createPasteLinkPlugin())
 const headingFoldPlugin = $prose(() => createHeadingFoldPlugin())
 // 表格列宽记忆恢复（2.2）
 const tableWidthsPlugin = $prose(() => createTableWidthsPlugin(() => tabId))
+// GitHub / Typora 警告块（> [!NOTE] 等标记 → .md-alert 结构）
+const ghAlertsPlugin = $prose(() => createGhAlertsPlugin())
 
 /** 表格列边界按下（捕获阶段，先于 PM 自身的 mousedown 处理）：进入列宽拖拽。
  *  即显侧不能直接写表格 DOM（PM 的 DOM 观察器会把 style 变更当文档变更 →
@@ -1517,6 +1520,8 @@ onMounted(() => {
     .use(headingFoldPlugin)
     // 表格列宽记忆恢复（2.2）
     .use(tableWidthsPlugin)
+    // GitHub / Typora 警告块（> [!NOTE] 等标记 → .md-alert）
+    .use(ghAlertsPlugin)
     .use(elToolbarPlugin)
     .use(codeblockChromePlugin)
     .use(codeHighlightPlugin)
