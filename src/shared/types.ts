@@ -66,8 +66,13 @@ export interface ThemeInfo {
   family: string
   /** 该文件的明暗极性（文件名后缀优先，其次按 --bg-color 亮度判断） */
   variant: 'light' | 'dark' | 'other'
-  /** 变体键：light / dark / 灰色等风格词（无后缀时按极性取 light/dark） */
+  /** 变体键：light / dark / 灰色等风格词；配色族里是颜色名（abyss/forest…） */
   variantKey: string
+  /** 配色族成员：同一包目录里 ≥2 个独立主题共享段首前缀（phycat-* → phycat），
+   *  设置里合成一个条目、变体行按颜色选择（variantKey 是颜色名） */
+  colorFamily?: boolean
+  /** 主题主色（--primary-color 等首个命中值，配色族色板用） */
+  color?: string
 }
 
 /** 插件清单（userData/plugins/<目录>/plugin.json） */

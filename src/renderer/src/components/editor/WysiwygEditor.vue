@@ -49,6 +49,7 @@ import {
   findReplaceAll
 } from '@/editor/pm-find'
 import { createCenterPlugin } from '@/editor/pm-center'
+import { createGhAlertsPlugin } from '@/editor/gh-alerts'
 import { findState, sameQuery } from '@/editor/find-state'
 import { saveViewProgress, loadView } from '@/editor/tab-view-state'
 import { applyCachedImageSizes, rememberImgSize } from '@/editor/img-size-cache'
@@ -676,6 +677,8 @@ const pasteLinkPlugin = $prose(() => createPasteLinkPlugin())
 const headingFoldPlugin = $prose(() => createHeadingFoldPlugin())
 // 表格列宽记忆恢复（2.2）
 const tableWidthsPlugin = $prose(() => createTableWidthsPlugin(() => tabId))
+// GitHub / Typora 警告块（> [!NOTE] 等标记 → .md-alert 结构）
+const ghAlertsPlugin = $prose(() => createGhAlertsPlugin())
 
 /** 表格列边界按下（捕获阶段，先于 PM 自身的 mousedown 处理）：进入列宽拖拽。
  *  即显侧不能直接写表格 DOM（PM 的 DOM 观察器会把 style 变更当文档变更 →
@@ -703,11 +706,15 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
   let latest: number[] = startWidths
 
   const onMove = (ev: MouseEvent): void => {
+    // 拖拽全程禁默认行为 + 每次移动清一次选区：mousedown 后 PM 的拖选跟踪
+    // 会在 mousemove 里重新扩展选区，只清一次压不住
+    ev.preventDefault()
     const dx = ev.clientX - startX
     if (!active) {
       if (Math.abs(dx) < 3) return // 阈值内视为点击：不改布局
       active = true
     }
+    window.getSelection()?.removeAllRanges()
     const next = [...startWidths]
     next[col] = Math.max(24, Math.round(startWidths[col] + dx))
     latest = next
@@ -811,6 +818,9 @@ function onHostMouseDownTableDrag(e: MouseEvent): void {
       document.body.appendChild(indicator)
     }
     ev.preventDefault()
+    // PM（prosemirror-tables）在 mousedown 后的拖选跟踪会随 mousemove 重新
+    // 扩展单元格/文字选区，每次移动都清一次才压得住
+    window.getSelection()?.removeAllRanges()
     const hover = colAtX(ev.clientX)
     if (hover < 0 || hover === cur) {
       moveIndicator()
@@ -919,6 +929,45 @@ const wysiwygTypewriterPlugin = $prose(() => createWysiwygTypewriterPlugin())
 function withView(fn: (view: EditorView) => void): void {
   if (!editor) return
   editor.action((ctx) => fn(ctx.get(editorViewCtx)))
+}
+
+/* ---------- 即显滚动 → 大纲高亮跟随 ----------
+   host 是即显的滚动容器（jumpLine 跳转同款参照系）。视口顶所在的标题
+   （PM 位置序）映射回源码大纲行写入 ui.viewLine
+   （第 N 个标题 = parseOutline 第 N 项，与 jumpLine 跳转同约定） */
+let wysiwygScrollRaf = 0
+function onWysiwygFollow(): void {
+  if (!editor || wysiwygScrollRaf) return
+  wysiwygScrollRaf = window.requestAnimationFrame(() => {
+    wysiwygScrollRaf = 0
+    // 跳转动画期间不抢 viewLine（jumpTo 已即时高亮目标，动画逐段上报会拽回旧章节）
+    if (Date.now() < ui.viewLineLockUntil) return
+    if (!editor) return
+    const hostEl = host.value
+    if (!hostEl) return
+    withView((view) => {
+      const rect = hostEl.getBoundingClientRect()
+      const coords = view.posAtCoords({ left: rect.left + 24, top: rect.top + 8 })
+      if (!coords) return
+      const headings: number[] = []
+      view.state.doc.descendants((n, pos) => {
+        if (n.type.name === 'heading') {
+          headings.push(pos)
+          return false
+        }
+        return true
+      })
+      if (headings.length === 0) return
+      let idx = -1
+      for (let k = 0; k < headings.length; k++) {
+        if (headings[k] <= coords.pos) idx = k
+        else break
+      }
+      if (idx < 0) return
+      const outline = parseOutline(docs.active?.content ?? '')
+      if (outline[idx]) ui.viewLine = outline[idx].line
+    })
+  })
 }
 
 /** 选中图片的展示地址（工具条地址行;luci-img:// 已解回用户写的路径） */
@@ -1510,6 +1559,8 @@ onMounted(() => {
     .use(headingFoldPlugin)
     // 表格列宽记忆恢复（2.2）
     .use(tableWidthsPlugin)
+    // GitHub / Typora 警告块（> [!NOTE] 等标记 → .md-alert）
+    .use(ghAlertsPlugin)
     .use(elToolbarPlugin)
     .use(codeblockChromePlugin)
     .use(codeHighlightPlugin)
@@ -1519,6 +1570,7 @@ onMounted(() => {
     .use(wysiwygTypewriterPlugin)
   void instance.create().then((e) => {
     editor = e
+
     // 开发期调试钩子：CDP 查 PM 文档 JSON / 序列化输出 / 内部 remark mdast
     // （定位解析/序列化丢失层）
     if (!import.meta.env.PROD) {
@@ -1630,6 +1682,7 @@ function onHostMousedown(): void {
 
 function onHostScroll(): void {
   imgTip.value = null
+  onWysiwygFollow() // 大纲高亮跟随滚动
   saveWysiwygProgress(tabId) // 浏览进度随滚动持续写入（切模式/切签用它恢复）
 }
 

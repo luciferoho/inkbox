@@ -125,12 +125,20 @@ function parseCssColor(v: string): [number, number, number] | null {
 /** 变体判定：文件名后缀最可靠；否则依次看
  *  1) --bg-color/--bg-color1/--bg-page/--bg 变量（nord 用 --bg-color1 这类带号命名）
  *  2) html/body 规则里的 background 声明（newsprint/vue 只给 body 底色不给变量）
- *  无后缀的主题按亮度归入 light/dark（用于与同族 dark/light 文件配对）。 */
-function detectVariant(name: string, absPath: string): { variant: ThemeInfo['variant']; variantKey: string } {
+ *  无后缀的主题按亮度归入 light/dark（用于与同族 dark/light 文件配对）。
+ *  color：主题主色（--primary-color/--element-color 优先，色板展示用）。 */
+function detectVariant(name: string, absPath: string): { variant: ThemeInfo['variant']; variantKey: string; color?: string } {
   const suffixed = VARIANT_SUFFIX.find((s) => s.re.test(name))
-  if (suffixed) return { variant: suffixed.kind, variantKey: suffixed.key }
+  let color: string | undefined
   try {
     const css = readFileSync(absPath, 'utf-8').slice(0, 200_000)
+    // 色板取主色：按 primary → element → bg 顺序找（alternation 会按文本顺序
+    // 命中排在前面的 --bg-color，多数浅色变体的色板就全变白了）
+    color =
+      css.match(/--primary-color\s*:\s*(#[0-9a-f]{3,8}|rgba?\([^)]+\))/i)?.[1] ??
+      css.match(/--element-color\s*:\s*(#[0-9a-f]{3,8}|rgba?\([^)]+\))/i)?.[1] ??
+      css.match(/--bg-color\d*\s*:\s*(#[0-9a-f]{3,8}|rgba?\([^)]+\))/i)?.[1]
+    if (suffixed) return { variant: suffixed.kind, variantKey: suffixed.key, color }
     const pick = (v: string | undefined): [number, number, number] | null =>
       v ? parseCssColor(v) : null
     const m = css.match(/--(?:bg-color\d*|bg-page|bg)\s*:\s*(#[0-9a-f]{3,8}|rgba?\([^)]+\))/i)
@@ -144,12 +152,14 @@ function detectVariant(name: string, absPath: string): { variant: ThemeInfo['var
     if (c) {
       const lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255
       const kind: ThemeInfo['variant'] = lum > 0.5 ? 'light' : 'dark'
-      return { variant: kind, variantKey: kind }
+      return { variant: kind, variantKey: kind, color }
     }
   } catch {
     /* 读取失败按 light 处理 */
   }
-  return { variant: 'light', variantKey: 'light' }
+  // 兜底 return 也要带 color：浅色变体常无 --bg-color（底色在 @import 的基座里），
+  // 极性判定落空走到这里，漏了会把色板丢成 null
+  return { variant: 'light', variantKey: 'light', color }
 }
 
 /** 同族键：去掉变体后缀（dark/midnight/paper/grey…）。单文件主题 family = name */
@@ -159,7 +169,10 @@ function familyOf(name: string): string {
 }
 
 /** 递归发现主题：根级 *.css + 一级子目录内的 *.css。
- *  跳过隐藏/系统目录（__MACOSX 等）。同名时根级优先（Typora 根级约定）。 */
+ *  跳过隐藏/系统目录（__MACOSX 等）。同名时根级优先（Typora 根级约定）。
+ *  配色族聚合：同一包目录内 ≥2 个相互独立的后缀族共享同一段首前缀
+ *  （typora-theme-phycat-2.7.2/phycat-abyss|caramel|… → family phycat），
+ *  variantKey 变为颜色名、标 colorFamily——设置里合成一个条目按颜色选。 */
 export function scanThemes(): ThemeInfo[] {
   const dir = themesDir()
   if (!existsSync(dir)) return []
@@ -174,7 +187,8 @@ export function scanThemes(): ThemeInfo[] {
         file: relFile,
         family: familyOf(name),
         variant: v.variant,
-        variantKey: v.variantKey
+        variantKey: v.variantKey,
+        color: v.color
       })
     }
   }
@@ -199,7 +213,30 @@ export function scanThemes(): ThemeInfo[] {
   } catch {
     return []
   }
-  return [...out.values()].sort((a, b) => a.name.localeCompare(b.name))
+  const entries = [...out.values()]
+  const byDir = new Map<string, ThemeInfo[]>()
+  for (const t of entries) {
+    const i = t.file.lastIndexOf('/')
+    if (i <= 0) continue // 根级文件维持按后缀分族，不做前缀聚合
+    const arr = byDir.get(t.file.slice(0, i)) ?? []
+    arr.push(t)
+    byDir.set(t.file.slice(0, i), arr)
+  }
+  const segOf = (n: string): string => n.split(/[-_]/)[0] ?? n
+  for (const files of byDir.values()) {
+    if (files.length < 2) continue
+    const first = segOf(files[0].name)
+    if (!first || first === files[0].name) continue // 无 -/_ 分隔不成配色族
+    if (files.some((f) => segOf(f.name) !== first)) continue
+    // 已同属一个后缀族（xxx / xxx-dark）的保持既有变体语义，不聚合
+    if (new Set(files.map((f) => f.family)).size < 2) continue
+    for (const f of files) {
+      f.family = first
+      f.variantKey = f.name.slice(first.length + 1) || f.name
+      f.colorFamily = true
+    }
+  }
+  return entries.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** 主题名 → 当前实际文件（重扫描；配置里只存 name，文件挪目录不受影响） */
