@@ -911,13 +911,23 @@ ${SCOPE} td > p {
    Typora 里围栏是 CodeMirror 不受 code 选择器影响，我们两者都是 code 元素。
    :is 取参里带主题惯用的 :not(.md-fencescode) 形态抬特异性到 (0,4,2)——
    主题的 code:not(.md-fencescode) 是 (0,4,1)，普通 pre code 重置 (0,3,1)
-   会被压过（phycat 行内代码底色染红整块围栏实测） */
-${SCOPE} :is(pre code, pre code:not(.md-fencescode)) {
+   会被压过（phycat 行内代码底色染红整块围栏实测）；带 :hover 的成对规则
+   (0,5,1) 再高一级，同样补一条 :hover 形态（phycat 悬停给行内代码上底色
+   + scale，围栏是跨行 inline 元素一悬停整块每行都亮实测） */
+${SCOPE} :is(pre code, pre code:not(.md-fencescode)),
+${SCOPE} :is(pre code, pre code:not(.md-fencescode)):hover {
   background: none;
   border: none;
+  box-shadow: none;
   text-decoration: none;
   color: inherit;
   font-size: var(--code-font-size, inherit);
+  padding: 0;
+  margin: 0;
+  letter-spacing: normal;
+  vertical-align: baseline;
+  transform: none;
+  transition: none;
 }
 /* 分割线：内置样式给 hr 限宽 62% 居中（纸面装饰），Typora 主题的 hr 是
    全宽色条——宽度/水平边距约束会让主题 hr「显示不全」；主题自己想画
