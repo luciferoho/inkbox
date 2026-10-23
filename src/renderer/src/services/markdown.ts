@@ -301,6 +301,14 @@ md.core.ruler.push('luci_task_lists', (state: StateCore) => {
   }
 })
 
+/* 标题内层包一层 span（对齐 Typora DOM）：主题普遍把标题编号写在
+   `hN > span:first-of-type::before`、把标题文字样式写在 `#write hN span`
+   上（phycat 的 h3-h6 自动编号整组失效）；无类名的裸 span 对内置样式透明 */
+md.renderer.rules.heading_open = (tokens, idx, options, _env, self) =>
+  self.renderToken(tokens, idx, options) + '<span>'
+md.renderer.rules.heading_close = (tokens, idx, options, _env, self) =>
+  '</span>' + self.renderToken(tokens, idx, options)
+
 /* 链接新窗口 + noopener */
 const defaultLinkOpen: RendererRule =
   md.renderer.rules.link_open ??

@@ -157,6 +157,10 @@ function scopeSelector(sel: string): string {
     .replace(/\.md-fences(?![\w-])/gi, 'pre:not(.md-meta-block)')
     .replace(/\.CodeMirror-lines(?![\w-])/gi, 'code')
     // Typora 惯用内部类 → 我们预览/即显两侧 DOM 都命中的等价物
+    // .md-heading 是 Typora 阅读视图给标题加的类（预览渲染不带）；剥掉后
+    // 主题的 h3-h6 尾部图标等规则才能命中（phycat 实测全部图标丢失）。
+    // .md-focus 等编辑态类不剥：阅读视图本就不该命中
+    .replace(/(^|[\s>+~(])h([1-6])\.md-heading(?![\w-])/gi, '$1h$2')
     .replace(/\.md-table(?![\w-])/gi, 'table')
     .replace(/\.md-footnote(?![\w-])/gi, '.footnote-ref')
     .replace(
@@ -657,15 +661,19 @@ function extractCmWrapperStyle(css: string, set: Map<string, string>, defs: Map<
       return hit ? resolve(hit[1]) : null
     }
     const bg = pick(/(?:^|;)\s*background(?:-color)?\s*:\s*([^;!}]+)/i)
-    if (bg && parseColor(bg) && !set.has('--code-bg')) set.set('--code-bg', bg)
+    // 后规则覆盖先规则（级联顺序）：主题常有同选择器的成对规则，后者修正
+    // 前者——phycat 基座第一条 .cm-s-inner.CodeMirror 误写 background-color:
+    // #fa0303，Typora 里被后面的 #f8f8f8 按顺序盖掉；取首条会把红色提进
+    // --code-bg 染红整个代码块
+    if (bg && parseColor(bg)) set.set('--code-bg', bg)
     const fg = pick(/(?:^|;)\s*color\s*:\s*([^;!}]+)/i)
-    if (fg && parseColor(fg) && !set.has('--code-fg')) set.set('--code-fg', fg)
+    if (fg && parseColor(fg)) set.set('--code-fg', fg)
     const radius = pick(/(?:^|;)\s*border-radius\s*:\s*([^;!}]+)/i)
-    if (radius && !set.has('--code-radius')) set.set('--code-radius', radius)
+    if (radius) set.set('--code-radius', radius)
   }
 }
 
-export function typoraValueBridge(css: string): string {
+export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): string {
   // 主题里全部变量定义（首现优先）：桥接值为 var() 引用时就地解析，
   // 解析不到（变量定义在非全局选择器上）就跳过该条，绝不能把未定义引用
   // 写进我们的令牌（会把 --bg 变成空值，整应用丢底色）
@@ -734,13 +742,19 @@ export function typoraValueBridge(css: string): string {
     const v = m ? resolve(m[1]) : null
     return v && parseColor(v) ? v : null
   })()
-  const bg = set.get('--bg') ?? valueOf('--bg-color') ?? bodyBg
+  let bg = set.get('--bg') ?? valueOf('--bg-color') ?? bodyBg
   const text = set.get('--text') ?? valueOf('--text-color') ?? bodyFg
   // 兜底得到的页面底/前景也要进令牌集：nord（--bg-color1 + body 声明）、
   // blubook（只有 body background）这类不用标准变量名的主题，应用主底色
   // 才能跟随主题，而不是停在内置调色板
   if (bg && !set.has('--bg')) set.set('--bg', bg)
   if (text && !set.has('--text')) set.set('--text', text)
+  // 主题没定义页面底色（phycat 浅色系靠 Typora 默认白纸）时按极性给中性底，
+  // 否则应用框架/侧栏停在内置米黄，与主题内容两张皮；深色主题仍走内置暗板
+  if (!bg && polarity !== 'dark') {
+    bg = '#ffffff'
+    set.set('--bg', bg)
+  }
   const light = bg ? isLightColor(bg) : true
   const mix = (color: string, toward: string, pct: number): string =>
     `color-mix(in srgb, ${color} ${pct}%, ${toward})`
@@ -808,6 +822,18 @@ export function typoraValueBridge(css: string): string {
   }
   const accent = set.get('--accent')
   if (accent) set.set('--rail-icon-hover', accent)
+  // 主题给了主色但没给配套的强调变体（phycat 只有 --primary-color）：soft/strong
+  // 若停留在内置琥珀系，悬停底/强调字会与主题主色两张皮（sakura 粉主色实测）。
+  // 判断用 themeSet（极性兜底包填入前的快照）：POLARITY_* 已塞的琥珀值要被覆盖，
+  // 主题自己定义的 --primary-color-dark 等才保留
+  if (accent) {
+    if (!themeSet.has('--accent-strong')) {
+      set.set('--accent-strong', light ? mix(accent, '#000', 60) : mix(accent, '#fff', 35))
+    }
+    if (!themeSet.has('--accent-soft')) {
+      set.set('--accent-soft', `color-mix(in srgb, ${accent} 14%, transparent)`)
+    }
+  }
 
   const rules = [...set].map(([k, v]) => `${k}: ${v};`)
   // color-scheme 跟随主题明暗：内容里的原生控件/滚动条不再按应用模式走
@@ -881,7 +907,12 @@ ${SCOPE} td > p {
 }
 /* 主题的行内 code 规则（底色/描边/下划线/红色前景）不许污染围栏代码：
    Typora 里围栏是 CodeMirror 不受 code 选择器影响，我们两者都是 code 元素 */
-${SCOPE} pre code {
+/* 主题的行内 code 规则（底色/描边/下划线/红色前景）不许污染围栏代码：
+   Typora 里围栏是 CodeMirror 不受 code 选择器影响，我们两者都是 code 元素。
+   :is 取参里带主题惯用的 :not(.md-fencescode) 形态抬特异性到 (0,4,2)——
+   主题的 code:not(.md-fencescode) 是 (0,4,1)，普通 pre code 重置 (0,3,1)
+   会被压过（phycat 行内代码底色染红整块围栏实测） */
+${SCOPE} :is(pre code, pre code:not(.md-fencescode)) {
   background: none;
   border: none;
   text-decoration: none;
@@ -898,6 +929,11 @@ ${SCOPE} hr {
 /* 内容字体跟随主题容器（Typora 标题/表头继承 #write 的字族，我们内置 h1/th 写死了 UI 字体） */
 ${SCOPE} :is(h1, h2, h3, h4, h5, h6, th) {
   font-family: inherit;
+}
+/* Typora 基础样式给 li position:relative，主题的列表装饰伪元素（phycat 的
+   列表连接线等绝对定位）依赖它；缺席时会锚到滚动容器，画成贯穿全页的一条线 */
+${SCOPE} li {
+  position: relative;
 }
 `
 
@@ -985,5 +1021,5 @@ export async function processThemeCss(
   // 等值 px，再走作用域化——html 规则已不作用于真实根元素，不换算会整体偏大/偏小
   raw = convertRem(raw, themeRootFontSize(raw) ?? 16)
   const withUrls = await rewriteUrls(raw, dir, mode)
-  return ALIAS_BLOCK + THEME_RESET + scopeThemeCss(withUrls) + CONTENT_FINAL + typoraValueBridge(withUrls)
+  return ALIAS_BLOCK + THEME_RESET + scopeThemeCss(withUrls) + CONTENT_FINAL + typoraValueBridge(withUrls, entry.variant === 'dark' ? 'dark' : 'light')
 }

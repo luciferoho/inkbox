@@ -101,6 +101,7 @@ export const zh = {
   'status.autosaveOff': '自动保存已关',
   'status.lineTitle': '第 {n} 行',
   'status.vimTitle': 'Vim 模式（设置中开关）：NORMAL 普通 / INSERT 插入',
+  'status.themeMore': '更多外观设置…',
   'status.themeTitle': '当前主题样式：{name}（点击打开设置）',
 
   // 欢迎页
@@ -464,6 +465,7 @@ export const zh = {
   'settings.themeVariant': '主题变体',
   'settings.variantAuto': '自动（跟随明暗）',
   'settings.variantGrey': '灰色',
+  'settings.colorVariants': '{n} 种配色',
   'settings.themeLockedHint': '当前主题样式只提供{mode}，主题已锁定。',
   'settings.variantLockedHint': '已固定主题变体，明暗切换已禁用（改为「自动」后可跟随系统）。'
 } as const
