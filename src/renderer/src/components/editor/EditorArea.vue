@@ -88,13 +88,27 @@ function activeDocDir(): string | null {
   return sepIdx > 0 ? p.slice(0, sepIdx) : null
 }
 
-/* 双栏同步滚动（仅 split 模式生效）；edge=顶/底端点显式对齐 */
+/* 双栏同步滚动（仅 split 模式生效）；edge=顶/底端点显式对齐。
+   视口行号（viewLine）任何预览可见模式都更新：大纲高亮跟随滚动。
+   跳转动画期间（viewLineLockUntil）不更新——动画从旧章节起步，
+   逐段上报会把 jumpTo 刚设置的目标高亮拽回去。
+   MAX_SAFE_INTEGER 是底端哨兵：置成超大行号，大纲自然落到最后一节 */
 function onEditorSync(line: number, frac: number, edge: 'top' | 'bottom' | null = null): void {
+  if (Date.now() >= ui.viewLineLockUntil) ui.viewLine = Math.max(1, Math.round(line))
   if (ui.editorMode === 'split') previewRef.value?.syncToLine(line, frac, edge)
 }
 function onPreviewSync(line: number, frac: number, edge: 'top' | 'bottom' | null = null): void {
+  if (Date.now() >= ui.viewLineLockUntil) ui.viewLine = Math.max(1, Math.round(line))
   if (ui.editorMode === 'split') editorRef.value?.syncToLine(line, frac, edge)
 }
+
+/* 切换文档：视口行号复位（新文档的滚动恢复会触发 scroll-sync 重新落位） */
+watch(
+  () => docs.activeId,
+  () => {
+    ui.viewLine = 1
+  }
+)
 
 /* 双栏联动：光标在图片语法上 → 预览对应图高亮；离开双栏清掉 */
 function onImageFocus(line: number | null, k: number): void {

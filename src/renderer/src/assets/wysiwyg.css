@@ -634,3 +634,70 @@ html[data-theme-css] .wysiwyg-host .luci-prose pre {
 .et-resize-handle:hover {
   opacity: 1;
 }
+
+/* ---------- GitHub / Typora 警告块（装饰器产出 .md-alert 结构） ----------
+   主题配色接管逻辑同预览侧；这里是无主题时的内置观感 */
+.wysiwyg-host .md-alert {
+  padding: 10px 16px;
+  margin: 1em 0;
+  border: none;
+  border-radius: 10px;
+}
+.wysiwyg-host .md-alert-text-container {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 50px;
+  font-weight: 600;
+  font-size: 13px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  margin-bottom: 6px;
+}
+.wysiwyg-host .md-alert-text {
+  display: inline-flex;
+  align-items: center;
+}
+.wysiwyg-host .md-alert-text svg {
+  fill: currentColor;
+  width: 1em;
+  height: 1em;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+.wysiwyg-host .md-alert-note {
+  background: rgba(108, 92, 231, 0.1);
+}
+.wysiwyg-host .md-alert-text-note {
+  color: #6c5ce7;
+}
+.wysiwyg-host .md-alert-tip {
+  background: rgba(0, 184, 148, 0.1);
+}
+.wysiwyg-host .md-alert-text-tip {
+  color: #009472;
+}
+.wysiwyg-host .md-alert-important {
+  background: rgba(255, 118, 117, 0.12);
+}
+.wysiwyg-host .md-alert-text-important {
+  color: #e0526d;
+}
+.wysiwyg-host .md-alert-warning {
+  background: rgba(253, 203, 110, 0.16);
+}
+.wysiwyg-host .md-alert-text-warning {
+  color: #b58105;
+}
+.wysiwyg-host .md-alert-caution {
+  background: rgba(214, 48, 49, 0.1);
+}
+.wysiwyg-host .md-alert-text-caution {
+  color: #d63031;
+}
+
+/* Typora 分页标记：编辑器内不可见 */
+.wysiwyg-host .md-pagebreak {
+  display: block;
+  height: 0;
+  visibility: hidden;
+}

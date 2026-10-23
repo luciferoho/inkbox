@@ -40,7 +40,8 @@ function variantLabel(key: string): string {
   if (key === 'grey') return t('settings.variantGrey')
   return key
 }
-/** 主题族：同族文件（xxx / xxx-dark / xxx-grey）合成一个下拉项 */
+/** 主题族：同族文件（xxx / xxx-dark / xxx-grey）合成一个下拉项；
+ *  配色族（phycat-* → phycat）标注配色数量 */
 const themeFamilies = computed(() => {
   const map = new Map<string, ThemeInfo[]>()
   for (const t of themeFiles.value) {
@@ -50,14 +51,30 @@ const themeFamilies = computed(() => {
   }
   return [...map.entries()]
     .map(([family, files]) => {
+      const color = files.some((f) => f.colorFamily)
       const keys = [...new Set(files.map((f) => f.variantKey))].sort(
         (a, b) => (VI_VARIANT_ORDER.indexOf(a) + 1 || 99) - (VI_VARIANT_ORDER.indexOf(b) + 1 || 99)
       )
-      const hint = keys.map(variantLabel).join('/')
+      const hint = color
+        ? t('settings.colorVariants', { n: files.length })
+        : keys.map(variantLabel).join('/')
       const name = files.length > 1 ? family : files[0].name
       return { key: files.length > 1 ? family : files[0].name, label: `${name}（${hint}）` }
     })
     .sort((a, b) => a.key.localeCompare(b.key))
+})
+/** 三变体以上（含配色族）用色板圆点切换；单色 / 浅深双色保持 segmented */
+const showVariantDots = computed(() => currentFamily.value.length >= 3)
+/** 变体圆点：主色缺失时按极性给兜底色（深灰/纸白/中灰） */
+const variantDots = computed(() => {
+  const fam = currentFamily.value
+  if (!showVariantDots.value) return [] as { key: string; label: string; color: string }[]
+  const order = (k: string): number => VI_VARIANT_ORDER.indexOf(k) + 1 || 99
+  const fallback = (x: ThemeInfo): string =>
+    x.color || (x.variant === 'dark' ? '#3b3b3b' : x.variant === 'light' ? '#f2efe9' : '#9a9a92')
+  return [...fam]
+    .sort((a, b) => order(a.variantKey) - order(b.variantKey) || a.variantKey.localeCompare(b.variantKey))
+    .map((x) => ({ key: x.variantKey, label: variantLabel(x.variantKey), color: fallback(x) }))
 })
 /** 当前主题族的全部变体（用于“主题变体”选择行） */
 const currentFamily = computed(() => {
@@ -371,7 +388,27 @@ function checkUpdate(): void {
             <p class="row-hint">{{ $t('settings.themeCssHint') }}</p>
             <div v-if="variantOptions.length" class="row">
               <span class="label">{{ $t('settings.themeVariant') }}</span>
-              <div class="segmented">
+              <!-- 三变体以上（配色族/浅深灰）：自动跟随 + 主色圆点（排不下 segmented） -->
+              <div v-if="showVariantDots" class="swatch-row">
+                <button
+                  v-if="variantOptions.some((v) => v.key === 'auto')"
+                  class="swatch-auto"
+                  :class="{ on: (ui.appearance.themeVariant || 'auto') === 'auto' }"
+                  @click="pickVariant('auto')"
+                >
+                  {{ $t('settings.variantAuto') }}
+                </button>
+                <button
+                  v-for="s in variantDots"
+                  :key="s.key"
+                  class="swatch"
+                  :class="{ on: (ui.appearance.themeVariant || 'auto') === s.key }"
+                  :title="s.label"
+                  :style="{ background: s.color }"
+                  @click="pickVariant(s.key)"
+                />
+              </div>
+              <div v-else class="segmented">
                 <button
                   v-for="v in variantOptions"
                   :key="v.key"
@@ -955,6 +992,53 @@ function checkUpdate(): void {
 .segmented button:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* 配色族色板：自动跟随按钮 + 主色圆点（phycat 11 色一行排开） */
+.swatch-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.swatch-auto {
+  padding: 4px 10px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12px;
+  white-space: nowrap;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.swatch-auto.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.swatch {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+}
+
+.swatch:hover {
+  transform: scale(1.12);
+}
+
+.swatch.on {
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+  transform: scale(1.08);
 }
 
 /* 滑杆 */

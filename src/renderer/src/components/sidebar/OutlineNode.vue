@@ -61,8 +61,9 @@ const segs = computed<Seg[]>(() => tokenize(props.node.text))
   <div>
     <button
       class="node"
-      :class="{ on: activeLine === node.line }"
-      :style="{ paddingLeft: `${8 + (depth - 1) * 14}px` }"
+      :class="{ on: activeLine === node.line, 'has-guide': depth >= 2 }"
+      :data-level="Math.min(node.level, 6)"
+      :style="{ '--depth': depth }"
       :title="node.text"
       @click="emit('select', node.line)"
     >
@@ -71,11 +72,13 @@ const segs = computed<Seg[]>(() => tokenize(props.node.text))
         class="chev"
         :class="{ closed: collapsed.has(node.line) }"
         viewBox="0 0 10 10"
-        width="8"
-        height="8"
+        width="11"
+        height="11"
         @click.stop="emit('toggle', node.line)"
       >
-        <path d="M2.5 1.5L7.5 5l-5 3.5z" fill="currentColor" />
+        <!-- 展开 ⌄ / 折叠 ›（Typora 角标） -->
+        <path class="cv-down" d="M2 3.6L5 6.6L8 3.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+        <path class="cv-right" d="M3.6 2L6.6 5L3.6 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
       <i v-else class="tick" />
       <span class="name"
@@ -106,6 +109,8 @@ const segs = computed<Seg[]>(() => tokenize(props.node.text))
   gap: 8px;
   width: 100%;
   height: 27px;
+  /* 层级缩进走 --depth（主题模式在 base.css 覆盖步长） */
+  padding-left: calc(8px + (var(--depth, 1) - 1) * 14px);
   padding-right: 8px;
   border-radius: var(--radius-s);
   color: var(--text-2);
@@ -129,7 +134,6 @@ const segs = computed<Seg[]>(() => tokenize(props.node.text))
   padding: 3px;
   margin: -3px 0;
   border-radius: 3px;
-  transition: transform 0.12s;
   cursor: pointer;
 }
 
@@ -138,8 +142,17 @@ const segs = computed<Seg[]>(() => tokenize(props.node.text))
   background: var(--accent-soft);
 }
 
-.chev.closed {
-  transform: rotate(-90deg);
+/* 角标状态：展开 ⌄ / 折叠 ›（Typora 约定） */
+.chev .cv-right {
+  display: none;
+}
+
+.chev.closed .cv-down {
+  display: none;
+}
+
+.chev.closed .cv-right {
+  display: block;
 }
 
 .tick {

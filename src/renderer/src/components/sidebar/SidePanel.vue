@@ -56,14 +56,21 @@ function onResizeStart(e: PointerEvent): void {
   window.addEventListener('pointerup', onUp)
 }
 
-/** 光标当前所在小节：最后一个 line <= currentLine 的标题（折叠不影响判定） */
+/** 光标/视口当前所在小节：最后一个 line <= viewLine 的标题（折叠不影响判定）。
+ *  viewLine 随内容滚动更新（预览/双栏滚动、即显滚动），大纲高亮跟随 */
 const activeLine = computed(() => {
   let line = -1
   for (const h of outline.value) {
-    if (h.line <= ui.currentLine) line = h.line
+    if (h.line <= ui.viewLine) line = h.line
     else break
   }
   return line
+})
+
+/* 高亮随滚动变化时，把活动项滚进大纲可视区（Typora 行为） */
+watch(activeLine, async () => {
+  await nextTick()
+  document.querySelector('.outline .node.on')?.scrollIntoView({ block: 'nearest' })
 })
 
 async function openFolder(): Promise<void> {

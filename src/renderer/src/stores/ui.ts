@@ -65,6 +65,11 @@ export const useUiStore = defineStore('ui', {
     findRequest: 0,
     jumpLine: null as { line: number; seq: number } | null,
     currentLine: 1,
+    /* 视口顶部所在行号（随滚动更新，与光标 currentLine 分离）：大纲高亮跟随 */
+    viewLine: 1,
+    /* 跳转期间（滚动动画）锁定 viewLine 更新：点击瞬间高亮目标项，
+       不让动画初期的滚动事件把高亮拽回旧章节 */
+    viewLineLockUntil: 0,
     /* 光标/内容变化序号：同一行连续输入时 currentLine 不变，预览靠它触发跟随 */
     caretSeq: 0,
     /* 弹层 */
@@ -396,6 +401,11 @@ export const useUiStore = defineStore('ui', {
       this.findRequest++
     },
     jumpTo(line: number): void {
+      // 目标行同步进视口行号：点击立即高亮大纲对应项；
+      // 同时锁住滚动驱动的更新——平滑动画期间的 scroll 事件
+      // 会从旧章节开始逐段上报，会把高亮拽回去
+      this.viewLine = Math.max(1, line)
+      this.viewLineLockUntil = Date.now() + 700
       this.jumpLine = { line, seq: (this.jumpLine?.seq ?? 0) + 1 }
     },
     openSettings(): void {

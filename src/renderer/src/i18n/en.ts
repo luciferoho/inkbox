@@ -99,6 +99,7 @@ export const en: MsgSchema = {
   'status.autosaveOff': 'Autosave off',
   'status.lineTitle': 'Line {n}',
   'status.vimTitle': 'Vim mode (toggle in settings): NORMAL / INSERT',
+  'status.themeMore': 'More appearance settings…',
   'status.themeTitle': 'Current theme CSS: {name} (click to open settings)',
 
   // Welcome page
@@ -466,6 +467,7 @@ export const en: MsgSchema = {
   'settings.themeVariant': 'Theme variant',
   'settings.variantAuto': 'Auto (follow light/dark)',
   'settings.variantGrey': 'Grey',
+  'settings.colorVariants': '{n} colors',
   'settings.themeLockedHint': 'This theme only provides {mode}; the app theme is locked.',
   'settings.variantLockedHint': 'A fixed theme variant is selected; light/dark switching is disabled (choose Auto to follow the system).'
 }

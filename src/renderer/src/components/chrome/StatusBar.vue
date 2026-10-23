@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
 import { textStats } from '@/utils/text'
 import { t } from '@/i18n'
 import { shortcutTitle } from '@/services/shortcut-title'
+import type { ThemeInfo } from '@shared/types'
 
 const ui = useUiStore()
 const docs = useDocumentsStore()
@@ -27,7 +28,7 @@ const saveLabel = computed(() => {
 /** 当前主题样式徽标：名字 + 生效变体（auto 跟随明暗实时显示，截图排查用） */
 const themeBadge = computed(() => {
   const name = ui.appearance.themeCss
-  if (!name) return ''
+  if (!name) return t('settings.themeDefault')
   const variant = ui.appearance.themeVariant
   const vLabel =
     variant && variant !== 'auto'
@@ -44,9 +45,78 @@ const themeBadge = computed(() => {
   return `${name} · ${vLabel}`
 })
 
+/* ---------- 主题快捷切换弹层（含内置默认，免进设置） ---------- */
+
+const themeMenuOpen = ref(false)
+const themeList = ref<ThemeInfo[]>([])
+
+interface MenuFamily {
+  key: string
+  /** 三变体以上（配色族/浅深灰）：行内展开圆点切换；单色/浅深双色整行点击 */
+  dots: boolean
+  swatches: { key: string; label: string; color: string }[]
+}
+
+const variantLabel = (key: string): string => {
+  if (key === 'light') return t('settings.thLight')
+  if (key === 'dark') return t('settings.thDark')
+  if (key === 'grey') return t('settings.variantGrey')
+  return key
+}
+
+const themeMenuFamilies = computed<MenuFamily[]>(() => {
+  const map = new Map<string, ThemeInfo[]>()
+  for (const x of themeList.value) {
+    const arr = map.get(x.family)
+    if (arr) arr.push(x)
+    else map.set(x.family, [x])
+  }
+  const order = (k: string): number => {
+    const vi = ['light', 'dark', 'grey']
+    return vi.indexOf(k) + 1 || 99
+  }
+  return [...map.values()].map((files) => {
+    const dots = files.length >= 3
+    const fallback = (x: ThemeInfo): string =>
+      x.color || (x.variant === 'dark' ? '#3b3b3b' : x.variant === 'light' ? '#f2efe9' : '#9a9a92')
+    return {
+      key: files[0].family,
+      dots,
+      swatches: dots
+        ? [...files]
+            .sort((a, b) => order(a.variantKey) - order(b.variantKey) || a.variantKey.localeCompare(b.variantKey))
+            .map((f) => ({ key: f.variantKey, label: variantLabel(f.variantKey), color: fallback(f) }))
+        : []
+    }
+  })
+})
+
+async function toggleThemeMenu(): Promise<void> {
+  themeMenuOpen.value = !themeMenuOpen.value
+  if (themeMenuOpen.value) themeList.value = await window.api.theme.list()
+}
+
+function applyTheme(key: string): void {
+  const fam = key ? themeList.value.filter((x) => x.family === key) : []
+  const hasPair = fam.some((x) => x.variant === 'light') && fam.some((x) => x.variant === 'dark')
+  // 有浅/深成对跟随明暗；单变体/配色族先取 auto，具体颜色点色板再钉
+  const variant = key && !hasPair && !fam.some((x) => x.colorFamily) ? (fam[0]?.variantKey ?? 'auto') : 'auto'
+  void ui.setAppearance({ themeCss: key, themeVariant: variant })
+}
+
+function applyFamilyVariant(key: string, variant: string): void {
+  if (ui.appearance.themeCss !== key) void ui.setAppearance({ themeCss: key, themeVariant: variant })
+  else void ui.setAppearance({ themeVariant: variant })
+}
+
 function openThemeSettings(): void {
+  themeMenuOpen.value = false
   ui.settingsOpen = true
 }
+
+onBeforeUnmount(() => {
+  themeMenuOpen.value = false
+})
 </script>
 
 <template>
@@ -68,14 +138,48 @@ function openThemeSettings(): void {
       </template>
     </div>
     <div class="right">
-      <button
-        v-if="themeBadge"
-        class="badge toggle theme-badge"
-        :title="$t('status.themeTitle', { name: ui.appearance.themeCss })"
-        @click="openThemeSettings"
-      >
-        <i class="pip accent" />{{ themeBadge }}
-      </button>
+      <div class="theme-anchor">
+        <button
+          class="badge toggle theme-badge"
+          :class="{ on: themeMenuOpen }"
+          :title="$t('status.themeTitle', { name: ui.appearance.themeCss || $t('settings.themeDefault') })"
+          @click="toggleThemeMenu"
+        >
+          <i class="pip accent" />{{ themeBadge }}
+        </button>
+        <!-- 快捷切换：内置默认 + 全部主题族（配色族内联色板） -->
+        <div v-if="themeMenuOpen" class="theme-menu">
+          <button class="tm-row" :class="{ on: !ui.appearance.themeCss }" @click="applyTheme('')">
+            {{ $t('settings.themeDefault') }}
+          </button>
+          <template v-for="f in themeMenuFamilies" :key="f.key">
+            <div class="tm-row tm-family" :class="{ on: ui.appearance.themeCss === f.key && !f.dots }">
+              <button class="tm-name" :title="f.key" @click="applyTheme(f.key)">{{ f.key }}</button>
+              <span v-if="f.dots" class="tm-swatches">
+                <button
+                  v-if="f.swatches.some((s) => s.key === 'light') && f.swatches.some((s) => s.key === 'dark')"
+                  class="tm-auto"
+                  :class="{ on: ui.appearance.themeCss === f.key && (ui.appearance.themeVariant || 'auto') === 'auto' }"
+                  @click.stop="applyFamilyVariant(f.key, 'auto')"
+                >
+                  {{ $t('settings.variantAuto') }}
+                </button>
+                <button
+                  v-for="s in f.swatches"
+                  :key="s.key"
+                  class="tm-swatch"
+                  :class="{ on: ui.appearance.themeCss === f.key && (ui.appearance.themeVariant || 'auto') === s.key }"
+                  :title="s.label"
+                  :style="{ background: s.color }"
+                  @click.stop="applyFamilyVariant(f.key, s.key)"
+                />
+              </span>
+            </div>
+          </template>
+          <button class="tm-row tm-more" @click="openThemeSettings">{{ $t('status.themeMore') }}</button>
+        </div>
+      </div>
+      <div v-if="themeMenuOpen" class="menu-backdrop" @click="themeMenuOpen = false" />
       <button
         class="badge toggle"
         :class="{ on: ui.focusMode }"
@@ -198,7 +302,7 @@ function openThemeSettings(): void {
   opacity: 1;
 }
 
-/* 主题徽标：琥珀点 + 名字·变体，点击进设置外观页 */
+/* 主题徽标：主色点 + 名字·变体，点击弹出快捷切换 */
 .theme-badge {
   max-width: 180px;
   overflow: hidden;
@@ -209,5 +313,124 @@ function openThemeSettings(): void {
 .theme-badge .pip.accent {
   background: var(--accent);
   opacity: 1;
+}
+
+/* ---------- 主题快捷切换弹层 ---------- */
+
+.theme-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+/* 遮罩在弹层之下：点击任意空白处收起 */
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 88;
+}
+
+.theme-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 89;
+  width: 300px;
+  max-height: min(430px, 60vh);
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  box-shadow: 0 10px 34px rgba(20, 15, 8, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 9px;
+  border-radius: var(--radius-s);
+  text-align: left;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+
+.tm-row:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.tm-row.on {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+.tm-row.tm-more {
+  margin-top: 3px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  border-radius: 0 0 var(--radius-s) var(--radius-s);
+  color: var(--text-2);
+}
+
+.tm-family {
+  flex-wrap: wrap;
+}
+
+.tm-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.tm-swatches {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tm-auto {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-2);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.tm-auto:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.tm-auto.on {
+  color: var(--accent-strong);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.tm-swatch {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
+  transition: transform 0.12s, border-color 0.12s;
+}
+
+.tm-swatch:hover {
+  transform: scale(1.15);
+}
+
+.tm-swatch.on {
+  border-color: var(--accent-strong);
+  transform: scale(1.1);
 }
 </style>
