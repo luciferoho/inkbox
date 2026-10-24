@@ -947,7 +947,13 @@ function onWysiwygFollow(): void {
     if (!hostEl) return
     withView((view) => {
       const rect = hostEl.getBoundingClientRect()
-      const coords = view.posAtCoords({ left: rect.left + 24, top: rect.top + 8 })
+      // 自定义主题按 Typora 惯例给内容根加 max-width + auto 边距（可达数百 px），
+      // host 左缘 +24 的固定采样点会落在内容区外的空边上（posAtCoords 返回 null，
+      // 跟随静默失效）——采样点先钳进 PM 内容盒再解析
+      const box = view.dom.getBoundingClientRect()
+      const x = Math.min(Math.max(rect.left + 24, box.left + 4), box.right - 4)
+      const y = Math.min(Math.max(rect.top + 8, box.top + 4), box.bottom - 4)
+      const coords = view.posAtCoords({ left: x, top: y })
       if (!coords) return
       const headings: number[] = []
       view.state.doc.descendants((n, pos) => {
@@ -958,13 +964,18 @@ function onWysiwygFollow(): void {
         return true
       })
       if (headings.length === 0) return
+      const outline = parseOutline(docs.active?.content ?? '')
       let idx = -1
       for (let k = 0; k < headings.length; k++) {
         if (headings[k] <= coords.pos) idx = k
         else break
       }
-      if (idx < 0) return
-      const outline = parseOutline(docs.active?.content ?? '')
+      // 视口顶落在首个标题之前（文档开头的横幅/引言区）：高亮清空，
+      // 置到首标题前一行的判定带外，不能卡在上一节
+      if (idx < 0) {
+        ui.viewLine = Math.max(1, (outline[0]?.line ?? 1) - 1)
+        return
+      }
       if (outline[idx]) ui.viewLine = outline[idx].line
     })
   })
