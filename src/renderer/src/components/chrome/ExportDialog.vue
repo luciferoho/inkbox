@@ -380,7 +380,7 @@ async function doExport(): Promise<void> {
 
             <div class="field">
               <span class="label">{{ $t('export.format') }}</span>
-              <div class="seg">
+              <div class="seg seg-fmt">
                 <button :class="{ on: fmt === 'png' }" @click="fmt = 'png'">PNG</button>
                 <button :class="{ on: fmt === 'pdf' }" @click="fmt = 'pdf'">PDF</button>
                 <button :class="{ on: fmt === 'html' }" @click="fmt = 'html'">HTML</button>
@@ -555,6 +555,12 @@ async function doExport(): Promise<void> {
   border-radius: 8px;
   background: var(--bg);
   border: 1px solid var(--border);
+}
+
+/* 格式六选一：2×3 网格，按钮多不溢出（图二反馈） */
+.seg-fmt {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .seg button {

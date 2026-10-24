@@ -51,12 +51,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     <!-- 二选一确认框 -->
     <Transition name="confirm">
       <div v-if="ui.confirm" class="mask" @click.self="ui.resolveConfirm(false)">
-        <section class="dialog" role="alertdialog" :aria-label="ui.confirm.title">
-          <div class="icon" :class="{ danger: ui.confirm.danger }">
-            <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-              <path d="M10 4.6v7.2" /><circle cx="10" cy="15" r="0.9" fill="currentColor" stroke="none" />
-            </svg>
-          </div>
+        <section class="dialog" :class="{ danger: ui.confirm.danger }" role="alertdialog" :aria-label="ui.confirm.title">
           <h2 class="title">{{ ui.confirm.title }}</h2>
           <p class="message">{{ ui.confirm.message }}</p>
           <div class="actions">
@@ -105,36 +100,34 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .dialog {
+  position: relative;
   width: 400px;
   max-width: calc(100vw - 48px);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-pop);
-  padding: 22px 24px 18px;
+  padding: 20px 24px 18px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
+  text-align: left;
+  overflow: hidden;
 }
 
-.icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  /* 内环描边：与圆底同色系收一层，图标不再"裸圆" */
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 18%, transparent);
-  margin-bottom: 14px;
+/* 顶部语义色条：危险红 / 常规琥珀，取代图标传达确认性质（更干净利落） */
+.dialog::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--accent);
+  border-radius: var(--radius-l) var(--radius-l) 0 0;
 }
 
-.icon.danger {
-  background: color-mix(in srgb, var(--danger) 9%, transparent);
-  color: var(--danger);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 22%, transparent);
+.dialog.danger::before {
+  background: var(--danger);
 }
 
 .title {

@@ -27,7 +27,6 @@ import QuickOpen from '@/components/chrome/QuickOpen.vue'
 const SettingsDialog = defineAsyncComponent(() => import('@/components/chrome/SettingsDialog.vue'))
 const UpdateDialog = defineAsyncComponent(() => import('@/components/chrome/UpdateDialog.vue'))
 const ExportDialog = defineAsyncComponent(() => import('@/components/chrome/ExportDialog.vue'))
-const HistoryDialog = defineAsyncComponent(() => import('@/components/chrome/HistoryDialog.vue'))
 import { useAutosave } from '@/composables/useAutosave'
 import { useDrafts } from '@/composables/useDrafts'
 
@@ -57,13 +56,6 @@ function dispatch(cmd: MenuCommand): void {
         ui.showToast(t('app.exportNoDoc'))
       } else {
         ui.openExport()
-      }
-      break
-    case 'file:history':
-      if (!docs.active || docs.active.isHome || !docs.active.path) {
-        ui.showToast(t('app.historyNoDoc'))
-      } else {
-        ui.openHistory()
       }
       break
     case 'file:insertImage':
@@ -244,7 +236,7 @@ onBeforeUnmount(() => {
 /** 禅模式下的 Esc：无任何弹层时退出禅模式 */
 function onZenEsc(e: KeyboardEvent): void {
   if (!ui.zenMode || e.key !== 'Escape') return
-  if (ui.confirm || ui.choice || ui.viewerImage || ui.settingsOpen || ui.exportOpen || ui.historyOpen) return
+  if (ui.confirm || ui.choice || ui.viewerImage || ui.settingsOpen || ui.exportOpen) return
   ui.toggleZen()
 }
 
@@ -442,7 +434,6 @@ async function handleRequestClose(): Promise<void> {
     <SettingsDialog />
     <UpdateDialog />
     <ExportDialog />
-    <HistoryDialog />
     <ConfirmDialog />
     <QuickOpen />
     <Toast />
