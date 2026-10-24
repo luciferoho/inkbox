@@ -5,6 +5,8 @@ import { useDocumentsStore } from '@/stores/documents'
 import { buildExportHtml } from '@/services/exporter'
 import { exportExtraCss } from '@/services/appearance'
 import { mdToLaTeX } from '@/services/latex'
+import { mdToOPML } from '@/services/opml'
+import { buildEpubBase64 } from '@/services/epub'
 import { t } from '@/i18n'
 // pdf.js 按需加载 + 独立 worker 资源（Electron iframe 内嵌 PDF 查看器不可靠，自渲染最稳）
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
@@ -20,7 +22,7 @@ const PREVIEW_MAX_PAGES = 5
 const ui = useUiStore()
 const docs = useDocumentsStore()
 
-type ExportFmt = 'html' | 'pdf' | 'png' | 'latex'
+type ExportFmt = 'html' | 'pdf' | 'png' | 'latex' | 'opml' | 'epub'
 const fmt = ref<ExportFmt>('html')
 /** 按标签记忆导出格式：开关弹窗保留所选，关标签即清除（下方 watch 剪枝） */
 const fmtByTab = new Map<number, ExportFmt>()
@@ -49,7 +51,9 @@ const HINT_KEYS: Record<ExportFmt, string> = {
   html: 'export.hintHtml',
   pdf: 'export.hintPdf',
   png: 'export.hintPng',
-  latex: 'export.hintLaTeX'
+  latex: 'export.hintLaTeX',
+  opml: 'export.hintOpml',
+  epub: 'export.hintEpub'
 }
 
 const MARGINS: { key: 'normal' | 'narrow' | 'none'; labelKey: string }[] = [
@@ -206,6 +210,17 @@ async function regenerate(): Promise<void> {
     if (seq === genSeq) generating.value = false
     return
   }
+  // OPML：大纲 XML 纯文本预览
+  if (fmt.value === 'opml') {
+    const seq = ++genSeq
+    generating.value = true
+    clearPdfHost()
+    previewHtml.value = ''
+    texPreview.value = mdToOPML(tab.name, tab.content)
+    previewFailed.value = false
+    if (seq === genSeq) generating.value = false
+    return
+  }
   const body = activePreviewHtml()
   if (body === null) {
     previewFailed.value = true
@@ -263,6 +278,42 @@ async function doExport(): Promise<void> {
       if (!path) return
       await window.api.fs.writeFile(path, tex)
       ui.showToast(t('export.savedLaTeX', { name: path.split(/[\\/]/).pop() }))
+      ui.exportOpen = false
+    } catch (err) {
+      exportError.value = err instanceof Error ? err.message : String(err)
+    } finally {
+      busy.value = false
+    }
+    return
+  }
+  // OPML：大纲 XML，同样不依赖预览 DOM
+  if (fmt.value === 'opml') {
+    busy.value = true
+    try {
+      const xml = mdToOPML(tab.name, tab.content)
+      const path = await window.api.dialog.saveFile(`${name}.opml`, 'opml')
+      if (!path) return
+      await window.api.fs.writeFile(path, xml)
+      ui.showToast(t('export.savedOpml', { name: path.split(/[\\/]/).pop() }))
+      ui.exportOpen = false
+    } catch (err) {
+      exportError.value = err instanceof Error ? err.message : String(err)
+    } finally {
+      busy.value = false
+    }
+    return
+  }
+  // ePub：整档渲染按 H1 分章打成 ZIP 包（二进制 base64 落盘）
+  if (fmt.value === 'epub') {
+    busy.value = true
+    try {
+      const sepIdx = Math.max(tab.path?.lastIndexOf('/') ?? -1, tab.path?.lastIndexOf('\\') ?? -1)
+      const docDir = sepIdx > 0 && tab.path ? tab.path.slice(0, sepIdx) : null
+      const b64 = await buildEpubBase64(tab.name, tab.content, docDir)
+      const path = await window.api.dialog.saveFile(`${name}.epub`, 'epub')
+      if (!path) return
+      await window.api.fs.writeFileBinary(path, b64)
+      ui.showToast(t('export.savedEpub', { name: path.split(/[\\/]/).pop() }))
       ui.exportOpen = false
     } catch (err) {
       exportError.value = err instanceof Error ? err.message : String(err)
@@ -334,6 +385,8 @@ async function doExport(): Promise<void> {
                 <button :class="{ on: fmt === 'pdf' }" @click="fmt = 'pdf'">PDF</button>
                 <button :class="{ on: fmt === 'html' }" @click="fmt = 'html'">HTML</button>
                 <button :class="{ on: fmt === 'latex' }" @click="fmt = 'latex'">LaTeX</button>
+                <button :class="{ on: fmt === 'opml' }" @click="fmt = 'opml'">OPML</button>
+                <button :class="{ on: fmt === 'epub' }" @click="fmt = 'epub'">ePub</button>
               </div>
             </div>
 
@@ -409,7 +462,7 @@ async function doExport(): Promise<void> {
             <div v-else-if="fmt === 'pdf'" ref="pdfHost" class="pdf-host">
               <p v-if="pdfPageHint" class="pdf-hint">{{ pdfPageHint }}</p>
             </div>
-            <pre v-else-if="fmt === 'latex'" class="tex-view">{{ texPreview }}</pre>
+            <pre v-else-if="fmt === 'latex' || fmt === 'opml'" class="tex-view">{{ texPreview }}</pre>
             <div v-else-if="!generating && !previewFailed" class="preview-empty">{{ $t('export.preparing') }}</div>
           </div>
         </section>
