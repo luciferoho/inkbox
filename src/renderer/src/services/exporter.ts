@@ -93,6 +93,42 @@ const CODE_TOKENS_DARK = `
   --code-deletion: #d97764;
 `
 
+/* 导出排版兜底：主题 CSS 注入在页面样式之后，可能带来自身场景的 pre/code
+   规则（如 overflow: visible / 行为改动）导致长代码行溢出容器（PNG 长图里
+   溢出 = 内容被裁掉）。在 extraCss 之后统一收口：代码块折行，绝不横向出界 */
+const EXPORT_FALLBACK_LAYOUT = `
+.md-preview pre { overflow-x: auto; max-width: 100%; }
+.md-preview pre code { white-space: pre-wrap !important; word-break: break-word; }
+.md-preview .md-code-bar { display: none !important; }
+`
+
+/* PDF 打印净化：PDF 固定白底，暗色自定义主题的文字色（浅色文字）在白底上
+   不可读——主题 CSS 注入后重申亮色令牌并强制正文/代码/引用的深色，排版
+   （间距/字体/结构）保留主题效果 */
+const EXPORT_SANITIZE_PRINT = `
+body, .md-preview.export-page { background: #fff !important; }
+.md-preview {
+  color: #1f2328 !important;
+  --bg: #fff; --surface: #fff; --surface-2: #f6f8fa; --border: #d0d7de;
+  --text: #1f2328; --text-2: #57606a;
+  --accent: #b16014; --accent-strong: #954d0d; --accent-soft: rgba(177, 96, 20, 0.1);
+  --code-bg: #f6f8fa; --code-fg: #1f2328; --code-bar: #eaeef2;
+  --code-comment: #57606a; --code-keyword: #cf222e; --code-string: #0a3069;
+  --code-number: #0550ae; --code-title: #0550ae; --code-attr: #953800;
+  --code-type: #8250df; --code-deletion: #cf222e;
+  --inline-code-bg: #eff1f3;
+}
+.md-preview h1, .md-preview h2, .md-preview h3, .md-preview h4,
+.md-preview h5, .md-preview h6, .md-preview p, .md-preview li,
+.md-preview td, .md-preview th, .md-preview strong, .md-preview em,
+.md-preview del, .md-preview figcaption { color: #1f2328 !important; }
+.md-preview a { color: #0969da !important; }
+.md-preview blockquote { color: #57606a !important; border-left-color: #d0d7de !important; }
+.md-preview pre, .md-preview pre code { color: #1f2328 !important; }
+.md-preview table, .md-preview th, .md-preview td { border-color: #d0d7de !important; }
+.md-preview hr { border-color: #d0d7de !important; }
+`
+
 /* 纸面亮色主题的设计令牌（HTML/PNG 导出可选亮暗，PDF 固定亮色白底打印） */
 const EXPORT_TOKENS_LIGHT = `
 :root {
@@ -360,6 +396,8 @@ body { background: var(--bg); padding: 40px 20px 64px; }
 <style>${previewCss}</style>
 <style>${pageCss}</style>
 ${opts.extraCss ? `<style>${opts.extraCss}</style>` : ''}
+<style>${EXPORT_FALLBACK_LAYOUT}</style>
+${opts.forPrint ? `<style>${EXPORT_SANITIZE_PRINT}</style>` : ''}
 <style>${EXPORT_TASK_LIST_FIX}</style>
 </head>
 <body>

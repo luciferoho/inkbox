@@ -102,6 +102,8 @@ export const zh = {
   'status.autosaveOff': '自动保存已关',
   'status.typographerTitle': '智能标点：点击开启/关闭',
   'status.spellcheckTitle': '拼写检查：点击开启/关闭',
+  'status.aidOn': '{name}已开启',
+  'status.aidOff': '{name}已关闭',
   'status.lineTitle': '第 {n} 行',
   'status.vimTitle': 'Vim 模式（设置中开关）：NORMAL 普通 / INSERT 插入',
   'status.themeMore': '更多外观设置…',
