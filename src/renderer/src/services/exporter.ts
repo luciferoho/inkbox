@@ -319,16 +319,18 @@ export async function buildExportHtml(
   const tokens = theme === 'dark' ? EXPORT_TOKENS_DARK : EXPORT_TOKENS_LIGHT
   const pageCss = opts.forPrint
     ? `
+html, body { overflow-x: hidden; }
 body { background: #fff; padding: 0; }
 .export-page { max-width: none; margin: 0; border: none; border-radius: 0; box-shadow: none; }
 .md-preview { --preview-font-size: 13px; --preview-line-height: 1.65; padding: 0 0 6px; }
 .md-preview pre code { font-size: 11px; }
 .md-preview h1 { font-size: 1.55em; }
 .md-preview h2 { font-size: 1.3em; }
-/* 分页保护：标题不与后文断开，整块元素不拦腰截断 */
+/* 分页保护：标题不与后文断开；块级只对「不会超过一页高」的小块生效——
+   长代码块允许自然跨页（avoid 会把整块推到新页，前一页留大片空白） */
 .md-preview h1, .md-preview h2, .md-preview h3,
 .md-preview h4, .md-preview h5, .md-preview h6 { break-after: avoid; }
-.md-preview pre, .md-preview .mermaid, .md-preview table,
+.md-preview .mermaid, .md-preview table,
 .md-preview blockquote, .md-preview .math-block, .md-preview img { break-inside: avoid; }
 .md-preview p, .md-preview li { orphans: 2; widows: 2; }
 /* 超宽表格：打印页宽固定，强制自适应换行（导出不应出现横向裁切） */
@@ -338,9 +340,10 @@ body { background: #fff; padding: 0; }
   width: auto !important; white-space: normal !important;
   word-break: break-word; overflow-wrap: anywhere; padding: 4px 6px;
 }
-/* 打印产物不出现滚动条：代码块自动换行 */
-.md-preview pre { overflow: visible !important; white-space: pre-wrap; word-break: break-word; }
+/* 打印产物不出现滚动条：代码块自动换行；宽图收敛到页宽 */
+.md-preview pre { overflow: hidden !important; white-space: pre-wrap; word-break: break-word; break-inside: auto; }
 .md-preview pre code { white-space: pre-wrap; }
+.md-preview img, .md-preview svg { max-width: 100% !important; height: auto; }
 `
     : `
 body { background: var(--bg); padding: 40px 20px 64px; }

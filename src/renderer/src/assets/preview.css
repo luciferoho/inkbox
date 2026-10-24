@@ -87,6 +87,16 @@
   line-height: 1.6;
   box-shadow: inset 0 0 0 1px var(--code-edge);
 }
+
+/* 主题兜底：自定义主题的 pre 规则（如 phycat 的 overflow: visible）会把
+   横向长行画出代码块边界（窄面板实测溢出）——高优先级收口，横向内容一律
+   在块内滚动，绝不出界 */
+.md-preview pre,
+html[data-theme-css] .md-preview pre,
+html[data-theme-css] .md-preview pre.luci-code {
+  max-width: 100% !important;
+  overflow-x: auto !important;
+}
 .md-preview pre code {
   background: none;
   padding: 0;

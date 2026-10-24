@@ -138,14 +138,18 @@ function createOffscreen(width: number, height: number): Electron.BrowserWindow 
   })
 }
 
-/** 等网络图片加载完成再量高度：img 未加载时高度为 0，scrollHeight 只算到
-    占位值，长图会在这里就被截短（5s 兜底：加载慢不无限等） */
+/** 等网络图片与 webfont 加载完成再量高度：img 未加载时高度为 0，KaTeX 等
+    webfont 未就绪时文本用回退字体度量——两者都会让两遍渲染的 scrollHeight
+    不一致，取帧时内容相对量高基准整体下移 → 拼接错位出现空白带（实测）。
+    5s 兜底：加载慢不无限等 */
 function waitForImagesAndMeasure(win: Electron.BrowserWindow): Promise<number> {
   return win.webContents.executeJavaScript(`
       new Promise((resolve) => {
         const imgs = [...document.images]
-        const done = () => resolve(Math.ceil(document.documentElement.scrollHeight))
         let left = imgs.length
+        const done = () => {
+          document.fonts.ready.then(() => resolve(Math.ceil(document.documentElement.scrollHeight)))
+        }
         if (!left) return done()
         const t = setTimeout(done, 5000)
         imgs.forEach((img) => {
