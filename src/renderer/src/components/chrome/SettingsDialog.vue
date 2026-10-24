@@ -549,6 +549,22 @@ function checkUpdate(): void {
             </div>
             <p class="row-hint">{{ $t('settings.openAtLoginHint') }}</p>
 
+            <!-- 工作区 -->
+            <h3 class="group-title">{{ $t('settings.gWorkspace') }}</h3>
+            <div class="row">
+              <span class="label">{{ $t('settings.wsOpenableOnly') }}</span>
+              <button
+                class="switch"
+                role="switch"
+                :aria-checked="ui.wsOpenableOnly"
+                :class="{ on: ui.wsOpenableOnly }"
+                @click="ui.setWsOpenableOnly(!ui.wsOpenableOnly)"
+              >
+                <i class="knob" />
+              </button>
+            </div>
+            <p class="row-hint">{{ $t('settings.wsOpenableOnlyHint') }}</p>
+
             <!-- 窗口 -->
             <h3 class="group-title">{{ $t('settings.gWindow') }}</h3>
             <div class="row">

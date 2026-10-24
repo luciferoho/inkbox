@@ -21,6 +21,7 @@ function installBrowserMock(): void {
     vimMode: false,
     restoreTabs: true,
     restoreFolders: true,
+    wsOpenableOnly: false,
     openAtLogin: false,
     closeAction: 'quit' as const,
     recent: [] as { path: string; ts: number }[]

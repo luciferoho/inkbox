@@ -126,7 +126,7 @@ watch(
 
     <template v-if="entry.isDir && ws.expanded[entry.path] && !(ws.draft?.mode === 'rename' && ws.draft.targetPath === entry.path)">
       <FileTreeNode
-        v-for="child in ws.children[entry.path]"
+        v-for="child in ws.visibleChildren(entry.path)"
         :key="child.path"
         :entry="child"
         :depth="depth + 1"
@@ -157,6 +157,11 @@ watch(
 
 .node.md {
   color: var(--text);
+}
+
+/* 应用内打不开的文件（图片等）不用手型光标：点了也没反应，手型会误导用户 */
+.node:not(.dir):not(.md) {
+  cursor: default;
 }
 
 .chev {
