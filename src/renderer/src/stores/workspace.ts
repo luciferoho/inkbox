@@ -27,8 +27,8 @@ export const useWorkspaceStore = defineStore('workspace', {
     allFilesLoaded: false
   }),
   getters: {
-    /** 仅显示可打开文档时，含可打开文件的文件夹集合（含全部祖先目录）。
-     *  过滤后的空文件夹（子树内没有任何可打开文件）据此隐藏 */
+    /** 含可打开文档的文件夹集合（含全部祖先目录），供「空文件夹」标记用：
+     *  不在此集合中的文件夹 = 子树内没有任何可打开文档 */
     openableDirs(state): Set<string> {
       const dirs = new Set<string>()
       const root = state.root
@@ -44,16 +44,23 @@ export const useWorkspaceStore = defineStore('workspace', {
       }
       return dirs
     },
-    /** 文件树渲染用的子项：过滤开关关闭原样返回；开启时隐藏不可打开文件，
-     *  并剪掉子树内没有任何可打开文件的空文件夹 */
+    /** 文件夹是否为「空」（仅可打开过滤开启时有意义）：子树内没有任何可打开文档。
+     *  全量文件列表未加载完成时不判空（避免启动瞬间整树标空） */
+    isEmptyDir(state) {
+      return (path: string): boolean => {
+        if (!state.allFilesLoaded) return false
+        return !this.openableDirs.has(path)
+      }
+    },
+    /** 文件树渲染用的子项：过滤开关关闭原样返回；开启时只隐藏不可打开的文件。
+     *  文件夹一律保留（新建空文件夹不能凭空消失），由 FileTreeNode 淡化标记空文件夹 */
     visibleChildren(state) {
       return (path: string): DirEntry[] => {
         const list = state.children[path]
         if (!list) return []
         const ui = useUiStore()
-        if (!ui.wsOpenableOnly || !state.allFilesLoaded) return list
-        const dirs = this.openableDirs
-        return list.filter((e) => (e.isDir ? dirs.has(e.path) : isOpenablePath(e.name)))
+        if (!ui.wsOpenableOnly) return list
+        return list.filter((e) => e.isDir || isOpenablePath(e.name))
       }
     }
   },

@@ -438,7 +438,8 @@ export const zh = {
   'settings.openAtLoginHint': '登录 Windows 后自动启动墨匣。',
   'settings.gWorkspace': '工作区',
   'settings.wsOpenableOnly': '仅显示可打开的文档',
-  'settings.wsOpenableOnlyHint': '开启后文件树只显示 Markdown/纯文本；其余文件（图片等）与因此变空的文件夹自动隐藏。默认关闭，显示全部文件。',
+  'settings.wsOpenableOnlyHint': '开启后文件树只显示 Markdown/纯文本，其余文件（图片等）自动隐藏；无文档的文件夹淡化显示，不会隐藏。默认关闭，显示全部文件。',
+  'side.emptyDirTip': '无文档',
 
   'settings.startupHint':
     '再次打开窗口时，恢复上次打开的文件标签与工作区文件夹。异常退出后下次启动会自动恢复全部内容（含未保存的修改）。',
