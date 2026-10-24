@@ -196,6 +196,23 @@ onBeforeUnmount(() => {
       >
         {{ $t('status.typewriter') }}
       </button>
+      <!-- 写作辅助开关指示（4.2/4.3）：开启才显示，点击打开设置 -->
+      <button
+        v-if="ui.editorPrefs.typographer"
+        class="badge toggle on"
+        :title="$t('status.typographerTitle')"
+        @click="ui.openSettings()"
+      >
+        {{ $t('settings.typographer') }}
+      </button>
+      <button
+        v-if="ui.editorPrefs.spellcheck"
+        class="badge toggle on"
+        :title="$t('status.spellcheckTitle')"
+        @click="ui.openSettings()"
+      >
+        {{ $t('settings.spellcheck') }}
+      </button>
       <span class="badge">Markdown</span>
       <span class="badge">UTF-8</span>
       <span class="badge" :class="{ ok: ui.autosaveEnabled }">

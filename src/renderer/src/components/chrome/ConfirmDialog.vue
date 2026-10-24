@@ -53,11 +53,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <div v-if="ui.confirm" class="mask" @click.self="ui.resolveConfirm(false)">
         <section class="dialog" role="alertdialog" :aria-label="ui.confirm.title">
           <div class="icon" :class="{ danger: ui.confirm.danger }">
-            <svg v-if="ui.confirm.danger" viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-              <path d="M10 4v8" /><circle cx="10" cy="15" r="0.8" fill="currentColor" stroke="none" />
-            </svg>
-            <svg v-else viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-              <path d="M10 5v6" /><circle cx="10" cy="14.4" r="0.8" fill="currentColor" stroke="none" />
+            <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+              <path d="M10 4.6v7.2" /><circle cx="10" cy="15" r="0.9" fill="currentColor" stroke="none" />
             </svg>
           </div>
           <h2 class="title">{{ ui.confirm.title }}</h2>
@@ -122,34 +119,38 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .icon {
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   display: grid;
   place-items: center;
   background: var(--accent-soft);
   color: var(--accent-strong);
-  margin-bottom: 12px;
+  /* 内环描边：与圆底同色系收一层，图标不再"裸圆" */
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-strong) 18%, transparent);
+  margin-bottom: 14px;
 }
 
 .icon.danger {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
   color: var(--danger);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 22%, transparent);
 }
 
 .title {
-  font-size: 14.5px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
   margin-bottom: 8px;
 }
 
 .message {
   font-size: 12.5px;
   color: var(--text-2);
-  line-height: 1.7;
+  line-height: 1.75;
   white-space: pre-wrap;
-  word-break: break-all;
-  margin-bottom: 18px;
+  word-break: break-word;
+  margin-bottom: 20px;
 }
 
 .actions {

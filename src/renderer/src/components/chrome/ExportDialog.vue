@@ -137,10 +137,10 @@ watch(
 function activePreviewHtml(): string | null {
   const preview = document.querySelector('.md-preview')
   if (!preview || !preview.innerHTML.trim()) return null
-  // 剥离预览专用的代码块 chrome（语言标签栏/复制按钮/行号栏），导出产物保持纯净结构
+  // 剥离预览专用的代码块 chrome（语言标签栏/复制按钮/行号结构），导出产物保持纯净结构
   const clone = preview.cloneNode(true) as HTMLElement
   clone.querySelectorAll('.md-code-bar').forEach((el) => el.remove())
-  clone.querySelectorAll('.md-code-ln').forEach((el) => el.remove())
+  clone.querySelectorAll('.md-cl').forEach((el) => el.replaceWith(...el.childNodes))
   clone.querySelectorAll('.md-code').forEach((el) => el.replaceWith(...el.childNodes))
   // 列宽拖拽是视图态（会话内记忆），不应固化进导出产物：清掉表格/单元格上的
   // 宽度与布局样式，导出页按内容自适应（超宽表格由导出 CSS 兜底换行）
