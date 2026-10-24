@@ -402,11 +402,13 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   return defaultLinkOpen(tokens, idx, options, env, self)
 }
 
-/* 放行 SVG data URI 图片：img 上下文不执行脚本，CSP 另有兜底；
-   javascript:/vbscript:/file: 等仍由默认策略拦截 */
+/* 放行 SVG data URI 图片与 file:/// 本地绝对路径图片：img 上下文不执行脚本，
+   CSP 另有兜底；javascript:/vbscript: 等仍由默认策略拦截。file: 放行后由
+   下方图片规则转成 luci-img 协议，预览不直接以 file: 加载 */
 const defaultValidateLink = md.validateLink
 md.validateLink = (url: string): boolean => {
   if (/^data:image\/svg\+xml/i.test(url)) return true
+  if (/^file:\/\/\//i.test(url)) return true
   return defaultValidateLink(url)
 }
 
@@ -418,7 +420,18 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
   const tok = tokens[idx]
   const raw = String(tok.attrGet('src') ?? '')
   const docDir: string | undefined = (env as { docDir?: string } | undefined)?.docDir
-  if (raw && docDir && !/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/|#)/.test(raw)) {
+  // file:/// 与盘符绝对路径 → luci-img（不依赖 docDir；与即显 toWysiwygSource 同规则，
+  // dev 的 http 源加载不了 file: 子资源）
+  const absFile = /^(?:file:\/\/\/)?([a-zA-Z]:[\/\\][^)\s]*)$/i.exec(raw)
+  if (absFile) {
+    let abs = absFile[1].replace(/\\/g, '/')
+    try {
+      abs = decodeURIComponent(abs)
+    } catch {
+      /* 游离 % 序列：按原样拼接 */
+    }
+    tok.attrSet('src', 'luci-img://' + encodeURIComponent(abs).replace(/%2F/gi, '/'))
+  } else if (raw && docDir && !/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/|#)/.test(raw)) {
     // markdown-it 对链接目标做过一次百分号编码（中文/空格 → %XX）：先解码回原始文件名
     // 再重组，否则 encodeURIComponent 二次编码会让主进程解码后剩字面量 % 路径（404 裂图）
     let rel = raw.replace(/^\.\//, '')

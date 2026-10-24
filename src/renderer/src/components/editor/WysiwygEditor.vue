@@ -373,6 +373,21 @@ function docDirOf(): string | null {
 function toWysiwygSource(md: string): string {
   const docDir = docDirOf()
   let src = splitAdjacentOrderedLists(md)
+  // file:/// 与盘符绝对路径（](E:/x/y.png)）→ luci-img：不依赖 docDir。
+  // dev 下渲染层是 http 源，file: 子资源被 webSecurity 拦截（CSP 放行也不够），
+  // 统一走 luci 协议使 dev/prod 渲染一致；序列化还原见 fromWysiwygSource
+  src = src.replace(
+    /(\]\()((?:file:\/\/\/)?[a-zA-Z]:[\/\\][^)\s]*)(\))/g,
+    (_whole, open: string, p: string, close: string) => {
+      let abs = p.replace(/^file:\/\/\//i, '').replace(/\\/g, '/')
+      try {
+        abs = decodeURIComponent(abs)
+      } catch {
+        /* 游离 % 序列按原样 */
+      }
+      return `${open}${buildLuciUrl(abs)}${close}`
+    }
+  )
   if (!docDir) return src
   const lines = src.split('\n')
   let fence: string | null = null
@@ -459,7 +474,9 @@ function fromWysiwygSource(md: string): string {
     if (normAbs.toLowerCase().startsWith(normDir + '/')) {
       return `](./${normAbs.slice(normDir.length + 1)})`
     }
-    return `](${normAbs})`
+    // 目录外的本机绝对路径还原为 file:///（再进即显会转回 luci-img，往返稳定；
+    // 裸 `](E:/x.png)` 无协议，浏览器当相对路径解析必裂图）
+    return `](file:///${normAbs})`
   })
 }
 
@@ -1021,8 +1038,16 @@ function applyWysiwygProgress(): void {
 
 /** 图片加载：记录固有尺寸（供重进首帧占位）+ 批量按进度重新落位；
  *  最后一次加载 200ms 后再补一次（布局完全收敛后的终落位） */
+/** 破图标记：加载失败的图片打上 img-broken（样式给占位框 + alt 文案可见）。
+ *  error 不冒泡，捕获委托覆盖 PM 重绘出的新 img 元素 */
+function onHostImgError(e: Event): void {
+  const img = e.target as HTMLImageElement | null
+  if (img && img.tagName === 'IMG') img.classList.add('img-broken')
+}
+
 function onHostImgLoad(e: Event): void {
   const img = e.target as HTMLImageElement | null
+  if (img && img.tagName === 'IMG') img.classList.remove('img-broken')
   if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
     rememberImgSize(img.src, img.naturalWidth, img.naturalHeight)
   }
@@ -1423,6 +1448,8 @@ onMounted(() => {
   host.value.addEventListener('scroll', onHostScroll, { passive: true })
   // 图片加载：记录尺寸 + 切签锚点重对齐（load 不冒泡，捕获委托）
   host.value.addEventListener('load', onHostImgLoad, { capture: true, passive: true })
+  // 图片加载失败：标记破图占位（缺文件时 0×0 隐身，用户无从察觉），成功后由 load 摘除
+  host.value.addEventListener('error', onHostImgError, { capture: true })
   // 用户滚轮即接管：停用切签锚点的自动重对齐
   host.value.addEventListener(
     'wheel',
@@ -1606,6 +1633,7 @@ onBeforeUnmount(() => {
   host.value?.removeEventListener('mouseout', onHostOut)
   host.value?.removeEventListener('scroll', onHostScroll)
   host.value?.removeEventListener('load', onHostImgLoad, { capture: true })
+  host.value?.removeEventListener('error', onHostImgError, { capture: true })
   host.value?.removeEventListener(
     'wheel',
     () => {

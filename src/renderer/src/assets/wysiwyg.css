@@ -241,6 +241,20 @@ html[data-theme-css] .wysiwyg-host .luci-prose pre {
   border-radius: 8px;
 }
 
+/* 破图占位：加载失败的图片不再 0×0 隐身——虚线框 + 底色，
+   Chromium 会自动显示 alt 文案与裂图图标（有尺寸才显示） */
+.wysiwyg-host .luci-prose img.img-broken {
+  min-width: 160px;
+  min-height: 56px;
+  border: 1.5px dashed color-mix(in srgb, var(--text-2) 55%, transparent);
+  background: color-mix(in srgb, var(--text-2) 7%, transparent);
+  object-fit: none;
+  overflow: hidden;
+  padding: 4px 8px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
 /* ProseMirror 交互态 */
 .wysiwyg-host .luci-prose .ProseMirror-selectednode {
   outline: 2px solid var(--accent);

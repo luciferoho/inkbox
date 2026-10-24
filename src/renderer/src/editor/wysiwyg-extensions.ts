@@ -202,14 +202,17 @@ export const footnoteReferenceSchema = $nodeSchema('footnote_reference', () => (
   toDOM: (node: PMNode) => [
     'sup',
     { class: 'footnote-ref', 'data-id': String(node.attrs.identifier ?? '') },
-    `[^${String(node.attrs.label || node.attrs.identifier || '')}]`
+    // 角标显示纯编号（与预览管线 markdown-it-footnote 一致；此前显示 [^1] 带语法，切模式跳变）
+    `[${String(node.attrs.label || node.attrs.identifier || '')}]`
   ],
   parseDOM: [
     {
       tag: 'sup.footnote-ref',
       getAttrs: (dom) => {
         if (!(dom instanceof HTMLElement)) return {}
-        return { identifier: dom.dataset.id ?? '', label: dom.textContent ?? '' }
+        // 角标文案是 [1] 展示形态，label 回读要去掉括号（label 进序列化，写 [^label]）
+        const text = (dom.textContent ?? '').replace(/[[\]^]/g, '')
+        return { identifier: dom.dataset.id ?? '', label: text }
       }
     }
   ],
