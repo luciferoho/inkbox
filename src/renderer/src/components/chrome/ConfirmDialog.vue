@@ -100,40 +100,22 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .dialog {
-  position: relative;
-  width: 400px;
+  width: 360px;
   max-width: calc(100vw - 48px);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-pop);
-  padding: 20px 24px 18px;
+  padding: 22px 24px 16px;
   display: flex;
   flex-direction: column;
-  text-align: left;
-  overflow: hidden;
-}
-
-/* 顶部语义色条：危险红 / 常规琥珀，取代图标传达确认性质（更干净利落） */
-.dialog::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: var(--accent);
-  border-radius: var(--radius-l) var(--radius-l) 0 0;
-}
-
-.dialog.danger::before {
-  background: var(--danger);
+  align-items: center;
+  text-align: center;
 }
 
 .title {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 600;
-  letter-spacing: 0.2px;
   margin-bottom: 8px;
 }
 
@@ -143,7 +125,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   line-height: 1.75;
   white-space: pre-wrap;
   word-break: break-word;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
+  /* 长路径等居中排版下更易读：两段式文案（说明+路径）左对齐 */
+  max-height: 40vh;
+  overflow-y: auto;
 }
 
 .actions {

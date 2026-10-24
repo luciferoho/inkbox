@@ -100,6 +100,8 @@ export const en: MsgSchema = {
   'status.autosaveOff': 'Autosave off',
   'status.typographerTitle': 'Smart punctuation: click to toggle',
   'status.spellcheckTitle': 'Spell check: click to toggle',
+  'status.aidOn': '{name} turned on',
+  'status.aidOff': '{name} turned off',
   'status.lineTitle': 'Line {n}',
   'status.vimTitle': 'Vim mode (toggle in settings): NORMAL / INSERT',
   'status.themeMore': 'More appearance settings…',

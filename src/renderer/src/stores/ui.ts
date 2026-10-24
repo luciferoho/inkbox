@@ -228,12 +228,39 @@ export const useUiStore = defineStore('ui', {
      *  注意必须展开成普通对象：editorPrefs 是 reactive 代理，Proxy 过不了
      *  IPC 结构化克隆（invoke 静默失败），设置会"看着生效实则没保存" */
     async setEditorPrefs(patch: Partial<AppConfig['editor']>): Promise<void> {
+      const spellBefore = this.editorPrefs.spellcheck
       this.editorPrefs = { ...this.editorPrefs, ...patch }
       this.applyEditorPrefs()
       // 智能标点必须先切 flag 再触发重渲染（Preview watch 在本函数返回前就会跑）
       setTypographer(!!this.editorPrefs.typographer)
       await window.api.app.setConfig({ editor: { ...this.editorPrefs } })
       this.applySpellcheck()
+      // 拼写检查开关即时重扫：Chromium 只在焦点/编辑时渐进扫描，若不扰动，
+      // 已有内容的波浪线要等光标走到才会出现
+      if (patch.spellcheck !== undefined && patch.spellcheck !== spellBefore) {
+        this.rescanSpellcheck()
+      }
+    },
+
+    /** 触发焦点编辑器立即重扫拼写：全选再收回原光标（无害扰动，光标位置不变） */
+    rescanSpellcheck(): void {
+      const sel = window.getSelection()
+      const active = document.activeElement
+      for (const el of document.querySelectorAll<HTMLElement>('.ProseMirror, .cm-content')) {
+        if (!active || !el.contains(active) || !sel) continue
+        try {
+          const restore = sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null
+          sel.selectAllChildren(el)
+          sel.collapseToStart()
+          if (restore) {
+            sel.removeAllRanges()
+            sel.addRange(restore)
+          }
+        } catch {
+          /* 选择失败不致命 */
+        }
+        break
+      }
     },
     /** 外观扩展（M3）：主题样式/字体族。广播后各窗口 applyConfig 重注入 */
     async setAppearance(patch: Partial<AppConfig['appearance']>): Promise<void> {

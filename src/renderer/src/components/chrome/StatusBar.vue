@@ -114,6 +114,14 @@ function openThemeSettings(): void {
   ui.settingsOpen = true
 }
 
+/** 写作辅助徽标：点击切换 + toast 反馈状态 */
+function toggleWritingAid(key: 'typographer' | 'spellcheck'): void {
+  const next = !ui.editorPrefs[key]
+  void ui.setEditorPrefs({ [key]: next })
+  const label = t(`settings.${key}`)
+  ui.showToast(t(next ? 'status.aidOn' : 'status.aidOff', { name: label }))
+}
+
 onBeforeUnmount(() => {
   themeMenuOpen.value = false
 })
@@ -196,12 +204,12 @@ onBeforeUnmount(() => {
       >
         {{ $t('status.typewriter') }}
       </button>
-      <!-- 写作辅助开关（4.2/4.3）：常显徽标，点击直接切换 -->
+      <!-- 写作辅助开关（4.2/4.3）：常显徽标，点击直接切换并提示 -->
       <button
         class="badge toggle"
         :class="{ on: ui.editorPrefs.typographer }"
         :title="$t('status.typographerTitle')"
-        @click="ui.setEditorPrefs({ typographer: !ui.editorPrefs.typographer })"
+        @click="toggleWritingAid('typographer')"
       >
         {{ $t('settings.typographer') }}
       </button>
@@ -209,7 +217,7 @@ onBeforeUnmount(() => {
         class="badge toggle"
         :class="{ on: ui.editorPrefs.spellcheck }"
         :title="$t('status.spellcheckTitle')"
-        @click="ui.setEditorPrefs({ spellcheck: !ui.editorPrefs.spellcheck })"
+        @click="toggleWritingAid('spellcheck')"
       >
         {{ $t('settings.spellcheck') }}
       </button>
