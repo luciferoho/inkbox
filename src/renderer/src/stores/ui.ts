@@ -242,22 +242,23 @@ export const useUiStore = defineStore('ui', {
       }
     },
 
-    /** 触发焦点编辑器立即重扫拼写：全选再收回原光标（无害扰动，光标位置不变） */
+    /** 触发焦点编辑器立即重扫拼写：Chromium 对 spellcheck 属性翻转才做
+     *  全量重扫（selection 变化不够），三连扰动——attr 往返 + reflow +
+     *  blur/focus，光标由 PM/CM 的 selection 同步自动恢复 */
     rescanSpellcheck(): void {
-      const sel = window.getSelection()
-      const active = document.activeElement
       for (const el of document.querySelectorAll<HTMLElement>('.ProseMirror, .cm-content')) {
-        if (!active || !el.contains(active) || !sel) continue
+        if (!document.activeElement || !el.contains(document.activeElement)) continue
         try {
-          const restore = sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null
-          sel.selectAllChildren(el)
-          sel.collapseToStart()
-          if (restore) {
-            sel.removeAllRanges()
-            sel.addRange(restore)
+          el.setAttribute('spellcheck', 'false')
+          void el.offsetHeight // reflow：确保属性翻转被排版管线消费
+          el.setAttribute('spellcheck', 'true')
+          const hadFocus = el.contains(document.activeElement)
+          if (hadFocus) {
+            el.blur()
+            el.focus()
           }
         } catch {
-          /* 选择失败不致命 */
+          /* 扰动失败不致命 */
         }
         break
       }
