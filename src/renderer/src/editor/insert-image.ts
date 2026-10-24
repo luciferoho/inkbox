@@ -4,7 +4,7 @@ import { useUiStore } from '@/stores/ui'
 import { t } from '@/i18n'
 import { cmViews } from './cm-registry'
 import { pmViews } from './pm-registry'
-import { assetsDirFor, fileExt, mimeFromName, persistImage } from './image-persist'
+import { assetsDirFor, ensureDocSaved, fileExt, mimeFromName, persistImage } from './image-persist'
 import { handleImages } from './pm-wysiwyg-image'
 
 /**
@@ -37,7 +37,7 @@ export function withUploadingPlaceholder(
   return run(finish)
 }
 
-/** 图片文件批量落位（粘贴/拖拽/命令共用）：无文档路径提示先保存。返回是否接管。 */
+/** 图片文件批量落位（粘贴/拖拽/命令共用）：未保存文档先自动走另存为（取消才提示）。返回是否接管。 */
 export async function insertImageFiles(
   dt: DataTransfer | null,
   view: EditorView,
@@ -48,12 +48,11 @@ export async function insertImageFiles(
   event?.preventDefault()
 
   const docs = useDocumentsStore()
-  const tab = docs.active
-  if (!tab?.path) {
+  if (!(await ensureDocSaved())) {
     useUiStore().showToast(t('editor.saveFirstForImage'))
     return true
   }
-  const docPath = tab.path
+  const docPath = docs.active!.path as string
   const { assetsDir } = assetsDirFor(docPath)
   const stamp = new Date()
   const pad = (n: number): string => String(n).padStart(2, '0')
@@ -122,10 +121,11 @@ export async function insertImageFromDisk(): Promise<void> {
     ui.showToast(t('editor.imageSaveFailed', { name }))
     return
   }
-  if (!tab.path) {
+  if (!tab.path && !(await ensureDocSaved())) {
     ui.showToast(t('editor.saveFirstForImage'))
     return
   }
+  const docPath = docs.active!.path as string
   const type = mimeFromName(name)
   const buf = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
   const target = pickTarget()
@@ -142,12 +142,12 @@ export async function insertImageFromDisk(): Promise<void> {
   }
   const cm = cmViews()[0]
   await withUploadingPlaceholder(cm, async (finish) => {
-    const link = await persistImage({ name, type }, buf, tab.path as string)
+    const link = await persistImage({ name, type }, buf, docPath)
     if (link) finish(`${link}\n`)
     else finish(null)
   })
   if (!ui.upload.enabled) {
-    ui.showToast(t('editor.imagesInserted', { n: 1, dir: assetsDirFor(tab.path).assetsDir }))
+    ui.showToast(t('editor.imagesInserted', { n: 1, dir: assetsDirFor(docPath).assetsDir }))
   }
   cm.focus()
 }
