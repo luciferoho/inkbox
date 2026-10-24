@@ -1,4 +1,5 @@
 import { useUiStore } from '@/stores/ui'
+import { useDocumentsStore } from '@/stores/documents'
 import { t } from '@/i18n'
 
 /**
@@ -40,6 +41,18 @@ export function assetsDirFor(docPath: string): { dir: string; assetsDir: string 
   const dir = sepIdx > 0 ? docPath.slice(0, sepIdx) : '.'
   const base = (docPath.split(/[\\/]/).pop() ?? 'doc').replace(/\.[^.]+$/, '')
   return { dir, assetsDir: `${base}.assets` }
+}
+
+/** 图片落盘前确保文档有路径：未保存（含新文档）时自动走「另存为」，
+ *  用户选定路径后返回 true（粘贴/插入随之继续，不再要求手动先保存再贴一遍）。
+ *  取消另存为或主页态返回 false，由调用方维持「请先保存」提示 */
+export async function ensureDocSaved(): Promise<boolean> {
+  const docs = useDocumentsStore()
+  const tab = docs.active
+  if (!tab || tab.isHome) return false
+  if (tab.path) return true
+  await docs.save() // 无路径 → saveTab 弹另存为对话框
+  return !!docs.active?.path
 }
 
 /** 相对图片路径 → luci-img:// 绝对协议（即显数据层约定,渲染才找得到本地文件） */

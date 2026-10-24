@@ -1149,8 +1149,15 @@ let offTableWidths: (() => void) | null = null
     多张图接连加载合并到每帧一次重收集+重对齐：逐张处理既造成布局抖动，
     又在连续联动滚动时与滚动流互相踩（来回拽 = 闪动） */
 let imgAlignScheduled = false
+/** 破图标记：加载失败的图片打上 img-broken（虚线占位框，不再 0×0 隐身）。
+ *  error 不冒泡，捕获委托覆盖 v-html 重渲染出的新 img；成功后由 onImgLoad 摘除 */
+function onImgError(e: Event): void {
+  const img = e.target as HTMLImageElement | null
+  if (img && img.tagName === 'IMG') img.classList.add('img-broken')
+}
 function onImgLoad(e: Event): void {
   const img = e.target as HTMLImageElement | null
+  if (img && img.tagName === 'IMG') img.classList.remove('img-broken')
   if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
     rememberImgSize(img.src, img.naturalWidth, img.naturalHeight)
   }
@@ -1178,6 +1185,7 @@ onMounted(() => {
   scroller.value?.addEventListener('scroll', onScrollDom, { passive: true })
   scroller.value?.addEventListener('click', onClickDom)
   scroller.value?.addEventListener('load', onImgLoad, { capture: true, passive: true })
+  scroller.value?.addEventListener('error', onImgError, { capture: true })
   // 字体加载/窗口缩放/图表渲染后块位置会变，重收集保持映射准确
   resizeObserver = new ResizeObserver(() => collectBlocks())
   if (scroller.value) resizeObserver.observe(scroller.value)
@@ -1192,6 +1200,7 @@ onBeforeUnmount(() => {
   scroller.value?.removeEventListener('scroll', onScrollDom)
   scroller.value?.removeEventListener('click', onClickDom)
   scroller.value?.removeEventListener('load', onImgLoad, { capture: true })
+  scroller.value?.removeEventListener('error', onImgError, { capture: true })
   resizeObserver?.disconnect()
   disconnectMermaidObserver()
   window.clearTimeout(renderTimer)

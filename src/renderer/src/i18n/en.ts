@@ -438,6 +438,11 @@ export const en: MsgSchema = {
   'settings.restoreFolders': 'Restore folder',
   'settings.openAtLogin': 'Launch at startup',
   'settings.openAtLoginHint': 'Start Inkbox automatically after signing in to Windows.',
+  'settings.gWorkspace': 'Workspace',
+  'settings.wsOpenableOnly': 'Show openable documents only',
+  'settings.wsOpenableOnlyHint': 'When on, the file tree lists Markdown/plain-text files only; other files (images etc.) are hidden. Folders without documents stay visible but dimmed. Off by default.',
+  'side.emptyDirTip': 'No documents',
+
   'settings.startupHint':
     'Reopen the tabs and workspace folder from your last session. After an abnormal exit everything is restored automatically (unsaved changes included).',
   'settings.closeAction': 'Close button',

@@ -3,7 +3,7 @@ import type { EditorView } from '@milkdown/kit/prose/view'
 import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import { useDocumentsStore } from '@/stores/documents'
 import { useUiStore } from '@/stores/ui'
-import { persistImage, fileExt, toLuciImgUrl } from '@/editor/image-persist'
+import { persistImage, fileExt, toLuciImgUrl, ensureDocSaved } from '@/editor/image-persist'
 import { registerPmView } from '@/editor/pm-registry'
 import { t } from '@/i18n'
 
@@ -66,16 +66,16 @@ export function createWysiwygImagePlugin(): Plugin {
 
 let seq = 0
 
-/** 即显侧图片落位管线（粘贴/拖拽/「插入图片」命令共用）：占位 data: 图 +
- *  上传遮罩 → persistImage → 原地换链接 */
+/** 即显侧图片落位管线（粘贴/拖拽/「插入图片」命令共用）：未保存先自动另存为
+ *  （取消才提示）；占位 data: 图 + 上传遮罩 → persistImage → 原地换链接 */
 export async function handleImages(files: File[], view: EditorView, drop?: DragEvent): Promise<void> {
   const ui = useUiStore()
   const docs = useDocumentsStore()
-  const docPath = docs.active?.path
-  if (!docPath) {
+  if (!(await ensureDocSaved())) {
     ui.showToast(t('editor.saveFirstForImage'))
     return
   }
+  const docPath = docs.active!.path as string
   const stamp = new Date()
   const pad = (n: number): string => String(n).padStart(2, '0')
   const ts = `${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}_${pad(

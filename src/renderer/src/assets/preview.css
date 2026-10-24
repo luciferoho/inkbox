@@ -252,6 +252,19 @@ html[data-theme-css] .md-preview .md-front-matter {
   border-radius: 8px;
   cursor: zoom-in;
 }
+/* 破图占位：与即显侧同规则（加载失败给虚线框，不静默隐身） */
+.md-preview img.img-broken {
+  min-width: 160px;
+  min-height: 56px;
+  border: 1.5px dashed color-mix(in srgb, var(--text-2) 55%, transparent);
+  background: color-mix(in srgb, var(--text-2) 7%, transparent);
+  object-fit: none;
+  overflow: hidden;
+  padding: 4px 8px;
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: default;
+}
 /* 双栏联动：源码光标落在图片语法上 → 预览对应图轻量高亮（琥珀描边 + 微光,
    跟随主题变量;只标边界不遮内容） */
 .md-preview img.pv-img-focus {

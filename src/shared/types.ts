@@ -23,6 +23,8 @@ export interface AppConfig {
   restoreTabs: boolean
   /** 再次打开窗口时恢复上次打开的文件夹 */
   restoreFolders: boolean
+  /** 工作区文件树仅显示可打开的文档类型（Markdown/纯文本），过滤后为空的文件夹一并隐藏；默认关（显示全部） */
+  wsOpenableOnly: boolean
   /** 登录系统后自动启动（app.setLoginItemSettings） */
   openAtLogin: boolean
   /** 点窗口关闭按钮的行为：quit = 退出程序；tray = 最小化到托盘（托盘菜单退出） */
@@ -134,6 +136,7 @@ export const defaultConfig: AppConfig = {
   autosave: { enabled: true, intervalMs: 15000, silent: true },
   restoreTabs: true,
   restoreFolders: true,
+  wsOpenableOnly: false,
   openAtLogin: false,
   closeAction: 'quit',
   shortcuts: {},
