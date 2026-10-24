@@ -86,6 +86,7 @@ export const en: MsgSchema = {
   'tabs.home': 'Home',
   'tabs.dirty': 'Unsaved',
   'tabs.new': 'New document',
+  'tabs.ctxReveal': 'Show in File Explorer',
   'tabs.ctxClose': 'Close tab',
   'tabs.ctxDetach': 'Move to new window',
   'tabs.ctxCloseLeft': 'Close left ({n})',

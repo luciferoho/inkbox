@@ -1,5 +1,5 @@
-import { ipcMain } from 'electron'
-import { readFile, writeFile, readdir, mkdir, rename, rm, stat } from 'node:fs/promises'
+import { ipcMain, shell } from 'electron'
+import { readFile, writeFile, readdir, mkdir, rename, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { DirEntry } from '@shared/types'
 
@@ -44,9 +44,27 @@ export function registerFsIpc(): void {
     await rename(oldPath, newPath)
   })
 
-  /** 删除文件或目录（目录递归） */
+  /** 删除文件或目录：走系统回收站（shell.trashItem），误删可从回收站找回。
+   *  目标不存在时幂等成功（对齐旧 force 语义）；回收站不可用（网络盘等）抛错
+   *  交由上层提示，不静默回退硬删 */
   ipcMain.handle('fs:delete', async (_e, path: string): Promise<void> => {
-    await rm(path, { recursive: true, force: true })
+    try {
+      await stat(path)
+    } catch {
+      return // 已不存在：幂等
+    }
+    await shell.trashItem(path)
+  })
+
+  /** 资源管理器中打开并选中文件/目录（标签右键、未来文件树复用） */
+  ipcMain.handle('fs:showInFolder', async (_e, path: string): Promise<void> => {
+    if (!/^[a-zA-Z]:[\\/]/.test(path) && !path.startsWith('/')) return
+    try {
+      await stat(path)
+    } catch {
+      return // 目标已消失（未保存改名等），静默忽略
+    }
+    shell.showItemInFolder(path)
   })
 
   /** 非递归列目录，目录在前、按名排序；用于文件树面板 */

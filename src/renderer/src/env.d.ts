@@ -24,6 +24,8 @@ interface Window {
       create(path: string, isDir: boolean): Promise<void>
       rename(oldPath: string, newPath: string): Promise<void>
       delete(path: string): Promise<void>
+      /** 资源管理器中打开并选中该文件/目录（标签右键等） */
+      showInFolder(path: string): Promise<void>
       readDir(path: string): Promise<import('@shared/types').DirEntry[]>
       listFiles(root: string): Promise<string[]>
     }

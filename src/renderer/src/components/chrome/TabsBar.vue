@@ -256,8 +256,14 @@ type MenuItem = { label: string; danger?: boolean; act: () => void; disabled?: b
 function menuItems(id: number): MenuItem[] {
   const idx = docs.tabs.findIndex((t) => t.id === id)
   if (idx < 0) return []
+  const tab = docs.tabs[idx]
   const realCount = docs.tabs.length - 1 // 除去主页
   return [
+    {
+      label: t('tabs.ctxReveal'),
+      act: () => void window.api.fs.showInFolder(tab!.path as string),
+      disabled: !tab?.path
+    },
     { label: t('tabs.ctxClose'), act: () => void docs.closeIfClean(docs.tabs[idx]) },
     { label: t('tabs.ctxDetach'), act: () => detachToWindow(id) },
     { label: t('tabs.ctxCloseLeft', { n: idx - 1 }), act: () => void docs.closeToLeft(id), disabled: idx <= 1 },
