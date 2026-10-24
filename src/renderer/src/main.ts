@@ -58,6 +58,11 @@ function installBrowserMock(): void {
     search: {
       run: async () => ({ files: [], truncated: false, scanned: 0 })
     },
+    history: {
+      snapshot: async () => ({ ok: true, skipped: true }),
+      list: async () => [],
+      read: async () => null
+    },
     dialog: {
       openFile: async () => null,
       openFolder: async () => null,

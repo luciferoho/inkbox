@@ -268,6 +268,8 @@ export const useDocumentsStore = defineStore('documents', {
         // 会把「没写进磁盘的新内容」记成快照，外部修改检测就认不出自身保存的回声
         const written = tab.content
         await window.api.fs.writeFile(path, written)
+        // 版本历史快照（4.1）：每次成功保存落一份检查点（主进程按内容去重）
+        void window.api.history.snapshot(path, written)
         tab.path = path
         tab.name = basename(path)
         tab.dirty = false

@@ -12,6 +12,15 @@ export const en: MsgSchema = {
 
   // App-level (App.vue)
   'app.exportNoDoc': 'Open a document first to export it',
+  'app.historyNoDoc': 'Save the document first to view its version history',
+  'history.title': 'Version History',
+  'history.empty': 'No snapshots yet — they are created automatically on save',
+  'history.restore': 'Restore this version',
+  'history.restoreTitle': 'Confirm restore',
+  'history.restoreMsg': 'Restore the document to the snapshot from {time}? Unsaved changes will be lost (a snapshot of the current content is taken first).',
+  'history.restored': 'Restored to the selected version',
+  'history.restoreFailed': 'Restore failed: could not write the file',
+  'history.readFailed': 'Failed to read the snapshot',
   'app.dropOpen': 'Release to open Markdown / text files',
   'app.dropOpened': 'Opened {n} file(s): {names}',
   'app.dropAlready': 'Already open in a tab: {names}',

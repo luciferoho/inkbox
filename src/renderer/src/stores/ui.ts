@@ -78,6 +78,8 @@ export const useUiStore = defineStore('ui', {
     /* 弹层 */
     settingsOpen: false,
     exportOpen: false,
+    /* 版本历史对话框（4.1） */
+    historyOpen: false,
     viewerImage: null as string | null,
     /* 外部修改重载信号：编辑器 watch 该序号后从 store 重新整档同步 */
     extReloadSeq: 0,
@@ -438,6 +440,9 @@ export const useUiStore = defineStore('ui', {
     },
     openExport(): void {
       this.exportOpen = true
+    },
+    openHistory(): void {
+      this.historyOpen = true
     },
     /** 外部修改已写回 store：通知挂载中的编辑器整档重新同步 */
     notifyReload(): void {

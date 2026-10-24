@@ -15,6 +15,15 @@ export const zh = {
 
   // 关窗 / 应用级（App.vue）
   'app.exportNoDoc': '请先打开要导出的文档',
+  'app.historyNoDoc': '已保存的文档才能查看历史版本',
+  'history.title': '历史版本',
+  'history.empty': '还没有快照——保存文档后自动生成',
+  'history.restore': '回滚到此版本',
+  'history.restoreTitle': '回滚确认',
+  'history.restoreMsg': '把文档回滚到 {time} 的快照？当前未保存的修改将丢失（本次保存前的内容会先落一份新快照）。',
+  'history.restored': '已回滚到所选版本',
+  'history.restoreFailed': '回滚失败：文件写入出错',
+  'history.readFailed': '快照读取失败',
   'app.dropOpen': '松开以打开 Markdown / 文本文件',
   'app.dropOpened': '已打开 {n} 个文件：{names}',
   'app.dropAlready': '已在标签中打开：{names}',
