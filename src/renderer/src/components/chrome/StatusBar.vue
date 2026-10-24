@@ -196,20 +196,20 @@ onBeforeUnmount(() => {
       >
         {{ $t('status.typewriter') }}
       </button>
-      <!-- 写作辅助开关指示（4.2/4.3）：开启才显示，点击打开设置 -->
+      <!-- 写作辅助开关（4.2/4.3）：常显徽标，点击直接切换 -->
       <button
-        v-if="ui.editorPrefs.typographer"
-        class="badge toggle on"
+        class="badge toggle"
+        :class="{ on: ui.editorPrefs.typographer }"
         :title="$t('status.typographerTitle')"
-        @click="ui.openSettings()"
+        @click="ui.setEditorPrefs({ typographer: !ui.editorPrefs.typographer })"
       >
         {{ $t('settings.typographer') }}
       </button>
       <button
-        v-if="ui.editorPrefs.spellcheck"
-        class="badge toggle on"
+        class="badge toggle"
+        :class="{ on: ui.editorPrefs.spellcheck }"
         :title="$t('status.spellcheckTitle')"
-        @click="ui.openSettings()"
+        @click="ui.setEditorPrefs({ spellcheck: !ui.editorPrefs.spellcheck })"
       >
         {{ $t('settings.spellcheck') }}
       </button>

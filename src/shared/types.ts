@@ -127,14 +127,6 @@ export interface WindowPrefs {
 
 export const defaultWindowPrefs: WindowPrefs = { pageWidthPct: 80, sidebarWidth: 264 }
 
-/** 版本历史快照条目（4.1） */
-export interface HistoryEntry {
-  /** 快照时间（epoch ms，即文件名） */
-  ts: number
-  /** 快照字节数 */
-  size: number
-}
-
 export interface RecentFile {
   path: string
   /** 最近打开时间（epoch ms），0 表示未知 */
@@ -178,7 +170,6 @@ export type MenuCommand =
   | 'file:openFolder'
   | 'file:save'
   | 'file:saveAs'
-  | 'file:history'
   | 'file:export'
   | 'file:closeTab'
   | 'file:nextTab'

@@ -106,6 +106,19 @@
   color: inherit;
 }
 
+/* 即显代码块行号（pm-codeblock-chrome 行号 widget）：每逻辑行行首一个，
+   与预览行号观感一致；不可编辑不选中（widget decoration 不进文档） */
+.wysiwyg-host .luci-prose pre .pm-code-ln {
+  display: inline-block;
+  min-width: 2.1em;
+  margin-right: 1.2em;
+  text-align: right;
+  color: var(--code-comment);
+  user-select: none;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
 /* 代码块 chrome：语言标签栏 + 复制按钮（pm-codeblock-chrome 的 widget 栏 + 相邻 pre） */
 .wysiwyg-host .luci-prose .md-code-bar {
   display: flex;

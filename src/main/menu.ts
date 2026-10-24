@@ -70,7 +70,6 @@ export function createMenu(win: BrowserWindow): void {
         { type: 'separator' },
         item('file:save', m('menuSave')),
         item('file:saveAs', m('menuSaveAs')),
-        item('file:history', m('menuHistory')),
         item('file:export', m('menuExport')),
         item('file:insertImage', m('menuInsertImage')),
         item('file:uploadImages', m('menuUploadImages')),

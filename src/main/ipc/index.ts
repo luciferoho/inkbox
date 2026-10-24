@@ -12,7 +12,6 @@ import { registerUpdateIpc } from './update'
 import { registerSessionIpc } from '../session'
 import { registerDocRegistryIpc } from '../docRegistry'
 import { registerFileWatcherIpc } from '../fileWatcher'
-import { registerHistoryIpc } from './history'
 
 export function registerIpcHandlers(): void {
   registerFsIpc()
@@ -29,5 +28,4 @@ export function registerIpcHandlers(): void {
   registerSessionIpc()
   registerDocRegistryIpc()
   registerFileWatcherIpc()
-  registerHistoryIpc()
 }
