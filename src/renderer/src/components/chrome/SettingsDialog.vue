@@ -643,6 +643,34 @@ function checkUpdate(): void {
                 </button>
               </div>
             </div>
+
+            <h3 class="group-title">{{ $t('settings.gWriting') }}</h3>
+            <div class="row">
+              <span class="label">{{ $t('settings.typographer') }}</span>
+              <button
+                class="switch"
+                role="switch"
+                :aria-checked="ui.editorPrefs.typographer"
+                :class="{ on: ui.editorPrefs.typographer }"
+                @click="ui.setEditorPrefs({ typographer: !ui.editorPrefs.typographer })"
+              >
+                <i class="knob" />
+              </button>
+            </div>
+            <p class="row-hint">{{ $t('settings.typographerHint') }}</p>
+            <div class="row">
+              <span class="label">{{ $t('settings.spellcheck') }}</span>
+              <button
+                class="switch"
+                role="switch"
+                :aria-checked="ui.editorPrefs.spellcheck"
+                :class="{ on: ui.editorPrefs.spellcheck }"
+                @click="ui.setEditorPrefs({ spellcheck: !ui.editorPrefs.spellcheck })"
+              >
+                <i class="knob" />
+              </button>
+            </div>
+            <p class="row-hint">{{ $t('settings.spellcheckHint') }}</p>
               </template>
 
               <!-- 图床：PicGo server 协议上传 -->

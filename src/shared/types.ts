@@ -12,6 +12,10 @@ export interface AppConfig {
   editor: {
     fontSize: number
     lineHeight: number
+    /** 智能标点（typographer）：直引号→弯引号、--→破折号、...→省略号；仅预览/导出管线，默认关 */
+    typographer?: boolean
+    /** 拼写检查：编辑器内英文拼写红线（Chromium 内置词典），默认关 */
+    spellcheck?: boolean
   }
   autosave: {
     enabled: boolean

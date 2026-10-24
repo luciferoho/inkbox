@@ -539,9 +539,20 @@ onMounted(() => {
   view.scrollDOM.addEventListener('scroll', onScrollDom, { passive: true })
   // 点击编辑区任意位置（含内边距/行号间隙）都要拿到焦点，避免"点了但打不了字"
   host.value.addEventListener('mousedown', onHostMousedown)
+  // 拼写检查开关（4.2）：按设置应用 + 跟随设置切换广播
+  applySpellcheckAttr(ui.editorPrefs.spellcheck ? 'true' : 'false')
+  window.addEventListener('inkbox:spellcheck', onSpellcheckBroadcast)
   // 启动即开着 Vim 模式：动态加载后挂载（首次引入 lib 再缓存）
   if (ui.vimMode) void syncVim(true)
 })
+
+function applySpellcheckAttr(v: string): void {
+  view?.contentDOM.setAttribute('spellcheck', v)
+}
+
+function onSpellcheckBroadcast(e: Event): void {
+  applySpellcheckAttr((e as CustomEvent<string>).detail ?? 'false')
+}
 
 function onHostMousedown(): void {
   if (view && !view.hasFocus) view.focus()
@@ -550,6 +561,7 @@ function onHostMousedown(): void {
 onBeforeUnmount(() => {
   pushFind() // 卸载前最后推一次（正常情况下每次变化都已实时推送，这里是兜底）
   host.value?.removeEventListener('mousedown', onHostMousedown)
+  window.removeEventListener('inkbox:spellcheck', onSpellcheckBroadcast)
   view?.scrollDOM.removeEventListener('scroll', onScrollDom)
   unregisterCm?.()
   view?.destroy()

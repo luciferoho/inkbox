@@ -44,7 +44,9 @@ export function createAppWindow(doc?: DetachDoc): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
-      spellcheck: false,
+      // 拼写检查引擎（4.2）：主进程常开（Chromium 内置），渲染层按设置开关
+      // 编辑器宿主的 spellcheck 属性——关着时引擎空转零开销
+      spellcheck: true,
       // 关掉后台节流：窗口被遮挡时 Chromium 会把渲染进程的 rAF/scroll 事件
       // 冻到 1Hz，编辑器的草稿防抖、滚动恢复落位、双栏联动全部依赖这些时序
       backgroundThrottling: false

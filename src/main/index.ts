@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol, net } from 'electron'
+import { app, BrowserWindow, protocol, net, session } from 'electron'
 import { pathToFileURL } from 'node:url'
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -75,6 +75,9 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     migrateLegacyConfig()
+    // 拼写检查词典锁定英文（4.2）：只标英文错词，中文经脚本检测直接跳过
+    // （不加载 zh 词典 = 中文永不被标红，规避满屏误报）
+    void session.defaultSession.setSpellCheckerLanguages(['en-US'])
     // 先检测上次是否异常退出（崩溃/强杀），再留下本次运行锁
     detectAbnormalExitAndMark()
     // 语言偏好要在创建菜单/托盘之前生效
