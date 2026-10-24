@@ -81,20 +81,17 @@ import { parseAltMods, buildAltMods, stepWidth, luciToDisplaySrc, type ImageMods
 import { splitAdjacentOrderedLists, parseOutline } from '@/services/markdown'
 // 单换行 → 硬换行：与预览管线 markdown-it 的 breaks:true 对齐（否则即显把
 // 段内单换行折叠成空格，同一文档两种模式显示不一致）
-import remarkBreaks from 'remark-breaks'
 import { t } from '@/i18n'
 // 图片修饰符即显渲染:extendSchema 返回新 holder,须 .use 挂载生效
 import { styledImageSchema } from '@/editor/wysiwyg-image-style'
 // KaTeX 数学（ROADMAP 1.1）：remark-math 解析 + atom 节点嵌套视图编辑
-import remarkMath from 'remark-math'
 import {
   mathInlineSchema,
   mathBlockSchema,
   mathInlineView,
   mathBlockView,
   inlineMathInputRule,
-  blockMathInputRule,
-  guardMathText
+  blockMathInputRule
 } from '@/editor/wysiwyg-math'
 // Mermaid 图表（ROADMAP 1.2）：code_block 双模 nodeView（mermaid 渲染/其他语言原样）
 import { mermaidCodeView, mermaidFocusPlugin, rethemeMermaidViews } from '@/editor/wysiwyg-mermaid'
@@ -107,21 +104,17 @@ import {
   superscriptInputRule,
   subscriptInputRule,
   inlineMarkStringifyHandlers,
-  splitInlineMarks,
   footnoteReferenceSchema,
   footnoteDefinitionSchema,
   footnoteReferenceInputRule,
   yamlSchema,
-  tocBlock,
   tocSchema,
   tocView,
   tocUpdatePlugin,
-  htmlSpanSchema,
-  mergeHtmlSpans
+  htmlSpanSchema
 } from '@/editor/wysiwyg-extensions'
-import remarkGemoji from 'remark-gemoji'
-import remarkFootnotes from 'remark-footnotes'
-import remarkFrontmatter from 'remark-frontmatter'
+// remark 解析插件序列（单一来源；等价比较共用同一序列）
+import { wysiwygRemarkPlugins } from '@/editor/wysiwyg-remark-pipeline'
 // 专注/打字机（ROADMAP 1.8）：与源码侧共用 ui 开关
 import { createWysiwygFocusPlugin, createWysiwygTypewriterPlugin } from '@/editor/pm-focus'
 import type { FindQuery, FindStatus } from '@/find-shared'
@@ -352,44 +345,6 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
 }
 
 /* ---------- 本地相对路径图片 ⇄ luci-img://（数据层改写） ---------- */
-
-/**
- * remark mdast 清洗：Milkdown 的 image schema 声明 `validate: "string"`，
- * 而 remark 对无 alt/title 的图片给出 null → PM 校验抛 RangeError →
- * Milkdown 的 addNode 把失败静默吞掉 → 图片节点蒸发（段落一起消失）。
- * 在 remark 解析后、PM 转换前把 null 归一化为空串。
- */
-interface MdastNode {
-  type?: string
-  depth?: number
-  alt?: unknown
-  title?: unknown
-  children?: MdastNode[]
-}
-
-function normalizeImageNulls() {
-  return (tree: MdastNode): void => {
-    const walk = (n: MdastNode): void => {
-      if (n.type === 'image') {
-        if (n.alt === null || n.alt === undefined) n.alt = ''
-        if (n.title === null || n.title === undefined) n.title = ''
-      }
-      n.children?.forEach((c) => walk(c))
-    }
-    walk(tree)
-  }
-}
-
-/** 相邻有序列表分隔的哨兵（toWysiwygSource 注入的空一级标题）：
- *  remark 解析后移除，PM 文档与序列化输出里不留痕迹 */
-function dropSplitHeadings() {
-  return (tree: MdastNode): void => {
-    if (!tree.children) return
-    tree.children = tree.children.filter(
-      (c) => !(c.type === 'heading' && c.depth === 1 && (!c.children || c.children.length === 0))
-    )
-  }
-}
 
 /**
  * Milkdown/ProseMirror 按 src 字面值渲染 <img>，相对路径相对应用源解析必裂图；
@@ -1485,29 +1440,10 @@ onMounted(() => {
     .config((ctx) => {
       ctx.set(rootCtx, host.value!)
       ctx.set(defaultValueCtx, toWysiwygSource(docs.active?.content ?? ''))
-      // remarkPluginsCtx 元素格式为 { plugin, options }（core 按 plug.plugin 取值 use）
-      ctx.update(remarkPluginsCtx, (ps) => [
-        ...ps,
-        { plugin: normalizeImageNulls, options: {} } as never,
-        { plugin: dropSplitHeadings, options: {} } as never,
-        { plugin: remarkBreaks, options: {} } as never,
-        // $...$ / $$...$$ → mdast inlineMath/math，由 wysiwyg-math 的 schema 接住
-        { plugin: remarkMath, options: {} } as never,
-        // 误判护栏：货币/含空格的 $ 对还原为字面文本（与预览管线对齐，roundtrip 无损）
-        { plugin: guardMathText, options: {} } as never,
-        // emoji 短代码 → 字符（纯文本替换，与预览 markdown-it-emoji 一致）
-        { plugin: remarkGemoji, options: {} } as never,
-        // 脚注 [^1] + 定义 → footnoteReference/footnoteDefinition
-        { plugin: remarkFootnotes, options: {} } as never,
-        // ==高亮== ^上标^ ~下标~ 文本切分 → 自定义 mdast 节点（mark schema 接住）
-        { plugin: splitInlineMarks, options: {} } as never,
-        // YAML front matter → yaml 节点（yamlSchema 接住，序列化还原围栏）
-        { plugin: remarkFrontmatter, options: 'yaml' } as never,
-        // 独占一段的 [TOC] → toc 块节点（tocView 实时渲染可点击目录）
-        { plugin: tocBlock, options: {} } as never,
-        // 行内 HTML 白名单：<u>/<mark>/<kbd> 等配对标签 → htmlSpan mark
-        { plugin: mergeHtmlSpans, options: {} } as never
-      ])
+      // remarkPluginsCtx 元素格式为 { plugin, options }（core 按 plug.plugin 取值 use）。
+      // 插件序列在 editor/wysiwyg-remark-pipeline.ts 单一来源维护，
+      // services/content-equivalence 的等价比较共用同一序列
+      ctx.update(remarkPluginsCtx, (ps) => [...ps, ...wysiwygRemarkPlugins])
       // 序列化：mark 系列自定义节点还原为 ==/^/~ 语法
       ctx.update(remarkStringifyOptionsCtx, (prev) => ({
         ...prev,
@@ -1597,8 +1533,14 @@ onMounted(() => {
         remark: (src: string) =>
           editor?.action((ctx) => {
             const proc = ctx.get(remarkCtx)
-            const tree = proc.runSync(proc.parse(src)) as unknown as MdastNode
-            const walk = (n: MdastNode): unknown =>
+            interface DebugMdastNode {
+              type?: string
+              alt?: unknown
+              title?: unknown
+              children?: DebugMdastNode[]
+            }
+            const tree = proc.runSync(proc.parse(src)) as unknown as DebugMdastNode
+            const walk = (n: DebugMdastNode): unknown =>
               n.type === 'image'
                 ? { type: n.type, alt: n.alt, title: n.title }
                 : { type: n.type, kids: (n.children ?? []).map(walk) }

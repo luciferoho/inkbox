@@ -5,7 +5,8 @@ import { useWorkspaceStore } from './workspace'
 import type { DetachDoc, DraftPayload } from '@shared/types'
 import { t } from '@/i18n'
 import { htmlToMarkdown } from '@/services/richPaste'
-import { canonicalizeContent, normalizeOrderedNumbering } from '@/services/markdown'
+import { normalizeOrderedNumbering } from '@/services/markdown'
+import { contentEquivalent } from '@/services/content-equivalence'
 import sampleDoc from '@samples/示例.md?raw'
 
 /** 主页（欢迎页）标签的固定 id */
@@ -382,19 +383,19 @@ export const useDocumentsStore = defineStore('documents', {
       if (this.closing) return // 关闭确认后编辑器可能异步回推一次旧序列化，忽略
       const tab = this.tabs.find((t) => t.id === id)
       if (tab && !tab.isHome && tab.content !== content) {
-        // 即显挂载/切换会把 `*`→`-`、`1)`→`1.`、编号重排、尾随空行增删等序列化
-        // 风格差异回推——用户没有真实编辑，不算脏（否则"打开即未保存"）。
+        // 即显挂载/切换会把 `*`→`-`、表格列宽补空格、缩进抹平等序列化风格差异
+        // 回推——用户没有真实编辑，不算脏（否则"打开即未保存"）。
+        // 等价判定走 mdast 结构比较（渲染等价即等价），不逐规则枚举风格写法。
         // 已脏标签的等价回推同样只采纳内容、不动脏标记（真实编辑保留）
-        if (canonicalizeContent(content) === canonicalizeContent(tab.content)) {
+        if (contentEquivalent(content, tab.content)) {
           tab.content = content
           return
         }
         tab.content = content
         // 撤销回已保存状态：脏标记跟随清除（否则脏草稿残留，异常退出后
         // 恢复出来就是一个"打开即未保存"的标签）。
-        // 比较走 canonicalize：即显序列化回推带表格列对齐/分割线写法/CRLF 等
-        // 风格差异，与磁盘文本精确相等永远差一点，精确比对会让脏标记粘住
-        if (tab.savedContent != null && canonicalizeContent(content) === canonicalizeContent(tab.savedContent)) {
+        // 序列化回推与磁盘文本必带风格差异，精确比对会让脏标记粘住
+        if (tab.savedContent != null && contentEquivalent(content, tab.savedContent)) {
           tab.dirty = false
           useUiStore().saveState = 'clean'
           this.scheduleDraftFlush() // 草稿随清除流程落地（flushDrafts 会清掉残留草稿）
@@ -472,13 +473,13 @@ export const useDocumentsStore = defineStore('documents', {
         }
         // 恢复的脏标签以磁盘内容为基线：内容其实与磁盘一致（编辑后撤销回原文的
         // 陈旧草稿等）时直接开成干净标签——否则"打开即未保存"且永远好不了。
-        // 比较走 canonicalize：挂载回推可能已把内容采纳成序列化等价文本
+        // 比较走 mdast 结构等价：挂载回推可能已把内容采纳成序列化等价文本
         if (d.path) {
           void window.api.fs
             .readFile(d.path)
             .then((disk) => {
               tab.savedContent = disk
-              if (canonicalizeContent(disk) === canonicalizeContent(tab.content)) {
+              if (contentEquivalent(disk, tab.content)) {
                 tab.dirty = false
                 if (this.activeId === tab.id) useUiStore().saveState = 'clean'
               }

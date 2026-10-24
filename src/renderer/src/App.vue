@@ -2,7 +2,7 @@
 import { onMounted, onBeforeUnmount, nextTick, defineAsyncComponent, ref } from 'vue'
 import type { MenuCommand, UpdateStatePayload } from '@shared/types'
 import { t } from '@/i18n'
-import { canonicalizeContent } from '@/services/markdown'
+import { contentEquivalent } from '@/services/content-equivalence'
 import { isOpenablePath } from '@/services/openable'
 import { useUiStore } from '@/stores/ui'
 import { initImageContextMenu } from '@/editor/image-context-menu'
@@ -154,7 +154,7 @@ onMounted(() => {
         continue
       }
       const disk = await window.api.fs.readFile(entry.draft.path).catch(() => null)
-      if (disk !== null && canonicalizeContent(disk) === canonicalizeContent(entry.draft.content)) {
+      if (disk !== null && contentEquivalent(disk, entry.draft.content)) {
         await window.api.drafts.clear(entry.key).catch(() => undefined)
         continue
       }
