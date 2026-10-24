@@ -264,6 +264,11 @@ function menuItems(id: number): MenuItem[] {
       act: () => void window.api.fs.showInFolder(tab!.path as string),
       disabled: !tab?.path
     },
+    {
+      label: t('tabs.ctxHistory'),
+      act: () => ui.openHistory(),
+      disabled: !tab?.path
+    },
     { label: t('tabs.ctxClose'), act: () => void docs.closeIfClean(docs.tabs[idx]) },
     { label: t('tabs.ctxDetach'), act: () => detachToWindow(id) },
     { label: t('tabs.ctxCloseLeft', { n: idx - 1 }), act: () => void docs.closeToLeft(id), disabled: idx <= 1 },

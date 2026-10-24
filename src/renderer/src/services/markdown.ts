@@ -918,21 +918,51 @@ function ensureCodeCopyHandler(): void {
 const defaultFence: RendererRule =
   md.renderer.rules.fence ??
   ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+
+/** 按换行拆分高亮 HTML 为行数组：跨行的未闭合标签在每行首尾补齐/闭合
+ *  （hljs 输出的标签全部是 span，跨行 span——多行注释/字符串——逐行复制开启标签、
+ *  逆序补闭合标签，浏览器解析后与原 HTML 等价，且每行有了独立的开头供 ::before 行号附着） */
+function splitHtmlLines(html: string): string[] {
+  const tokens = html.split(/(<[^>]+>)/)
+  const openStack: string[] = []
+  const lines: string[] = []
+  let cur = ''
+  for (const tk of tokens) {
+    if (!tk) continue
+    if (tk.startsWith('<')) {
+      if (tk.startsWith('</')) openStack.pop()
+      else if (!tk.endsWith('/>')) openStack.push(tk)
+      cur += tk
+      continue
+    }
+    const parts = tk.split('\n')
+    parts.forEach((part, i) => {
+      if (i > 0) {
+        lines.push(cur + '</span>'.repeat(openStack.length))
+        cur = openStack.join('')
+      }
+      cur += part
+    })
+  }
+  lines.push(cur)
+  return lines
+}
+
 md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const tok = tokens[idx]
   const info = tok.info.trim()
   if (info.split(/\s+/)[0] !== 'mermaid') {
-    // 代码块 chrome：语言标签栏 + 复制按钮 + 行号栏（导出走 Preview DOM 剥离，见 ExportDialog）
+    // 代码块 chrome：语言标签栏 + 复制按钮（导出走 Preview DOM 剥离，见 ExportDialog）
     const lang = escapeHtml(info.split(/\s+/)[0].toLowerCase())
     ensureCodeCopyHandler()
-    // 行号（七.2）：与 code 同处 pre 的行盒流（pre 不换行 → 逐行 1:1 对齐），
-    // sticky 左贴保证横向滚动时行号恒可见；复制/导出按 code 元素取文本不受污染
-    const n = tok.content.replace(/\n$/, '').split('\n').length
-    const gutter = `<span class="md-code-ln" aria-hidden="true">${Array.from({ length: n }, (_, i) => i + 1).join('\n')}</span>`
-    const inner = defaultFence(tokens, idx, options, env, self).replace(
-      '<pre>',
-      `<pre>${gutter}`
-    )
+    // 行号（七.2）：高亮 HTML 逐行包 <span class="md-cl">，行号由 CSS counter
+    // 在每个行 span 开头渲染（::before）——不改变 pre/code 的 display，
+    // 与自定义主题的 pre/code 规则零冲突（grid/sticky 方案在 phycat 等主题下碎裂）
+    const inner0 = defaultFence(tokens, idx, options, env, self)
+    const inner = inner0.replace(/<code([^>]*)>([\s\S]*)<\/code>/, (_m, attrs: string, body: string) => {
+      const lines = splitHtmlLines(body.replace(/\n$/, ''))
+      return `<code${attrs}>${lines.map((l) => `<span class="md-cl">${l}</span>`).join('\n')}\n</code>`
+    })
     const label = escapeHtml(t('code.copy'))
     return (
       `<div class="md-code"><div class="md-code-bar">` +
