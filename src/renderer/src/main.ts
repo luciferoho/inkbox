@@ -53,7 +53,8 @@ function installBrowserMock(): void {
       },
       delete: async (path: string) => void files.delete(path),
       readDir: async () => [],
-      listFiles: async () => [...files.keys()]
+      listFiles: async () => [...files.keys()],
+      showInFolder: async () => undefined
     },
     search: {
       run: async () => ({ files: [], truncated: false, scanned: 0 })

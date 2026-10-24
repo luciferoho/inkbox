@@ -88,6 +88,7 @@ export const zh = {
   'tabs.home': '主页',
   'tabs.dirty': '未保存',
   'tabs.new': '新建文档',
+  'tabs.ctxReveal': '在文件资源管理器中打开',
   'tabs.ctxClose': '关闭标签页',
   'tabs.ctxDetach': '移到新窗口',
   'tabs.ctxCloseLeft': '关闭左侧（{n}）',

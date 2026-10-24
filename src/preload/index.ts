@@ -34,6 +34,8 @@ const api = {
     rename: (oldPath: string, newPath: string): Promise<void> =>
       ipcRenderer.invoke('fs:rename', oldPath, newPath),
     delete: (path: string): Promise<void> => ipcRenderer.invoke('fs:delete', path),
+    /** 资源管理器中打开并选中该文件/目录（标签右键等） */
+    showInFolder: (path: string): Promise<void> => ipcRenderer.invoke('fs:showInFolder', path),
     readDir: (path: string): Promise<DirEntry[]> => ipcRenderer.invoke('fs:readDir', path),
     /** 递归列出工作区全部文件路径（文件树按名筛选用） */
     listFiles: (root: string): Promise<string[]> => ipcRenderer.invoke('fs:listFiles', root)
