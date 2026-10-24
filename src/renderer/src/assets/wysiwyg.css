@@ -308,7 +308,7 @@ html[data-theme-css] .wysiwyg-host .luci-prose pre {
   width: 22px;
   height: 22px;
   border: 2.5px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #e6a054;
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: mask-spin 0.9s linear infinite;
 }

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { defaultConfig, type AppConfig, type PluginCommand, type PluginInfo, type UpdateStatePayload, type WindowPrefs } from '@shared/types'
 import type { ShortcutOverrides } from '@shared/shortcuts'
 import { i18n, resolveLocale, t, type LocalePref } from '@/i18n'
+import { setTypographer } from '@/services/markdown'
 import { useDocumentsStore } from './documents'
 
 export type ThemePref = 'light' | 'dark' | 'system'
@@ -77,6 +78,8 @@ export const useUiStore = defineStore('ui', {
     /* 弹层 */
     settingsOpen: false,
     exportOpen: false,
+    /* 版本历史对话框（4.1） */
+    historyOpen: false,
     viewerImage: null as string | null,
     /* 外部修改重载信号：编辑器 watch 该序号后从 store 重新整档同步 */
     extReloadSeq: 0,
@@ -109,7 +112,7 @@ export const useUiStore = defineStore('ui', {
         resolve: (value: string) => void
       },
     /* 排版偏好（全局：字号/行距；纸宽为窗口私有，见 winPrefs） */
-    editorPrefs: { fontSize: 16, lineHeight: 1.7 },
+    editorPrefs: { fontSize: 16, lineHeight: 1.7 } as AppConfig['editor'],
     /* 窗口私有偏好：各窗口尺寸不同，纸宽/侧栏宽独立调整、不同步 */
     winPrefs: { pageWidthPct: 80, sidebarWidth: 264 } as WindowPrefs,
     /* 纸宽滑杆的动态最小值（保证纸面不窄于 620px，随窗口/侧栏状态变化） */
@@ -164,6 +167,9 @@ export const useUiStore = defineStore('ui', {
       }
       this.applyTheme()
       this.applyEditorPrefs()
+      // 智能标点 + 拼写检查初始态（markdown 单例与编辑器宿主属性）
+      setTypographer(!!this.editorPrefs.typographer)
+      this.applySpellcheck()
       void this.syncThemeLock()
       // 外观扩展（M3）：外部主题 CSS/字体族/用户 CSS；异步注入，不阻塞首帧
       void import('@/services/appearance').then((m) => m.applyAppearanceConfig(cfg))
@@ -202,6 +208,16 @@ export const useUiStore = defineStore('ui', {
       root.setProperty('--editor-line-height', String(lineHeight))
       root.setProperty('--paper-width', `${pageWidthPct}%`)
     },
+    /** 拼写检查（4.2，可选开关）：编辑器宿主 spellcheck 属性即时切换；
+       广播事件供编辑器重挂载后重新应用（PM/CM 创建时硬编码 false）。
+     *  Chromium 词典只标英文错词，中文文本不参与（脚本检测跳过），不会满屏红线 */
+    applySpellcheck(): void {
+      const v = this.editorPrefs.spellcheck ? 'true' : 'false'
+      for (const el of document.querySelectorAll<HTMLElement>('.ProseMirror, .cm-content')) {
+        el.setAttribute('spellcheck', v)
+      }
+      window.dispatchEvent(new CustomEvent('inkbox:spellcheck', { detail: v }))
+    },
     /** 重算纸宽滑杆最小值：保证纸面物理宽度不小于 620px（随窗口/侧栏状态变化） */
     updatePageWidthMin(): void {
       const rail = 52
@@ -216,7 +232,10 @@ export const useUiStore = defineStore('ui', {
     async setEditorPrefs(patch: Partial<AppConfig['editor']>): Promise<void> {
       this.editorPrefs = { ...this.editorPrefs, ...patch }
       this.applyEditorPrefs()
+      // 智能标点必须先切 flag 再触发重渲染（Preview watch 在本函数返回前就会跑）
+      setTypographer(!!this.editorPrefs.typographer)
       await window.api.app.setConfig({ editor: { ...this.editorPrefs } })
+      this.applySpellcheck()
     },
     /** 外观扩展（M3）：主题样式/字体族。广播后各窗口 applyConfig 重注入 */
     async setAppearance(patch: Partial<AppConfig['appearance']>): Promise<void> {
@@ -421,6 +440,9 @@ export const useUiStore = defineStore('ui', {
     },
     openExport(): void {
       this.exportOpen = true
+    },
+    openHistory(): void {
+      this.historyOpen = true
     },
     /** 外部修改已写回 store：通知挂载中的编辑器整档重新同步 */
     notifyReload(): void {

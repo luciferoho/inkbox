@@ -48,7 +48,7 @@ const api = {
     openFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFolder'),
     /** 块工具栏「插入图片」：选择本地图片文件 */
     openImage: (): Promise<string | null> => ipcRenderer.invoke('dialog:openImage'),
-    saveFile: (defaultName?: string, kind: 'md' | 'html' | 'tex' = 'md'): Promise<string | null> =>
+    saveFile: (defaultName?: string, kind: 'md' | 'html' | 'tex' | 'opml' | 'epub' = 'md'): Promise<string | null> =>
       ipcRenderer.invoke('dialog:saveFile', defaultName, kind)
   },
   export: {
@@ -191,6 +191,15 @@ const api = {
     readCode: (id: string): Promise<string | null> => ipcRenderer.invoke('plugin:readCode', id),
     /** 打开（不存在则创建）插件目录 */
     openDir: (): Promise<void> => ipcRenderer.invoke('plugin:openDir')
+  },
+  /** 版本历史/本地快照（4.1）：保存后快照，历史查看与回滚取数 */
+  history: {
+    snapshot: (path: string, content: string): Promise<{ ok: boolean; skipped?: boolean }> =>
+      ipcRenderer.invoke('history:snapshot', path, content),
+    list: (path: string): Promise<import('@shared/types').HistoryEntry[]> =>
+      ipcRenderer.invoke('history:list', path),
+    read: (path: string, ts: number): Promise<string | null> =>
+      ipcRenderer.invoke('history:read', path, ts)
   },
   /** 外部 CSS 主题与全局自定义样式（M3） */
   theme: {

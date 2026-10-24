@@ -10,7 +10,7 @@ function mdOpenFilters(): { name: string; extensions: string[] }[] {
   ]
 }
 
-const SAVE_KINDS: Record<string, string> = { md: 'Markdown', html: 'HTML', tex: 'LaTeX' }
+const SAVE_KINDS: Record<string, string> = { md: 'Markdown', html: 'HTML', tex: 'LaTeX', opml: 'OPML', epub: 'EPUB' }
 
 function parentWindow(e: IpcMainInvokeEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(e.sender)
@@ -55,16 +55,27 @@ export function registerDialogIpc(): void {
 
   ipcMain.handle(
     'dialog:saveFile',
-    async (e, defaultName?: string, kind: 'md' | 'html' | 'tex' = 'md'): Promise<string | null> => {
+    async (
+      e,
+      defaultName?: string,
+      kind: 'md' | 'html' | 'tex' | 'opml' | 'epub' = 'md'
+    ): Promise<string | null> => {
       const win = parentWindow(e)
       const exts: Record<string, string[]> = {
         md: ['md', 'markdown', 'mdown', 'txt'],
         html: ['html'],
-        tex: ['tex']
+        tex: ['tex'],
+        opml: ['opml'],
+        epub: ['epub']
+      }
+      const titles: Record<string, string> = {
+        html: 'dlgExportHtml',
+        tex: 'dlgExportLaTeX',
+        opml: 'dlgExportOpml',
+        epub: 'dlgExportEpub'
       }
       const opts: SaveDialogOptions = {
-        title:
-          kind === 'html' ? m('dlgExportHtml') : kind === 'tex' ? m('dlgExportLaTeX') : m('dlgSaveMd'),
+        title: titles[kind] ? m(titles[kind] as 'dlgExportHtml') : m('dlgSaveMd'),
         defaultPath: defaultName ?? m('dlgUntitledMd'),
         filters: [{ name: SAVE_KINDS[kind] ?? 'Markdown', extensions: exts[kind] ?? exts.md }]
       }

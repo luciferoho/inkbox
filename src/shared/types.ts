@@ -12,6 +12,10 @@ export interface AppConfig {
   editor: {
     fontSize: number
     lineHeight: number
+    /** 智能标点（typographer）：直引号→弯引号、--→破折号、...→省略号；仅预览/导出管线，默认关 */
+    typographer?: boolean
+    /** 拼写检查：编辑器内英文拼写红线（Chromium 内置词典），默认关 */
+    spellcheck?: boolean
   }
   autosave: {
     enabled: boolean
@@ -123,6 +127,14 @@ export interface WindowPrefs {
 
 export const defaultWindowPrefs: WindowPrefs = { pageWidthPct: 80, sidebarWidth: 264 }
 
+/** 版本历史快照条目（4.1） */
+export interface HistoryEntry {
+  /** 快照时间（epoch ms，即文件名） */
+  ts: number
+  /** 快照字节数 */
+  size: number
+}
+
 export interface RecentFile {
   path: string
   /** 最近打开时间（epoch ms），0 表示未知 */
@@ -166,6 +178,7 @@ export type MenuCommand =
   | 'file:openFolder'
   | 'file:save'
   | 'file:saveAs'
+  | 'file:history'
   | 'file:export'
   | 'file:closeTab'
   | 'file:nextTab'

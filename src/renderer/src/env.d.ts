@@ -34,7 +34,7 @@ interface Window {
       openFile(): Promise<string | null>
       openFolder(): Promise<string | null>
       openImage(): Promise<string | null>
-      saveFile(defaultName?: string, kind?: 'md' | 'html' | 'tex'): Promise<string | null>
+      saveFile(defaultName?: string, kind?: 'md' | 'html' | 'tex' | 'opml' | 'epub'): Promise<string | null>
     }
     export: {
       pdf(html: string, opts: import('@shared/types').PdfExportOptions, defaultName?: string): Promise<string | null>
@@ -97,6 +97,11 @@ interface Window {
       list(): Promise<import('@shared/types').PluginInfo[]>
       readCode(id: string): Promise<string | null>
       openDir(): Promise<void>
+    }
+    history: {
+      snapshot(path: string, content: string): Promise<{ ok: boolean; skipped?: boolean }>
+      list(path: string): Promise<import('@shared/types').HistoryEntry[]>
+      read(path: string, ts: number): Promise<string | null>
     }
     theme: {
       list(): Promise<import('@shared/types').ThemeInfo[]>

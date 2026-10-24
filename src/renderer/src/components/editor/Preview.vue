@@ -203,6 +203,14 @@ watch(
   { immediate: true }
 )
 
+/* 智能标点开关（4.3）影响渲染结果：切换后重渲染当前内容 */
+watch(
+  () => ui.editorPrefs.typographer,
+  () => {
+    if (props.content) void render(props.content)
+  }
+)
+
 /** 换文档（docDir 变化）时立即重渲染：图片相对路径才能正确解析。
  *  滚动位置交给每标签视图状态恢复（切标签 watch），不再一律回顶 */
 watch(

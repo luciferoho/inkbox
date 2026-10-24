@@ -67,12 +67,12 @@ const IMG_MIME: Record<string, string> = {
 
 /* 代码块语法令牌（与 base.css 双主题同名，导出产物脱离应用也要有值） */
 const CODE_TOKENS_LIGHT = `
-  --code-bg: #f2ecdf;
-  --code-fg: #2b2420;
-  --code-edge: rgba(38, 32, 25, 0.08);
-  --code-comment: #9c9184;
-  --code-keyword: #b16014;
-  --code-string: #57783b;
+  --code-bg: #f5f4f1;
+  --code-fg: #37352f;
+  --code-edge: rgba(55, 53, 47, 0.1);
+  --code-comment: #9b968c;
+  --code-keyword: #b26a1b;
+  --code-string: #55793c;
   --code-number: #b8503f;
   --code-title: #3565a3;
   --code-attr: #8a6d2f;
@@ -80,33 +80,33 @@ const CODE_TOKENS_LIGHT = `
   --code-deletion: #c2503e;
 `
 const CODE_TOKENS_DARK = `
-  --code-bg: #26201a;
-  --code-fg: #ece4d8;
-  --code-edge: rgba(255, 244, 230, 0.07);
-  --code-comment: #8a7f70;
-  --code-keyword: #f4c67f;
-  --code-string: #a8c98a;
-  --code-number: #e8a3a0;
-  --code-title: #9fc6e8;
-  --code-attr: #d4b483;
-  --code-type: #c9b3f0;
-  --code-deletion: #d66a55;
+  --code-bg: #1c1f27;
+  --code-fg: #d2d8e2;
+  --code-edge: rgba(210, 218, 230, 0.15);
+  --code-comment: #7d8595;
+  --code-keyword: #ecb96f;
+  --code-string: #a5c795;
+  --code-number: #e39a92;
+  --code-title: #9cc3e8;
+  --code-attr: #d0b283;
+  --code-type: #c2aeee;
+  --code-deletion: #d97764;
 `
 
 /* 纸面亮色主题的设计令牌（HTML/PNG 导出可选亮暗，PDF 固定亮色白底打印） */
 const EXPORT_TOKENS_LIGHT = `
 :root {
-  --bg: #f6f2ec;
+  --bg: #faf9f7;
   --surface: #ffffff;
-  --surface-2: #efe9e0;
-  --border: #e4dcd0;
-  --text: #2b2420;
-  --text-2: #7c7267;
+  --surface-2: #f2f0ec;
+  --border: #e6e3dd;
+  --text: #37352f;
+  --text-2: #86817a;
   --accent: #c9701f;
   --accent-strong: #b16014;
-  --accent-soft: rgba(201, 112, 31, 0.12);
+  --accent-soft: rgba(201, 112, 31, 0.1);
   --danger: #c2503e;
-  --export-shadow: 0 1px 3px rgba(38, 32, 25, 0.05), 0 16px 44px rgba(38, 32, 25, 0.07);
+  --export-shadow: 0 1px 3px rgba(40, 38, 33, 0.05), 0 16px 44px rgba(40, 38, 33, 0.06);
   --radius-m: 10px;
   --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
   --font-serif: Georgia, 'Source Serif SC', 'Noto Serif SC', 'Times New Roman', serif;
@@ -120,17 +120,17 @@ ${CODE_TOKENS_LIGHT}
 /* 墨匣暗色主题的设计令牌（暗色导出：深底浅字，代码块同为暗色） */
 const EXPORT_TOKENS_DARK = `
 :root {
-  --bg: #1d1814;
-  --surface: #272019;
-  --surface-2: #332a21;
-  --border: #3b3128;
-  --text: #eae2d6;
-  --text-2: #a89d8e;
-  --accent: #e6a054;
-  --accent-strong: #f0b26e;
-  --accent-soft: rgba(230, 160, 84, 0.14);
-  --danger: #d66a55;
-  --export-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 16px 44px rgba(0, 0, 0, 0.4);
+  --bg: #171a21;
+  --surface: #1e212a;
+  --surface-2: #272b35;
+  --border: #2b2f3a;
+  --text: #d2d8e2;
+  --text-2: #8d95a5;
+  --accent: #e3a45c;
+  --accent-strong: #edb877;
+  --accent-soft: rgba(227, 164, 92, 0.13);
+  --danger: #d97764;
+  --export-shadow: 0 1px 3px rgba(0, 0, 0, 0.28), 0 16px 44px rgba(0, 0, 0, 0.42);
   --radius-m: 10px;
   --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
   --font-serif: Georgia, 'Source Serif SC', 'Noto Serif SC', 'Times New Roman', serif;

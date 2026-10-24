@@ -94,6 +94,33 @@
   color: inherit;
 }
 
+/* 行号栏（七.2）：pre 转 grid 双列（gutter + code），两侧行盒同高同 line-height
+   逐行对齐（pre 不换行是前提）；gutter sticky 左贴 + 实底遮住滚过的代码，
+   不参与选择/复制（复制按 code 元素取文本） */
+.md-preview pre:has(.md-code-ln) {
+  display: grid;
+  grid-template-columns: minmax(2.4em, auto) 1fr;
+  column-gap: 0.9em;
+  /* grid 会吃掉 pre 的内联滚动语义：滚动仍由 pre 自身 overflow-x 承担 */
+}
+.md-preview pre .md-code-ln {
+  position: sticky;
+  left: 0;
+  align-self: start;
+  min-width: 2.4em;
+  text-align: right;
+  padding-right: 0.2em;
+  color: var(--code-comment);
+  background: var(--code-bg);
+  user-select: none;
+  pointer-events: none;
+  white-space: pre;
+  /* 与 code 完全同高：字号同 13px、行高同 1.6，数字列才逐行对齐 */
+  font-size: 13px;
+  line-height: 1.6;
+  font-family: var(--font-code);
+}
+
 /* 代码块 chrome：语言标签栏 + 复制按钮（fence 渲染包 .md-code 容器） */
 .md-preview .md-code {
   /* 注意：这里不能加 position:relative——内部 pre[data-source-line] 的

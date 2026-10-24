@@ -121,6 +121,13 @@ export const md: MarkdownIt = MarkdownItDefault({
   .use(footnote)
   .use(emoji)
 
+/* 智能标点（4.3，可选开关）：markdown-it 的 typographer——直引号→弯引号、
+   --→en 破折号、---→em 破折号、...→省略号。只影响预览/导出渲染，
+   源码与即显序列化不动；默认关（写作场景中文为主，直引号替换易误伤代码示例） */
+export function setTypographer(enabled: boolean): void {
+  md.set({ typographer: enabled })
+}
+
 /* 表格外套横向滚动容器：窄窗口/超宽表格不压扁内容，改为容器内横向滚动；
    列宽拖拽（2.2）注入的固定 px 宽度也由该容器承接溢出 */
 md.renderer.rules.table_open = (tokens, idx, options, _env, self) =>
@@ -900,7 +907,7 @@ function ensureCodeCopyHandler(): void {
       '.md-code-copy'
     ) as HTMLButtonElement | null
     if (!btn) return
-    const text = btn.closest('.md-code')?.querySelector('pre')?.textContent ?? ''
+    const text = btn.closest('.md-code')?.querySelector('pre code')?.textContent ?? ''
     if (!text) return
     void writeClipboard(text).then((ok) => {
       if (ok) applyCopiedFeedback(btn, t('code.copied'), t('code.copy'))
@@ -915,10 +922,17 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const tok = tokens[idx]
   const info = tok.info.trim()
   if (info.split(/\s+/)[0] !== 'mermaid') {
-    // 代码块 chrome：语言标签栏 + 复制按钮（导出走 Preview DOM 剥离，见 ExportDialog）
+    // 代码块 chrome：语言标签栏 + 复制按钮 + 行号栏（导出走 Preview DOM 剥离，见 ExportDialog）
     const lang = escapeHtml(info.split(/\s+/)[0].toLowerCase())
     ensureCodeCopyHandler()
-    const inner = defaultFence(tokens, idx, options, env, self)
+    // 行号（七.2）：与 code 同处 pre 的行盒流（pre 不换行 → 逐行 1:1 对齐），
+    // sticky 左贴保证横向滚动时行号恒可见；复制/导出按 code 元素取文本不受污染
+    const n = tok.content.replace(/\n$/, '').split('\n').length
+    const gutter = `<span class="md-code-ln" aria-hidden="true">${Array.from({ length: n }, (_, i) => i + 1).join('\n')}</span>`
+    const inner = defaultFence(tokens, idx, options, env, self).replace(
+      '<pre>',
+      `<pre>${gutter}`
+    )
     const label = escapeHtml(t('code.copy'))
     return (
       `<div class="md-code"><div class="md-code-bar">` +
