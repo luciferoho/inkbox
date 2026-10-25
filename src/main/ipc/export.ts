@@ -222,10 +222,18 @@ async function renderPng(html: string): Promise<{ data: Buffer; truncated: boole
         const target = Math.min(offset, maxScroll)
         const before = paintSeq
         await win.webContents.executeJavaScript(`window.scrollTo(0, ${target})`)
+        /* 等滚动真正到位：paint 帧可能来自滚动进行中的合成中间态，
+           拿去拼接会与量高基准错位（长图出现重复/空白带） */
+        await win.webContents.executeJavaScript(
+          `new Promise((done) => {
+             const check = () => (Math.abs(window.scrollY - ${target}) <= 1 ? done() : requestAnimationFrame(check))
+             check()
+           })`
+        )
         /* 等滚动后的重绘帧落地（帧率 60，最多 1.5s），再多稳一帧 */
         const t0 = Date.now()
         while (paintSeq <= before && Date.now() - t0 < 1500) await delay(40)
-        await delay(80)
+        await delay(120)
         if (!frame.image) throw new Error('PNG render produced no frame')
         const img = await loadImage(frame.image.toPNG())
         const segH = Math.min(PNG_CHUNK, limit - target)

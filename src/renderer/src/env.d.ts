@@ -11,6 +11,16 @@ declare module 'markdown-it-emoji/lib/data/full.mjs' {
   export default defs
 }
 
+/** nspell（hunspell 客户端）：无官方类型 */
+declare module 'nspell' {
+  interface NspellInstance {
+    correct(word: string): boolean
+    suggest(word: string): string[]
+  }
+  const Nspell: new (dictionary: { aff: string; dic: string }) => NspellInstance
+  export default Nspell
+}
+
 // 与 src/preload/index.ts 暴露的 window.api 保持同步（M1 抽到 @shared 统一）
 interface Window {
   api: {

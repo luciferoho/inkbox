@@ -74,6 +74,7 @@ import { registerPmTableExecutor, type TableMenuAction } from '@/editor/table-co
 import { writeClipboard } from '@/editor/code-copy'
 import { createElementToolbar, findTableSelection, type ElToolbarState } from '@/editor/pm-element-toolbar'
 import { createCodeblockChromePlugin } from '@/editor/pm-codeblock-chrome'
+import { createSpellcheckPlugin } from '@/editor/pm-spellcheck'
 import { createCodeHighlightPlugin } from '@/editor/pm-code-highlight'
 import { createQuoteEscapePlugin } from '@/editor/pm-quote-escape'
 import { createTaskTogglePlugin } from '@/editor/pm-task-toggle'
@@ -886,6 +887,7 @@ const elToolbarPlugin = $prose(() =>
 )
   // 代码块 chrome：语言标签栏 + 复制按钮（每块上方 widget 栏）
   const codeblockChromePlugin = $prose(() => createCodeblockChromePlugin())
+  const spellcheckPlugin = $prose(() => createSpellcheckPlugin())
   // 代码块语法高亮（hljs，与预览同一语言注册表与配色令牌）
   const codeHighlightPlugin = $prose(() => createCodeHighlightPlugin())
 // Esc 跳出引用块（列表 Tab/Shift+Tab 在视图级 handleKeys，优先级更高）
@@ -1543,6 +1545,7 @@ onMounted(() => {
     .use(codeHighlightPlugin)
     .use(quoteEscapePlugin)
     .use(taskTogglePlugin)
+    .use(spellcheckPlugin)
     .use(wysiwygFocusPlugin)
     .use(wysiwygTypewriterPlugin)
   void instance.create().then((e) => {
@@ -1717,7 +1720,12 @@ function onThemeApplied(): void {
 
 function onSpellcheckBroadcast(e: Event): void {
   const v = (e as CustomEvent<string>).detail ?? 'false'
+  // 自研拼写装饰（引擎侧不再依赖原生 spellcheck 属性，属性仅保留语义）
   document.querySelector('.ProseMirror')?.setAttribute('spellcheck', v)
+  editor?.action((ctx) => {
+    const view = ctx.get(editorViewCtx)
+    view.dispatch(view.state.tr.setMeta('spellcheck-rescan', true))
+  })
 }
 
 /* 专注/打字机开关 → 派发空事务，驱动装饰器重算（开关本身不产生事务） */

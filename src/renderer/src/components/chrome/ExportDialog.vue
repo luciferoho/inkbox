@@ -186,6 +186,10 @@ async function renderPdfPreview(b64: string, seq: number): Promise<void> {
     canvas.width = Math.floor(viewport.width)
     canvas.height = Math.floor(viewport.height)
     canvas.className = 'pdf-page'
+    // 量宽发生在对话框转场期间（clientWidth 偏大），转场后可能略超内容区——
+    // 行内 max-width 收敛显示尺寸（scoped 样式对 JS 动态节点不生效）
+    canvas.style.maxWidth = '100%'
+    canvas.style.height = 'auto'
     host.appendChild(canvas)
     await page.render({ canvas, viewport }).promise
     if (seq !== genSeq) {
@@ -669,9 +673,11 @@ async function doExport(): Promise<void> {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden; /* 生成期量宽与转场后实际宽度差几 px 时不再出横向滚动条 */
   padding: 20px 28px;
   display: flex;
   flex-direction: column;
+  align-items: center;
   align-items: center;
   gap: 16px;
 }
@@ -681,6 +687,8 @@ async function doExport(): Promise<void> {
   border-radius: 2px;
   box-shadow: 0 2px 14px rgba(20, 16, 12, 0.28);
   flex-shrink: 0;
+  max-width: 100%; /* 量宽误差兜底：canvas 位图宽略超内容区时按容器收敛 */
+  height: auto;
 }
 
 /* LaTeX 预览：等宽源码全文 */

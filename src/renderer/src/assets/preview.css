@@ -13,6 +13,13 @@
   word-break: break-word;
 }
 
+/* 拼写检查开启时预览正文临时 contenteditable（输入被 beforeinput 全拦）：
+   caret 隐藏维持只读观感 */
+.md-preview[contenteditable='true'] {
+  caret-color: transparent;
+  outline: none;
+}
+
 .md-preview > :first-child {
   margin-top: 0;
 }

@@ -134,6 +134,13 @@ body {
   cursor: default;
 }
 
+/* 拼写检查错词（4.2 自研引擎）：三端统一红波浪线 */
+.spell-err {
+  text-decoration: underline wavy color-mix(in srgb, var(--danger) 75%, transparent);
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+}
+
 ::selection {
   background: var(--selection);
   color: var(--text);

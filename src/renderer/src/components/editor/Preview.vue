@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ensureMath, renderWithDir } from '@/services/markdown'
+import { ensureSpellEngine, findMisspells } from '@/services/spellcheck'
 import {
   applyMermaidConfigInLock,
   configMermaidFor,
@@ -468,6 +469,7 @@ async function render(content: string): Promise<void> {
   if (body.value) applyCachedImageSizes(body.value) // 图片占位尺寸先落位，块映射与切签锚点才不会按塌缩布局算
   if (body.value) applyStoredTableWidths(body.value) // 列宽记忆（2.2）：与即显共享
   collectBlocks()
+  void decorateSpell() // 错词包装（4.2 自研引擎；异步防抖，不阻塞首帧）
   applyPvFocus() // DOM 重建后重放双栏联动高亮（光标没动就不需要等下一次 emit）
   renderQueued = false
   if (pendingFrac !== null) applyPendingScroll() // 切签滚动恢复：DOM 换完即落位
@@ -1035,6 +1037,12 @@ watch(
     pullFind(id, true)
     void nextTick(() => {
       if (!renderQueued) applyPendingScroll() // 内容相同没有重渲染排队时也要落位
+      // 新标签无进度记录：显式回顶。预览容器是 v-show 常驻的同一个 DOM，
+      // 不归零的话新文档会停留在上一个文档的滚动位置（"初始打开在中部"）
+      if (pendingFrac === null) {
+        const el = scroller.value
+        if (el) el.scrollTop = 0
+      }
     })
   }
 )
@@ -1052,6 +1060,11 @@ watch(
     // 还没执行——此刻读会拿到上一次的旧值甚至空值
     void nextTick(() => {
       pendingFrac = loadView(docs.activeId)?.frac ?? null
+      // 无进度记录（新标签/首次进入）同样回顶：容器常驻残留上一个文档的位置
+      if (pendingFrac === null) {
+        const el = scroller.value
+        if (el) el.scrollTop = 0
+      }
       const apply = (): void => {
         applyPendingScroll()
         const el = scroller.value
@@ -1159,6 +1172,77 @@ let offTableWidths: (() => void) | null = null
 let imgAlignScheduled = false
 /** 破图标记：加载失败的图片打上 img-broken（虚线占位框，不再 0×0 隐身）。
  *  error 不冒泡，捕获委托覆盖 v-html 重渲染出的新 img；成功后由 onImgLoad 摘除 */
+/** 预览只读拦截：contenteditable 开启拼写扫描后，所有输入意图一律阻止 */
+function preventPreviewInput(e: Event): void {
+  e.preventDefault()
+}
+
+function onSpellBroadcastPreview(): void {
+  void decorateSpell()
+}
+
+/* ---------- 拼写装饰（4.2 自研引擎）：错词文本节点拆分包装 ---------- */
+
+const SPELL_SKIP_TAGS = new Set(['CODE', 'PRE', 'KBD', 'SCRIPT', 'STYLE', 'SVG', 'MARK'])
+
+let spellSeq = 0
+
+async function decorateSpell(): Promise<void> {
+  const root = body.value
+  if (!root) return
+  const seq = ++spellSeq
+  const on = ui.editorPrefs.spellcheck
+  if (!on) {
+    unwrapSpell(root)
+    return
+  }
+  const ready = await ensureSpellEngine()
+  if (!ready || seq !== spellSeq) return
+  // 引擎就绪晚于本次渲染：再触发一轮内容重渲染已有装饰逻辑接管，直接扫
+  if (seq !== spellSeq) return
+  wrapSpell(root)
+}
+
+/** 深度优先包装错词：文本节点 → [前文, span.spell-err, 后文]（不动块结构，
+ *  双栏同步的 data-source-line 元素与块映射不受 inline 包装影响） */
+function wrapSpell(root: HTMLElement): void {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node: Text): number {
+      const parent = node.parentElement
+      if (!parent || SPELL_SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT
+      if (parent.closest('.spell-err')) return NodeFilter.FILTER_REJECT
+      if (!/[A-Za-z]{2,}/.test(node.data)) return NodeFilter.FILTER_REJECT
+      return NodeFilter.FILTER_ACCEPT
+    }
+  })
+  const targets: Text[] = []
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) targets.push(n as Text)
+  for (const node of targets) {
+    const hits = findMisspells(node.data)
+    if (hits.length === 0) continue
+    const frag = document.createDocumentFragment()
+    let pos = 0
+    for (const h of hits) {
+      if (h.start > pos) frag.appendChild(document.createTextNode(node.data.slice(pos, h.start)))
+      const span = document.createElement('span')
+      span.className = 'spell-err'
+      span.textContent = node.data.slice(h.start, h.end)
+      frag.appendChild(span)
+      pos = h.end
+    }
+    if (pos < node.data.length) frag.appendChild(document.createTextNode(node.data.slice(pos)))
+    node.replaceWith(frag)
+  }
+}
+
+/** 开关关闭时解除包装（span 还原为纯文本） */
+function unwrapSpell(root: HTMLElement): void {
+  for (const span of [...root.querySelectorAll('span.spell-err')]) {
+    span.replaceWith(...span.childNodes)
+  }
+  root.normalize()
+}
+
 function onImgError(e: Event): void {
   const img = e.target as HTMLImageElement | null
   if (img && img.tagName === 'IMG') img.classList.add('img-broken')
@@ -1189,6 +1273,9 @@ onMounted(() => {
   offTableWidths = onColWidthsChanged(() => {
     if (body.value) applyStoredTableWidths(body.value)
   })
+  // 拼写检查（4.2 自研）：广播事件驱动预览重扫/解除包装（装饰在 render 后
+  // 主动触发；开关切换时引擎懒加载就绪前先按开关状态包装或还原）
+  window.addEventListener('inkbox:spellcheck', onSpellBroadcastPreview)
   scroller.value?.addEventListener('mousemove', onPreviewMouseMoveTableCursor, { passive: true })
   scroller.value?.addEventListener('scroll', onScrollDom, { passive: true })
   scroller.value?.addEventListener('click', onClickDom)
@@ -1203,6 +1290,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   offTableWidths?.()
   window.removeEventListener('inkbox:theme-applied', onThemeApplied)
+  body.value?.removeEventListener('beforeinput', preventPreviewInput)
+  body.value?.removeEventListener('drop', preventPreviewInput)
+  window.removeEventListener('inkbox:spellcheck', onSpellBroadcastPreview)
   scroller.value?.removeEventListener('mousemove', onPreviewMouseMoveTableCursor)
   pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   scroller.value?.removeEventListener('scroll', onScrollDom)
