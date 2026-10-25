@@ -185,15 +185,17 @@ function ensureLineVisible(line: number): void {
 }
 
 let caretEnsureTimer = 0
-/* 源码光标/内容变化（同一行连续输入也会触发）→ 稍等渲染完成后保证该行在预览视口内 */
+/* 源码光标/内容变化（同一行连续输入也会触发）→ 稍等渲染完成后保证该行在预览视口内。
+   切签恢复期跳过：切回后 CM 光标先回到 1 行，caretSeq 触发的跟随会把预览
+   拽到文档顶部，覆盖刚恢复的内容锚（实测 2400 → 0）；恢复收敛后自然放行 */
 watch(
   () => ui.caretSeq,
   () => {
-    if (ui.editorMode !== 'split') return
+    if (ui.editorMode !== 'split' || viewRestoring) return
     const line = ui.currentLine
     window.clearTimeout(caretEnsureTimer)
     caretEnsureTimer = window.setTimeout(() => {
-      if (ui.editorMode === 'split') ensureLineVisible(line)
+      if (ui.editorMode === 'split' && !viewRestoring) ensureLineVisible(line)
     }, 220)
   }
 )
@@ -498,6 +500,7 @@ async function render(content: string): Promise<void> {
       if (viewRestoring) lastSyncLine = null
       viewRestoring = false
       pin.disconnect()
+      flushDeferredSync() // 落位期间挂起的联动此刻重放，两窗格收敛
     }
     const pin = new ResizeObserver(() => {
       if (pendingFrac !== frac || !scroller.value) {
@@ -514,8 +517,10 @@ async function render(content: string): Promise<void> {
       }, 400)
     })
     pin.observe(body.value)
-    // 滚轮/拖动条：用户接管视口，立即结束恢复（放行联动 + 撤钉）
+    // 滚轮/拖动条：用户接管视口，立即结束恢复（放行联动 + 撤钉）。
+    // 挂起联动作废——用户滚的是预览，它自己的滚动事件会把 CM 带过来
     const cancel = (): void => {
+      deferredSync = null
       settle()
       el?.removeEventListener('wheel', cancel)
       el?.removeEventListener('pointerdown', cancel)
@@ -812,9 +817,20 @@ function onScrollDom(): void {
  *  用户直接滚动预览即接管（置 null），此后图片加载不再往旧锚上拽 */
 let lastSyncLine: number | null = null
 
-function syncToLine(line: number, frac: number, edge: ScrollEdge = null): void {
+/** 落位期间到达的 CM 联动请求：直接应用会和 frac/锚点钉住互相改写目标
+ *  （两套体系对同一视口各算各的，交替写入表现为每次切换停的位置不一样），
+ *  挂起到收敛再重放。原实现直接丢弃——恢复窗口内滚编辑器会让两窗格
+ *  永久走散（切走时各落袋各的位置，切回时各恢复各的） */
+let deferredSync: { line: number; frac: number; edge: ScrollEdge } | null = null
+
+function syncToLine(line: number, frac: number, edge: ScrollEdge = null, force = false): void {
   const el = scroller.value
-  if (!el || blocks.length === 0) return
+  if (!el) return
+  if (!force && viewRestoring && (pendingFrac !== null || pendingAnchor !== null)) {
+    deferredSync = { line, frac, edge }
+    return
+  }
+  if (blocks.length === 0) return
   // 联动意味着新的视口意图（用户滚的是 CM），旧恢复目标作废
   if (!viewRestoring) {
     pendingFrac = null
@@ -825,9 +841,6 @@ function syncToLine(line: number, frac: number, edge: ScrollEdge = null): void {
   // 会让预览一格格跳图片；带上亚行偏移才跟得上左边的连续滚动
   const target = edge ? line : line + Math.min(1, Math.max(0, frac))
   lastSyncLine = edge ? null : target
-  // 切签恢复期：按行映射的落位与按比例的恢复钉住打架，只记账不落笔；
-  // 恢复收敛后由 onImgLoad/后续联动按 lastSyncLine 重放
-  if (viewRestoring) return
   lockUntil = Date.now() + 120
   if (edge === 'bottom') {
     el.scrollTop = el.scrollHeight
@@ -851,6 +864,26 @@ function syncToLine(line: number, frac: number, edge: ScrollEdge = null): void {
 }
 
 defineExpose({ syncToLine, focusImage })
+
+/** 重放落位期间挂起的联动（收敛/放行时调用，两窗格对齐到同一位置） */
+function flushDeferredSync(): void {
+  const d = deferredSync
+  if (!d) return
+  deferredSync = null
+  syncToLine(d.line, d.frac, d.edge, true)
+}
+
+/** 切签落袋前的最后一刻对齐：应用挂起联动并取消本签恢复钉住，
+ *  锚点/进度按对齐后的真实位置捕获（该签的恢复已无关紧要） */
+function forceSyncForSave(): void {
+  const d = deferredSync
+  if (!d) return
+  deferredSync = null
+  pendingFrac = null
+  pendingAnchor = null
+  viewRestoring = false
+  syncToLine(d.line, d.frac, d.edge, true)
+}
 
 /* ---------- 双栏联动：光标所在图片语法 → 对应图高亮 ---------- */
 
@@ -1093,6 +1126,8 @@ watch(
     // 隐藏窗格（编辑模式下预览隐藏）scrollTop 恒 0，跳过保存保留旧值
     const el = scroller.value
     if (el && el.offsetParent !== null) {
+      // 落位期挂起的 CM 联动先落笔再捕获，锚点/进度才不落后于编辑器位置
+      forceSyncForSave()
       saveViewProgress(old, el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight))
       // 内容锚（精确恢复）：比例在「保存时图片未加载/恢复时已缓存」的高度
       // 变化下固有漂移（实测 1200 滚出去回来变 1344）；锚定块行号+块内偏移
@@ -1109,6 +1144,9 @@ watch(
     viewRestoring = true
     window.setTimeout(() => {
       viewRestoring = false
+      // 兜底放行时若落位已结束（无钉住目标），重放挂起联动；
+      // 仍在落位（图片慢加载）则继续等 settle/用户接管
+      if (pendingFrac === null && pendingAnchor === null) flushDeferredSync()
     }, 4000)
     pullFind(id, true)
     void nextTick(() => {
@@ -1153,7 +1191,11 @@ watch(
         apply()
         // 进入 split 后进度由编辑器（联动主导方）持续写入，对齐完成即清空；
         // 进入 preview 模式则保留 pendingFrac，图片加载期间继续按它钉住
-        if (m === 'split') pendingFrac = null; pendingAnchor = null
+        if (m === 'split') {
+          pendingFrac = null
+          pendingAnchor = null
+          flushDeferredSync()
+        }
       }, 250)
     })
   }
