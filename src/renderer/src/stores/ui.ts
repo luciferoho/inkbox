@@ -206,21 +206,12 @@ export const useUiStore = defineStore('ui', {
       root.setProperty('--editor-line-height', String(lineHeight))
       root.setProperty('--paper-width', `${pageWidthPct}%`)
     },
-    /** 拼写检查（4.2，可选开关）：编辑器宿主 spellcheck 属性即时切换；
-       广播事件供编辑器重挂载后重新应用（PM/CM 创建时硬编码 false）。
-       预览正文以「可编辑但拒绝一切输入」的方式参与拼写扫描（纯静态 DOM
-       Chromium 不扫），beforeinput 已在 Preview 挂载时全拦，观感只读。
-     *  Chromium 词典只标英文错词，中文文本不参与（脚本检测跳过），不会满屏红线 */
+    /** 拼写检查（4.2，自研引擎）：广播事件驱动三端重扫/装卸。
+     *  原生 spellcheck 属性仅保留语义（Chromium 服务在本机不可用）；
+     *  错词波浪线由 editor/pm-spellcheck（即显）、cm-spellcheck（源码）、
+     *  Preview 的 DOM 包装（预览）基于 nspell 词表产出 */
     applySpellcheck(): void {
-      const v = this.editorPrefs.spellcheck ? 'true' : 'false'
-      for (const el of document.querySelectorAll<HTMLElement>('.ProseMirror, .cm-content')) {
-        el.setAttribute('spellcheck', v)
-      }
-      for (const el of document.querySelectorAll<HTMLElement>('.md-preview')) {
-        el.setAttribute('spellcheck', v)
-        el.contentEditable = this.editorPrefs.spellcheck ? 'true' : 'false'
-      }
-      window.dispatchEvent(new CustomEvent('inkbox:spellcheck', { detail: v }))
+      window.dispatchEvent(new CustomEvent('inkbox:spellcheck', { detail: this.editorPrefs.spellcheck ? 'true' : 'false' }))
     },
     /** 重算纸宽滑杆最小值：保证纸面物理宽度不小于 620px（随窗口/侧栏状态变化） */
     updatePageWidthMin(): void {

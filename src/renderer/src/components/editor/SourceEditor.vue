@@ -69,6 +69,7 @@ import FindBar from './FindBar.vue'
 import { htmlToMarkdown } from '@/services/richPaste'
 import { isHttpUrl, linkTextFromSelection } from '@/editor/paste-link'
 import { insertImageFiles, insertImageFromDisk } from '@/editor/insert-image'
+import { cmSpellcheck } from '@/editor/cm-spellcheck'
 import { t } from '@/i18n'
 import {
   detectTable,
@@ -151,6 +152,9 @@ async function syncVim(on: boolean): Promise<void> {
   await loadVim()
   view?.dispatch({ effects: vimComp.reconfigure(vimExt as Extension[]) })
 }
+/** 拼写检查装饰（4.2 自研引擎）按需装卸 */
+const spellComp = new Compartment()
+
 /** CodeMirror 内置界面短语（搜索面板等）随语言热切换 */
 const phrasesComp = new Compartment()
 /** 光标所在表格（停靠工具条的数据源：在表格内 → 表格操作，否则 → 格式化操作） */
@@ -217,6 +221,7 @@ function makeState(content: string): EditorState {
       luciTheme,
       focusComp.of(ui.focusMode ? luciFocusMode : []),
       typewriterComp.of(ui.typewriterMode ? luciTypewriterMode : []),
+      spellComp.of(ui.editorPrefs.spellcheck ? cmSpellcheck : []),
       vimComp.of(ui.vimMode && vimExt ? vimExt : []),
       EditorView.updateListener.of((u: ViewUpdate) => {
         // Vim 插入态回报（状态栏徽标），先于 applying 守卫
@@ -552,6 +557,12 @@ function applySpellcheckAttr(v: string): void {
 
 function onSpellcheckBroadcast(e: Event): void {
   applySpellcheckAttr((e as CustomEvent<string>).detail ?? 'false')
+  // 自研拼写装饰随开关装卸（引擎懒加载后由就绪回调再触发一次重配置）
+  void import('@/editor/cm-spellcheck').then((m) => {
+    view?.dispatch({
+      effects: spellComp.reconfigure(ui.editorPrefs.spellcheck ? m.cmSpellcheck : [])
+    })
+  })
 }
 
 function onHostMousedown(): void {

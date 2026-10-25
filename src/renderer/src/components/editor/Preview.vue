@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ensureMath, renderWithDir } from '@/services/markdown'
+import { ensureSpellEngine, findMisspells } from '@/services/spellcheck'
 import {
   applyMermaidConfigInLock,
   configMermaidFor,
@@ -468,6 +469,7 @@ async function render(content: string): Promise<void> {
   if (body.value) applyCachedImageSizes(body.value) // 图片占位尺寸先落位，块映射与切签锚点才不会按塌缩布局算
   if (body.value) applyStoredTableWidths(body.value) // 列宽记忆（2.2）：与即显共享
   collectBlocks()
+  void decorateSpell() // 错词包装（4.2 自研引擎；异步防抖，不阻塞首帧）
   applyPvFocus() // DOM 重建后重放双栏联动高亮（光标没动就不需要等下一次 emit）
   renderQueued = false
   if (pendingFrac !== null) applyPendingScroll() // 切签滚动恢复：DOM 换完即落位
@@ -1175,6 +1177,72 @@ function preventPreviewInput(e: Event): void {
   e.preventDefault()
 }
 
+function onSpellBroadcastPreview(): void {
+  void decorateSpell()
+}
+
+/* ---------- 拼写装饰（4.2 自研引擎）：错词文本节点拆分包装 ---------- */
+
+const SPELL_SKIP_TAGS = new Set(['CODE', 'PRE', 'KBD', 'SCRIPT', 'STYLE', 'SVG', 'MARK'])
+
+let spellSeq = 0
+
+async function decorateSpell(): Promise<void> {
+  const root = body.value
+  if (!root) return
+  const seq = ++spellSeq
+  const on = ui.editorPrefs.spellcheck
+  if (!on) {
+    unwrapSpell(root)
+    return
+  }
+  const ready = await ensureSpellEngine()
+  if (!ready || seq !== spellSeq) return
+  // 引擎就绪晚于本次渲染：再触发一轮内容重渲染已有装饰逻辑接管，直接扫
+  if (seq !== spellSeq) return
+  wrapSpell(root)
+}
+
+/** 深度优先包装错词：文本节点 → [前文, span.spell-err, 后文]（不动块结构，
+ *  双栏同步的 data-source-line 元素与块映射不受 inline 包装影响） */
+function wrapSpell(root: HTMLElement): void {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node: Text): number {
+      const parent = node.parentElement
+      if (!parent || SPELL_SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT
+      if (parent.closest('.spell-err')) return NodeFilter.FILTER_REJECT
+      if (!/[A-Za-z]{2,}/.test(node.data)) return NodeFilter.FILTER_REJECT
+      return NodeFilter.FILTER_ACCEPT
+    }
+  })
+  const targets: Text[] = []
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) targets.push(n as Text)
+  for (const node of targets) {
+    const hits = findMisspells(node.data)
+    if (hits.length === 0) continue
+    const frag = document.createDocumentFragment()
+    let pos = 0
+    for (const h of hits) {
+      if (h.start > pos) frag.appendChild(document.createTextNode(node.data.slice(pos, h.start)))
+      const span = document.createElement('span')
+      span.className = 'spell-err'
+      span.textContent = node.data.slice(h.start, h.end)
+      frag.appendChild(span)
+      pos = h.end
+    }
+    if (pos < node.data.length) frag.appendChild(document.createTextNode(node.data.slice(pos)))
+    node.replaceWith(frag)
+  }
+}
+
+/** 开关关闭时解除包装（span 还原为纯文本） */
+function unwrapSpell(root: HTMLElement): void {
+  for (const span of [...root.querySelectorAll('span.spell-err')]) {
+    span.replaceWith(...span.childNodes)
+  }
+  root.normalize()
+}
+
 function onImgError(e: Event): void {
   const img = e.target as HTMLImageElement | null
   if (img && img.tagName === 'IMG') img.classList.add('img-broken')
@@ -1205,11 +1273,9 @@ onMounted(() => {
   offTableWidths = onColWidthsChanged(() => {
     if (body.value) applyStoredTableWidths(body.value)
   })
-  // 拼写检查（4.2）：预览正文以「可编辑但拒绝一切输入」的方式呈现——
-  // Chromium 只扫描可编辑内容的拼写，纯静态 DOM 不出波浪线；beforeinput
-  // 全拦保证只读观感（选择/复制/右键查词不受影响），caret 视觉由 CSS 隐藏
-  body.value?.addEventListener('beforeinput', preventPreviewInput)
-  body.value?.addEventListener('drop', preventPreviewInput)
+  // 拼写检查（4.2 自研）：广播事件驱动预览重扫/解除包装（装饰在 render 后
+  // 主动触发；开关切换时引擎懒加载就绪前先按开关状态包装或还原）
+  window.addEventListener('inkbox:spellcheck', onSpellBroadcastPreview)
   scroller.value?.addEventListener('mousemove', onPreviewMouseMoveTableCursor, { passive: true })
   scroller.value?.addEventListener('scroll', onScrollDom, { passive: true })
   scroller.value?.addEventListener('click', onClickDom)
@@ -1226,6 +1292,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('inkbox:theme-applied', onThemeApplied)
   body.value?.removeEventListener('beforeinput', preventPreviewInput)
   body.value?.removeEventListener('drop', preventPreviewInput)
+  window.removeEventListener('inkbox:spellcheck', onSpellBroadcastPreview)
   scroller.value?.removeEventListener('mousemove', onPreviewMouseMoveTableCursor)
   pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   scroller.value?.removeEventListener('scroll', onScrollDom)
