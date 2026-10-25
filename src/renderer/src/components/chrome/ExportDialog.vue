@@ -668,16 +668,19 @@ async function doExport(): Promise<void> {
   background: var(--bg);
 }
 
-/* PDF 预览：A4 页面卡片纵向排布 */
+/* PDF 预览：A4 页面卡片纵向排布；灰底 + 页间间隔（WPS 视图风格，
+   一眼可辨分页边界，也缓解"页面之间贴在一起显空"的观感） */
 .pdf-host {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
   overflow-x: hidden; /* 生成期量宽与转场后实际宽度差几 px 时不再出横向滚动条 */
-  padding: 20px 28px;
+  padding: 24px 28px 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 18px;
+  background: color-mix(in srgb, var(--text-2) 10%, var(--bg));
   align-items: center;
   gap: 16px;
 }

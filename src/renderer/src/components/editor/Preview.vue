@@ -18,7 +18,7 @@ import { useUiStore } from '@/stores/ui'
 import { useDocumentsStore } from '@/stores/documents'
 import { buildRegex, type FindQuery } from '@/find-shared'
 import { findState, sameQuery } from '@/editor/find-state'
-import { saveViewProgress, loadView } from '@/editor/tab-view-state'
+import { saveViewProgress, saveViewAnchor, loadView } from '@/editor/tab-view-state'
 import { applyCachedImageSizes, rememberImgSize } from '@/editor/img-size-cache'
 import {
   applyColWidths,
@@ -109,6 +109,12 @@ let renderSeq = 0
 let renderQueued = false
 /** 待恢复的共享浏览进度（0..1）；null = 无待恢复。同一文档所有模式共用一份进度 */
 let pendingFrac: number | null = null
+/** 切签恢复的内容锚（锚优先于 frac：比例对高度变化固有漂移） */
+let pendingAnchor: import("@/editor/tab-view-state").ViewAnchor | null = null
+/** 切签滚动恢复进行中：CM 联动（syncToLine 按行映射）与恢复钉住
+ *  （applyPendingScroll 按比例）对同一目标会算出不同位置，交替写入
+ *  表现为「每次切换停的位置都不一样」——恢复期间联动只记账不落笔 */
+let viewRestoring = false
 /** 下一次渲染是否禁用「内容锚点保持」（切标签/进模式时按进度或编辑器联动落位） */
 let anchorSuppressed = false
 
@@ -130,7 +136,7 @@ function captureViewAnchor(): ViewAnchor | null {
   return { kind: 'block', line: cur.line, offset: Math.round(el.scrollTop - cur.top) }
 }
 
-function restoreViewAnchor(a: ViewAnchor): void {
+function restoreViewAnchor(a: import("@/editor/tab-view-state").ViewAnchor): void {
   const el = scroller.value
   if (!el) return
   if (a.kind === 'top') {
@@ -141,14 +147,16 @@ function restoreViewAnchor(a: ViewAnchor): void {
     el.scrollTop = el.scrollHeight
     return
   }
-  // 找行号相同（或其后最近的）块，保留块内像素偏移；找不到时按行号插值兜底
+  // 找行号相同（或其后最近的）块，保留块内像素偏移
+  const line = a.line ?? 0
+  const off = a.offset ?? 0
   let target = blocks[0]
   for (const b of blocks) {
-    if (b.line <= a.line) target = b
+    if (b.line <= line) target = b
     else break
   }
   if (!target) return
-  el.scrollTop = Math.max(0, target.top + a.offset)
+  el.scrollTop = Math.max(0, target.top + off)
   lockUntil = Date.now() + 120 // 程序落位期间忽略滚动回声
 }
 
@@ -226,7 +234,10 @@ watch(
 function applyPendingScroll(): void {
   const el = scroller.value
   if (pendingFrac === null || !el) return
-  el.scrollTop = pendingFrac * Math.max(0, el.scrollHeight - el.clientHeight)
+  // 锚优先：按块行号+块内偏移落位，图片加载改变总高度不漂移；
+  // 无锚（旧记录）或块映射未就绪时退回比例
+  if (pendingAnchor && blocks.length > 0) restoreViewAnchor(pendingAnchor)
+  else el.scrollTop = pendingFrac * Math.max(0, el.scrollHeight - el.clientHeight)
 }
 
 /** 顶层块的源码行范围：行号标记多数直接在块上；代码块在 .md-code 容器内
@@ -473,6 +484,45 @@ async function render(content: string): Promise<void> {
   applyPvFocus() // DOM 重建后重放双栏联动高亮（光标没动就不需要等下一次 emit）
   renderQueued = false
   if (pendingFrac !== null) applyPendingScroll() // 切签滚动恢复：DOM 换完即落位
+  // 高度收敛钉住：KaTeX/mermaid/图片与 docDir 触发的二次渲染会持续改变
+  // scrollHeight，scrollTop 被钳制漂移。ResizeObserver 监听内容高度——
+  // 每次变化立即钉回（无固定节拍的中间态闪烁），高度稳定后自动停。
+  // 用户主动滚动（滚轮/拖动条）即取消钉住，把视口还给用户
+  if (pendingFrac !== null && body.value) {
+    const frac = pendingFrac
+    const el = scroller.value
+    let lastH = -1
+    const settle = (): void => {
+      // 恢复收敛：丢弃挂起期 CM 联动记的行映射目标——否则此后任何 img load
+      // 的重放分支（syncToLine(lastSyncLine)）会用块粒度位置覆盖精确钉住
+      if (viewRestoring) lastSyncLine = null
+      viewRestoring = false
+      pin.disconnect()
+    }
+    const pin = new ResizeObserver(() => {
+      if (pendingFrac !== frac || !scroller.value) {
+        settle()
+        return
+      }
+      const h = scroller.value.scrollHeight
+      if (h === lastH) return
+      lastH = h
+      applyPendingScroll()
+      // 高度 400ms 不再变化即认为收敛：放行联动、撤哨
+      window.setTimeout(() => {
+        if (scroller.value && scroller.value.scrollHeight === h && pendingFrac === frac) settle()
+      }, 400)
+    })
+    pin.observe(body.value)
+    // 滚轮/拖动条：用户接管视口，立即结束恢复（放行联动 + 撤钉）
+    const cancel = (): void => {
+      settle()
+      el?.removeEventListener('wheel', cancel)
+      el?.removeEventListener('pointerdown', cancel)
+    }
+    el?.addEventListener('wheel', cancel, { passive: true, once: true })
+    el?.addEventListener('pointerdown', cancel, { passive: true, once: true })
+  }
   else if (anchor) restoreViewAnchor(anchor) // 输入触发重渲染：保持原内容锚点
   if (pendingJump !== null) runPendingJump() // 大纲跳转（预览模式）：新块映射就绪后落位
   await renderMermaid()
@@ -731,8 +781,11 @@ function edgeOf(el: HTMLElement): ScrollEdge {
 function onScrollDom(): void {
   if (Date.now() < lockUntil) return
   // 能过锁的都是用户直接滚动（程序滚动的回声被 lockUntil 挡住）：
-  // 接管后作废旧锚，图片加载不再把预览拽回旧位置；浏览进度持续写入
+  // 接管后作废旧锚/恢复目标（否则图片加载的钉住会把用户拽回恢复位置），
+  // 浏览进度持续写入
   lastSyncLine = null
+  pendingFrac = null
+  pendingAnchor = null
   const el = scroller.value
   if (!el) return
   saveViewProgress(
@@ -762,11 +815,19 @@ let lastSyncLine: number | null = null
 function syncToLine(line: number, frac: number, edge: ScrollEdge = null): void {
   const el = scroller.value
   if (!el || blocks.length === 0) return
+  // 联动意味着新的视口意图（用户滚的是 CM），旧恢复目标作废
+  if (!viewRestoring) {
+    pendingFrac = null
+    pendingAnchor = null
+  }
   // frac 是源码侧视口顶行内的像素比例（0 基小数）：并入目标行做亚行插值。
   // 图片密集区左右行高差异巨大（左 20px/行、右一整张图），只按整数行对齐
   // 会让预览一格格跳图片；带上亚行偏移才跟得上左边的连续滚动
   const target = edge ? line : line + Math.min(1, Math.max(0, frac))
   lastSyncLine = edge ? null : target
+  // 切签恢复期：按行映射的落位与按比例的恢复钉住打架，只记账不落笔；
+  // 恢复收敛后由 onImgLoad/后续联动按 lastSyncLine 重放
+  if (viewRestoring) return
   lockUntil = Date.now() + 120
   if (edge === 'bottom') {
     el.scrollTop = el.scrollHeight
@@ -1020,7 +1081,10 @@ watch(
   }
 )
 
-/** 切换标签：旧标签滚动进度落袋，恢复目标标签自己的进度与查找状态（共享槽位） */
+/** 切换标签：旧标签滚动进度落袋，恢复目标标签自己的进度与查找状态（共享槽位）。
+ *  flush:'sync' 关键：activeId 一变立即保存——晚于 SourceEditor 的切签恢复
+ *  的话，CM 恢复滚动的双栏联动会先把预览拽离原位置，落袋值被污染成 0/错位
+ *  （表现为「多切几次标签位置就丢」） */
 watch(
   () => docs.activeId,
   (id, old) => {
@@ -1030,10 +1094,22 @@ watch(
     const el = scroller.value
     if (el && el.offsetParent !== null) {
       saveViewProgress(old, el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight))
+      // 内容锚（精确恢复）：比例在「保存时图片未加载/恢复时已缓存」的高度
+      // 变化下固有漂移（实测 1200 滚出去回来变 1344）；锚定块行号+块内偏移
+      const a = captureViewAnchor()
+      if (a) saveViewAnchor(old, a)
     }
-    pendingFrac = loadView(id)?.frac ?? null
     lastSyncLine = null
     anchorSuppressed = true // 切签按进度落位，不保留上一标签的视口锚点
+    /* 所有模式统一按 frac 钉住恢复（split 下若交给 CM 行映射联动，块粒度
+     * 对齐会丢半个块——用户滚在段落中部，回来变成下一块顶部）。
+     * 恢复期挂起 CM 联动（两套体系对同一目标各算各的，交替写入表现为
+     * 「每次切换停的位置不一样」），4s 兜底放行覆盖图片加载的迟到联动 */
+    pendingFrac = loadView(id)?.frac ?? null; pendingAnchor = loadView(id)?.anchor ?? null
+    viewRestoring = true
+    window.setTimeout(() => {
+      viewRestoring = false
+    }, 4000)
     pullFind(id, true)
     void nextTick(() => {
       if (!renderQueued) applyPendingScroll() // 内容相同没有重渲染排队时也要落位
@@ -1044,7 +1120,8 @@ watch(
         if (el) el.scrollTop = 0
       }
     })
-  }
+  },
+  { flush: 'sync' }
 )
 
 /* 进入预览可见模式（预览/双栏）：对齐共享浏览进度——其它模式滚过的位置
@@ -1059,7 +1136,7 @@ watch(
     // 发生在父组件渲染期间（v-if 卸载的 beforeUnmount），watcher 触发时它
     // 还没执行——此刻读会拿到上一次的旧值甚至空值
     void nextTick(() => {
-      pendingFrac = loadView(docs.activeId)?.frac ?? null
+      pendingFrac = loadView(docs.activeId)?.frac ?? null; pendingAnchor = loadView(docs.activeId)?.anchor ?? null
       // 无进度记录（新标签/首次进入）同样回顶：容器常驻残留上一个文档的位置
       if (pendingFrac === null) {
         const el = scroller.value
@@ -1076,7 +1153,7 @@ watch(
         apply()
         // 进入 split 后进度由编辑器（联动主导方）持续写入，对齐完成即清空；
         // 进入 preview 模式则保留 pendingFrac，图片加载期间继续按它钉住
-        if (m === 'split') pendingFrac = null
+        if (m === 'split') pendingFrac = null; pendingAnchor = null
       }, 250)
     })
   }
@@ -1094,7 +1171,7 @@ watch(
   (j) => {
     if (!j || ui.editorMode !== 'preview') return
     pendingJump = j.line
-    pendingFrac = null
+    pendingFrac = null; pendingAnchor = null
     if (renderQueued) {
       // 刚输入完渲染还在排队：等 render() 收集完新内容的块映射再落位，
       // 现在的 blocks 行号对不上新内容；同时别让那轮渲染按旧锚点回弹

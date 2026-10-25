@@ -242,11 +242,33 @@ html[data-theme-css] .wysiwyg-host .luci-prose pre {
 }
 
 /* 分隔线 / 图片 */
+/* 即显分割线（luci-hr wrap）：wrap 撑出 18px 点击判定区（nodeView 点击
+   → NodeSelection，选中后 Backspace 删除）；内部真 <hr> 由主题 hr 线规则
+   接管（border/背景样式原样生效），本体只占线的高度 */
+.wysiwyg-host .luci-prose .luci-hr {
+  display: flex;
+  align-items: center;
+  height: 18px;
+  cursor: default;
+}
+
+.wysiwyg-host .luci-prose .luci-hr hr {
+  flex: 1;
+  margin: 0 auto;
+}
+
+/* 非主题模式（无 data-theme-css）的 hr 线样式（原规则，主题模式由主题接管） */
 .wysiwyg-host .luci-prose hr {
   border: none;
   border-top: 1px solid var(--border);
-  margin: 2em auto;
   width: 62%;
+  cursor: default;
+}
+
+/* 选中态：wrap 描边提示（与图片选中外框一致） */
+.wysiwyg-host .luci-prose .luci-hr--sel {
+  box-shadow: inset 0 0 0 2px var(--accent-soft);
+  border-radius: 4px;
 }
 
 .wysiwyg-host .luci-prose img {
