@@ -55,6 +55,11 @@ if (!gotLock) {
     app.commandLine.appendSwitch('remote-debugging-port', '9222')
   }
 
+  // 拼写检查（4.2）：强制走 hunspell 引擎——Windows 上 Chromium 默认用系统
+  // 拼写 API，系统语言不含英文时英文词不会被检查（实测无波浪线且词典不下载）；
+  // 禁用 WinSpellChecker 特性回退 hunspell + bdic 词典路线
+  app.commandLine.appendSwitch('disable-features', 'WinSpellChecker')
+
   /** 应用由 Luci 更名 Inkbox：迁移旧 userData 里的配置，避免主题/最近文件丢失 */
   function migrateLegacyConfig(): void {
     const cfg = join(app.getPath('userData'), 'config.json')
@@ -73,11 +78,13 @@ if (!gotLock) {
     }
   }
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     migrateLegacyConfig()
-    // 拼写检查词典锁定英文（4.2）：只标英文错词，中文经脚本检测直接跳过
+    // 拼写检查（4.2）：session 级开关与词典串行启用（异步乱序会让词典
+    // 下载不被触发）；锁定英文——只标英文错词，中文经脚本检测直接跳过
     // （不加载 zh 词典 = 中文永不被标红，规避满屏误报）
-    void session.defaultSession.setSpellCheckerLanguages(['en-US'])
+    await session.defaultSession.setSpellCheckerEnabled(true)
+    await session.defaultSession.setSpellCheckerLanguages(['en-US'])
     // 先检测上次是否异常退出（崩溃/强杀），再留下本次运行锁
     detectAbnormalExitAndMark()
     // 语言偏好要在创建菜单/托盘之前生效

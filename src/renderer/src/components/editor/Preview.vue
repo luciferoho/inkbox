@@ -1035,6 +1035,12 @@ watch(
     pullFind(id, true)
     void nextTick(() => {
       if (!renderQueued) applyPendingScroll() // 内容相同没有重渲染排队时也要落位
+      // 新标签无进度记录：显式回顶。预览容器是 v-show 常驻的同一个 DOM，
+      // 不归零的话新文档会停留在上一个文档的滚动位置（"初始打开在中部"）
+      if (pendingFrac === null) {
+        const el = scroller.value
+        if (el) el.scrollTop = 0
+      }
     })
   }
 )
@@ -1052,6 +1058,11 @@ watch(
     // 还没执行——此刻读会拿到上一次的旧值甚至空值
     void nextTick(() => {
       pendingFrac = loadView(docs.activeId)?.frac ?? null
+      // 无进度记录（新标签/首次进入）同样回顶：容器常驻残留上一个文档的位置
+      if (pendingFrac === null) {
+        const el = scroller.value
+        if (el) el.scrollTop = 0
+      }
       const apply = (): void => {
         applyPendingScroll()
         const el = scroller.value
@@ -1159,6 +1170,11 @@ let offTableWidths: (() => void) | null = null
 let imgAlignScheduled = false
 /** 破图标记：加载失败的图片打上 img-broken（虚线占位框，不再 0×0 隐身）。
  *  error 不冒泡，捕获委托覆盖 v-html 重渲染出的新 img；成功后由 onImgLoad 摘除 */
+/** 预览只读拦截：contenteditable 开启拼写扫描后，所有输入意图一律阻止 */
+function preventPreviewInput(e: Event): void {
+  e.preventDefault()
+}
+
 function onImgError(e: Event): void {
   const img = e.target as HTMLImageElement | null
   if (img && img.tagName === 'IMG') img.classList.add('img-broken')
@@ -1189,6 +1205,11 @@ onMounted(() => {
   offTableWidths = onColWidthsChanged(() => {
     if (body.value) applyStoredTableWidths(body.value)
   })
+  // 拼写检查（4.2）：预览正文以「可编辑但拒绝一切输入」的方式呈现——
+  // Chromium 只扫描可编辑内容的拼写，纯静态 DOM 不出波浪线；beforeinput
+  // 全拦保证只读观感（选择/复制/右键查词不受影响），caret 视觉由 CSS 隐藏
+  body.value?.addEventListener('beforeinput', preventPreviewInput)
+  body.value?.addEventListener('drop', preventPreviewInput)
   scroller.value?.addEventListener('mousemove', onPreviewMouseMoveTableCursor, { passive: true })
   scroller.value?.addEventListener('scroll', onScrollDom, { passive: true })
   scroller.value?.addEventListener('click', onClickDom)
@@ -1203,6 +1224,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   offTableWidths?.()
   window.removeEventListener('inkbox:theme-applied', onThemeApplied)
+  body.value?.removeEventListener('beforeinput', preventPreviewInput)
+  body.value?.removeEventListener('drop', preventPreviewInput)
   scroller.value?.removeEventListener('mousemove', onPreviewMouseMoveTableCursor)
   pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   scroller.value?.removeEventListener('scroll', onScrollDom)

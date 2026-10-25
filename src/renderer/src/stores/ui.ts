@@ -208,11 +208,17 @@ export const useUiStore = defineStore('ui', {
     },
     /** 拼写检查（4.2，可选开关）：编辑器宿主 spellcheck 属性即时切换；
        广播事件供编辑器重挂载后重新应用（PM/CM 创建时硬编码 false）。
+       预览正文以「可编辑但拒绝一切输入」的方式参与拼写扫描（纯静态 DOM
+       Chromium 不扫），beforeinput 已在 Preview 挂载时全拦，观感只读。
      *  Chromium 词典只标英文错词，中文文本不参与（脚本检测跳过），不会满屏红线 */
     applySpellcheck(): void {
       const v = this.editorPrefs.spellcheck ? 'true' : 'false'
       for (const el of document.querySelectorAll<HTMLElement>('.ProseMirror, .cm-content')) {
         el.setAttribute('spellcheck', v)
+      }
+      for (const el of document.querySelectorAll<HTMLElement>('.md-preview')) {
+        el.setAttribute('spellcheck', v)
+        el.contentEditable = this.editorPrefs.spellcheck ? 'true' : 'false'
       }
       window.dispatchEvent(new CustomEvent('inkbox:spellcheck', { detail: v }))
     },
