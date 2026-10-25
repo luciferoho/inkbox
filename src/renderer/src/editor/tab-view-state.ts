@@ -37,6 +37,14 @@ export function saveViewAnchor(id: number | null, anchor: ViewAnchor): void {
   map.set(id, prev)
 }
 
+/** 锚点只在预览可见时写入，其余模式滚过的位置不更新它——离开这类模式
+ *  （编辑/即显）落袋时必须清掉，否则下次双栏恢复会按过期锚点落位 */
+export function clearViewAnchor(id: number | null): void {
+  if (id === null) return
+  const prev = map.get(id)
+  if (prev) delete prev.anchor
+}
+
 export function saveViewCursor(id: number | null, cursor: number): void {
   if (id === null) return
   const prev = map.get(id) ?? { frac: 0 }
