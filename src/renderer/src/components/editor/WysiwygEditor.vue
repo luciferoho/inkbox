@@ -77,6 +77,8 @@ import { createCodeblockChromePlugin } from '@/editor/pm-codeblock-chrome'
 import { createSpellcheckPlugin } from '@/editor/pm-spellcheck'
 import { createCodeHighlightPlugin } from '@/editor/pm-code-highlight'
 import { createQuoteEscapePlugin } from '@/editor/pm-quote-escape'
+import { createLeafDeletePlugin } from '@/editor/pm-leaf-delete'
+import { hrView } from '@/editor/pm-hr-view'
 import { createTaskTogglePlugin } from '@/editor/pm-task-toggle'
 import { parseAltMods, buildAltMods, stepWidth, luciToDisplaySrc, type ImageMods } from '@/editor/image-utils'
 import { splitAdjacentOrderedLists, parseOutline } from '@/services/markdown'
@@ -886,7 +888,10 @@ const elToolbarPlugin = $prose(() =>
   })
 )
   // 代码块 chrome：语言标签栏 + 复制按钮（每块上方 widget 栏）
+// 即显分割线 nodeView（wrap 点击热区 + 主题线保留）
+const hrNodeView = hrView
   const codeblockChromePlugin = $prose(() => createCodeblockChromePlugin())
+  const leafDeletePlugin = $prose(() => createLeafDeletePlugin())
   const spellcheckPlugin = $prose(() => createSpellcheckPlugin())
   // 代码块语法高亮（hljs，与预览同一语言注册表与配色令牌）
   const codeHighlightPlugin = $prose(() => createCodeHighlightPlugin())
@@ -1544,6 +1549,8 @@ onMounted(() => {
     .use(codeblockChromePlugin)
     .use(codeHighlightPlugin)
     .use(quoteEscapePlugin)
+    .use(leafDeletePlugin)
+    .use(hrNodeView)
     .use(taskTogglePlugin)
     .use(spellcheckPlugin)
     .use(wysiwygFocusPlugin)

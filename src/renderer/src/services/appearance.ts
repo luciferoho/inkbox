@@ -97,6 +97,16 @@ export async function refreshUserCss(): Promise<void> {
   applyUserCss(await window.api.theme.readUserCss())
 }
 
+/** 导出剥离 :hover/:active/:focus 系伪类规则（含 @media 内层规则）：
+ *  静态介质（长图/打印页）没有交互，主题自带的 hover 态在导出预览里
+ *  鼠标滑过仍会变化。逐规则块过滤含这些伪类的选择器 */
+export function stripInteractiveCss(css: string): string {
+  return css.replace(/([^{}]+)\{([^{}]*)\}/g, (whole, sel: string) => {
+    if (/:(hover|active|focus-visible|focus-within)\b/i.test(sel)) return ''
+    return whole
+  })
+}
+
 /** 导出（PDF/HTML/PNG）注入用：主题 CSS（按导出明暗选变体）+ 用户 CSS */
 export async function exportExtraCss(theme?: 'light' | 'dark'): Promise<string> {
   const cfg = await window.api.app.getConfig()
@@ -112,5 +122,5 @@ export async function exportExtraCss(theme?: 'light' | 'dark'): Promise<string> 
   // 压过主题容器级 font-family 直接声明
   const fonts = await fontOverrideCss(cfg.appearance?.bodyFont ?? '', cfg.appearance?.codeFont ?? '')
   if (fonts) css += (css ? '\n' : '') + fonts
-  return css
+  return stripInteractiveCss(css)
 }

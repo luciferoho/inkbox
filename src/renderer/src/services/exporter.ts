@@ -1,4 +1,8 @@
-import previewCss from '@/assets/preview.css?raw'
+import previewCssRaw from '@/assets/preview.css?raw'
+import { stripInteractiveCss } from './appearance'
+/* 预览 CSS 的交互态（hover/copy 按钮）对静态导出无意义且会带来鼠标反馈，
+   注入前剥离（与主题 CSS 同一处理，见 appearance.stripInteractiveCss） */
+const previewCss = stripInteractiveCss(previewCssRaw)
 import katexCss from 'katex/dist/katex.min.css?raw'
 /* 字体用显式 ?url 导入（import.meta.glob 扫不到 node_modules；dev 下 ?url 的
    css fetch 到的是转换后模块而非文本，故 CSS 用 raw、字体单独引入再内联） */
@@ -97,9 +101,18 @@ const CODE_TOKENS_DARK = `
    规则（如 overflow: visible / 行为改动）导致长代码行溢出容器（PNG 长图里
    溢出 = 内容被裁掉）。在 extraCss 之后统一收口：代码块折行，绝不横向出界 */
 const EXPORT_FALLBACK_LAYOUT = `
-.md-preview pre { overflow-x: auto; max-width: 100%; }
+/* 导出是静态介质（长图/打印页），不存在横向滚动交互：内容已强制折行，
+   overflow visible 既不渲染滚动条，也不建立会破坏 Chromium 打印分页的
+   裁切容器（overflow hidden/auto 的块跨页时后续兄弟会被异常推页） */
+.md-preview pre { overflow: visible !important; max-width: 100%; }
 .md-preview pre code { white-space: pre-wrap !important; word-break: break-word; }
 .md-preview .md-code-bar { display: none !important; }
+/* 行号是应用内的编辑辅助（::before 计数列），导出产物不携带——且行号列
+   会造成 ~15px 横向溢出，让代码块出滚动条（长图被裁/PDF 出横滚） */
+.md-preview pre code .md-cl::before { display: none !important; }
+/* hover 态在源头已剥（previewCss/主题 CSS 注入前经 stripInteractiveCss），
+   静态产物无任何鼠标反馈 */
+.md-preview * { cursor: default !important; }
 `
 
 /* PDF 打印净化：PDF 固定白底，暗色自定义主题的文字色（浅色文字）在白底上
@@ -326,13 +339,17 @@ body { background: #fff; padding: 0; }
 .md-preview pre code { font-size: 11px; }
 .md-preview h1 { font-size: 1.55em; }
 .md-preview h2 { font-size: 1.3em; }
-/* 分页保护：标题不与后文断开；块级只对「不会超过一页高」的小块生效——
-   长代码块允许自然跨页（avoid 会把整块推到新页，前一页留大片空白） */
+/* 分页保护：标题不与后文断开；长代码块/大表格允许自然跨页（整块 avoid 会
+   推到新页留大片空白），表格按行断、行内不截。注意：P4 型"近空白页"的
+   真因是文档内的显式分页标记（md-pagebreak，Typora 兼容），不是这些规则 */
 .md-preview h1, .md-preview h2, .md-preview h3,
 .md-preview h4, .md-preview h5, .md-preview h6 { break-after: avoid; }
-.md-preview .mermaid, .md-preview table,
+.md-preview .mermaid,
 .md-preview blockquote, .md-preview .math-block, .md-preview img { break-inside: avoid; }
-.md-preview p, .md-preview li { orphans: 2; widows: 2; }
+.md-preview table, .md-preview .md-table-wrap { break-inside: auto; }
+.md-preview tr { break-inside: avoid; }
+/* 孤行控制 3 行：段落断页首尾各保 3 行，避免残行单独占据新页顶部 */
+.md-preview p, .md-preview li { orphans: 3; widows: 3; }
 /* 超宽表格：打印页宽固定，强制自适应换行（导出不应出现横向裁切） */
 .md-preview .md-table-wrap { overflow: visible; max-width: 100%; }
 .md-preview table { width: 100% !important; table-layout: auto !important; font-size: 10.5px; }

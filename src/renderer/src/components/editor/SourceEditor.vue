@@ -464,7 +464,7 @@ let scrollPending = false
 let syncedScrollTop = -1
 function onScrollDom(): void {
   if (Date.now() < lockUntil || scrollPending) return
-  scrollPending = true
+    scrollPending = true
   window.setTimeout(() => {
     scrollPending = false
     // 排队期间若刚发生过程序同步，丢弃本次陈旧行号，避免回声
