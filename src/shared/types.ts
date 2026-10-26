@@ -143,7 +143,7 @@ export interface RecentFile {
 export const defaultConfig: AppConfig = {
   theme: 'system',
   locale: 'system',
-  editor: { fontSize: 16, lineHeight: 1.7, contentWidth: 800 },
+  editor: { fontSize: 16, lineHeight: 1.7, contentWidth: CONTENT_WIDTH_MAX },
   autosave: { enabled: true, intervalMs: 15000, silent: true },
   restoreTabs: true,
   restoreFolders: true,

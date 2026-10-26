@@ -15,7 +15,7 @@ function installBrowserMock(): void {
   const cfg: AppConfig = {
     theme: 'light' as const,
     locale: 'system' as const,
-    editor: { fontSize: 16, lineHeight: 1.7, contentWidth: 800 },
+    editor: { fontSize: 16, lineHeight: 1.7, contentWidth: 1600 },
     autosave: { enabled: true, intervalMs: 15000 },
     upload: { enabled: false, server: 'http://127.0.0.1:36677/upload' },
     vimMode: false,
