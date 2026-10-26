@@ -51,7 +51,7 @@ import {
 import { createCenterPlugin } from '@/editor/pm-center'
 import { createGhAlertsPlugin } from '@/editor/gh-alerts'
 import { findState, sameQuery } from '@/editor/find-state'
-import { saveViewProgress, loadView } from '@/editor/tab-view-state'
+import { saveViewProgress, loadView, clearViewAnchor } from '@/editor/tab-view-state'
 import { applyCachedImageSizes, rememberImgSize } from '@/editor/img-size-cache'
 import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createPasteLinkPlugin } from '@/editor/paste-link'
@@ -1075,6 +1075,8 @@ function saveWysiwygProgress(id: number | null): void {
   if (id === null || !host.value || host.value.offsetParent === null) return
   const hostEl = host.value
   saveViewProgress(id, hostEl.scrollTop / Math.max(1, hostEl.scrollHeight - hostEl.clientHeight))
+  // 即显滚走后预览的旧内容锚过期（即显不写锚），清掉防后续按旧锚落位
+  clearViewAnchor(id)
 }
 
 /** 恢复浏览进度（切签与重挂载共用）。多阶段补拍（nextTick/60ms/250ms）

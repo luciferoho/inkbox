@@ -500,6 +500,9 @@ function onScrollDom(): void {
         tabId,
         sd.scrollTop / Math.max(1, sd.scrollHeight - sd.clientHeight)
       )
+      // CM 滚走后预览的旧内容锚不再反映当前位置（双栏联动不重写锚），
+      // 失效之——否则切到预览模式按旧锚落位（实测漂移可达 45%）
+      clearViewAnchor(tabId)
     }
     emit('scroll-sync', lineObj.number + frac, 0, null)
   }, 16)
