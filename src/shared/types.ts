@@ -12,6 +12,8 @@ export interface AppConfig {
   editor: {
     fontSize: number
     lineHeight: number
+    /** 内容列统一宽度（全局，所有窗口/主题一致），px。主题 #write 的 max-width 被覆盖 */
+    contentWidth: number
     /** 智能标点（typographer）：直引号→弯引号、--→破折号、...→省略号；仅预览/导出管线，默认关 */
     typographer?: boolean
     /** 拼写检查：编辑器内英文拼写红线（Chromium 内置词典），默认关 */
@@ -116,16 +118,21 @@ export interface PluginCommand {
 
 /**
  * 窗口私有偏好（userData/window-prefs.json 按窗口键持久化，不跨窗口同步）：
- * 各窗口尺寸不同，纸面宽度与侧栏宽度独立调整。
+ * 各窗口尺寸不同，侧栏宽度独立调整。
  */
 export interface WindowPrefs {
-  /** 纸面宽度：可用宽度（窗口减去墨脊/侧栏/留白）的百分比，100 = 占满只留四周间距 */
-  pageWidthPct: number
   /** 侧栏（大纲/文件面板）宽度 px */
   sidebarWidth: number
 }
 
-export const defaultWindowPrefs: WindowPrefs = { pageWidthPct: 80, sidebarWidth: 264 }
+export const defaultWindowPrefs: WindowPrefs = { sidebarWidth: 264 }
+
+/** 内容列统一宽度的下限（px）：最小窗口（1280）下墨脊 52 + 侧栏最大 440 +
+ *  快捷键面板 300 + 纸面左右留白 48 之后的剩余可用宽度（实测 440） */
+export const CONTENT_WIDTH_MIN = 440
+
+/** 内容列统一宽度的上限（px）：超过后只是两侧留白，无实际收益 */
+export const CONTENT_WIDTH_MAX = 1600
 
 export interface RecentFile {
   path: string
@@ -136,7 +143,7 @@ export interface RecentFile {
 export const defaultConfig: AppConfig = {
   theme: 'system',
   locale: 'system',
-  editor: { fontSize: 16, lineHeight: 1.7 },
+  editor: { fontSize: 16, lineHeight: 1.7, contentWidth: 800 },
   autosave: { enabled: true, intervalMs: 15000, silent: true },
   restoreTabs: true,
   restoreFolders: true,
