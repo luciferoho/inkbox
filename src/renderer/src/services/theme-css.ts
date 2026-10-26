@@ -860,6 +860,28 @@ export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): str
     set.set('--rail-icon', `color-mix(in srgb, ${railText} 70%, transparent)`)
     set.set('--rail-hover', `color-mix(in srgb, ${railText} 8%, transparent)`)
   }
+  // 侧栏面板令牌：主题显式给了 --side-bar-bg-color（blubook 藏青侧栏这类
+  // 「侧栏即主题皮」的设计）时，面板整块跟随侧栏色系——文字用侧栏文字色，
+  // 活动项用主题的 --active-file-bg-color。未声明的主题不emit，面板维持现状
+  let panelSkin = ''
+  if (sideBg) {
+    const sideText = valueOf('--control-text-color') ?? '#ddd'
+    set.set('--side-text', sideText)
+    const sideActive = valueOf('--active-file-bg-color')
+    if (sideActive) set.set('--side-active', sideActive)
+    panelSkin = `
+/* 侧栏面板跟随主题侧栏色（--side-bar-bg-color 与页面底色成对设计，如 blubook）：
+   在面板作用域重定义局部令牌，子元素沿用的 surface/text/border 全部换肤 */
+html[data-theme-css] .sidebar-wrap .panel {
+  --surface: var(--bg-rail);
+  --surface-2: color-mix(in srgb, var(--side-text) 10%, var(--bg-rail));
+  --text: var(--side-text);
+  --text-2: color-mix(in srgb, var(--side-text) 72%, var(--bg-rail));
+  --border: color-mix(in srgb, var(--side-text) 16%, var(--bg-rail));
+  --accent-soft: var(--side-active, color-mix(in srgb, var(--side-text) 14%, var(--bg-rail)));
+}
+`
+  }
   const accent = set.get('--accent')
   if (accent) set.set('--rail-icon-hover', accent)
   // 主题给了主色但没给配套的强调变体（phycat 只有 --primary-color）：soft/strong
@@ -880,7 +902,10 @@ export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): str
   rules.unshift(`color-scheme: ${light ? 'light' : 'dark'};`)
   // 选择器带上 [data-theme]：特异性高于 base.css 的 [data-theme='dark'] 调色板，
   // 主题配色才能真正接管（对齐 Typora：选主题即整窗换肤）
-  return rules.length ? `\n/* Typora 变量 → 应用令牌 */\n:root[data-theme] { ${rules.join(' ')} }\n` : ''
+  return (
+    (rules.length ? `\n/* Typora 变量 → 应用令牌 */\n:root[data-theme] { ${rules.join(' ')} }\n` : '') +
+    panelSkin
+  )
 }
 
 /** 前置别名桥：主题引用但未定义的变量回落到我们的令牌（主题自己定义的会覆盖这里） */
@@ -1005,7 +1030,9 @@ ${SCOPE} blockquote.md-alert::before {
  *  在主题之前，只适合主题不会写同选择器的场景）。 */
 const CONTENT_FINAL = `
 ${SCOPE} {
-  max-width: min(var(--content-width, 800px), 100%) !important;
+  /* width 一并收回（blubook #write{width:90%} 会让实际列宽 ≠ 设定值） */
+  width: auto !important;
+  max-width: min(var(--content-width, 1600px), 100%) !important;
   margin-inline: auto !important;
   font-size: var(--preview-font-size, 16px);
   line-height: var(--preview-line-height, 1.7);
@@ -1104,6 +1131,11 @@ export async function processThemeCss(
   // 根字号 ≠ 16px 的主题（blubook 14px / nord 18px）：rem 先按主题基准换算成
   // 等值 px，再走作用域化——html 规则已不作用于真实根元素，不换算会整体偏大/偏小
   raw = convertRem(raw, themeRootFontSize(raw) ?? 16)
+  // 标题级别角标（blubook：#write>hN::before{content:'H1'..'H6'}，绝对定位在
+  // 标题左侧的 Typora 页边距区）——我们的内容列没有页边距区，角标与折叠箭头
+  // 叠挤还被裁（用户确认不显示）。剥掉 content 声明：::before 无内容即不生成
+  // （esther 等的 hN::before 空内容装饰线不带 HN 字面量，不受影响）
+  raw = raw.replace(/content\s*:\s*(['"])H[1-6]\1\s*;?/gi, '')
   const withUrls = await rewriteUrls(raw, dir, mode)
   return ALIAS_BLOCK + THEME_RESET + scopeThemeCss(withUrls) + CONTENT_FINAL + typoraValueBridge(withUrls, entry.variant === 'dark' ? 'dark' : 'light')
 }

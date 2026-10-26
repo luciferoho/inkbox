@@ -64,10 +64,10 @@
   --preview-line-height: 1.7;
   --editor-font-size: 13.5px;
   --editor-line-height: 1.75;
-  /* 内容列统一宽度（全局设置，所有主题一致）：预览/即显内容列共用，
-     窗口更窄时 min() 自动退化为占满；主题 #write 的 max-width 由
-     CONTENT_FINAL 覆盖到同一变量 */
-  --content-width: 800px;
+  /* 内容列统一宽度（全局设置，所有主题一致；默认 = 上限 1600，占满宽屏）：
+     预览/即显内容列共用，窗口更窄时 min() 自动退化为占满；主题 #write 的
+     max-width 由 CONTENT_FINAL 覆盖到同一变量 */
+  --content-width: 1600px;
 }
 
 /* 内置（无主题）模式的内容列：与主题模式 CONTENT_FINAL 同一宽度来源。
