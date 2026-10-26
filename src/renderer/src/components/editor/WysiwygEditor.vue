@@ -79,6 +79,7 @@ import { createCodeHighlightPlugin } from '@/editor/pm-code-highlight'
 import { createQuoteEscapePlugin } from '@/editor/pm-quote-escape'
 import { createLeafDeletePlugin } from '@/editor/pm-leaf-delete'
 import { hrView } from '@/editor/pm-hr-view'
+import { wrappedTableView } from '@/editor/pm-table-view'
 import { createTaskTogglePlugin } from '@/editor/pm-task-toggle'
 import { parseAltMods, buildAltMods, stepWidth, luciToDisplaySrc, type ImageMods } from '@/editor/image-utils'
 import { splitAdjacentOrderedLists, parseOutline } from '@/services/markdown'
@@ -890,6 +891,8 @@ const elToolbarPlugin = $prose(() =>
   // 代码块 chrome：语言标签栏 + 复制按钮（每块上方 widget 栏）
 // 即显分割线 nodeView（wrap 点击热区 + 主题线保留）
 const hrNodeView = hrView
+// 即显表格 nodeView（横向滚动外壳，宽表格不再顶破内容列）
+const tableNodeView = wrappedTableView
   const codeblockChromePlugin = $prose(() => createCodeblockChromePlugin())
   const leafDeletePlugin = $prose(() => createLeafDeletePlugin())
   const spellcheckPlugin = $prose(() => createSpellcheckPlugin())
@@ -1553,6 +1556,7 @@ onMounted(() => {
     .use(quoteEscapePlugin)
     .use(leafDeletePlugin)
     .use(hrNodeView)
+    .use(tableNodeView)
     .use(taskTogglePlugin)
     .use(spellcheckPlugin)
     .use(wysiwygFocusPlugin)
