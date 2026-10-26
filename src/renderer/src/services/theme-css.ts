@@ -1017,6 +1017,21 @@ ${SCOPE} {
 ${SCOPE} pre:not(.md-meta-block) {
   background: var(--code-bg);
 }
+/* 代码块内横向滚动：主题的 .md-fences 规则（三重特异度）常把内置的
+   overflow-x:auto 覆盖成 visible，长代码行会把整页撑出横向滚动条（blubook
+   实测 108px）。这里按同一口径收回滚动；mermaid 图表容器除外——图表要按
+   自身尺寸呈现，不是可滚动的代码文本 */
+${SCOPE} pre:not(.md-meta-block):not(.md-mermaid) {
+  overflow-x: auto;
+}
+/* 代码块的横向滚动条同样用箭头光标；文本光标落在内部 code 上
+   （主题规则特异性高于内置，必须在这里补） */
+${SCOPE} pre:not(.md-meta-block) {
+  cursor: default;
+}
+${SCOPE} pre code {
+  cursor: text;
+}
 /* Mermaid 图表容器：Typora 里图表不是代码块——主题的 pre/.md-fences 底色
    不能画在图表外壳上（即显侧图表外壳就是 pre.md-mermaid，语言栏留位会
    露出主题 pre 的近黑底色，变成图表上方一道黑带）。内置卡片底/内边距

@@ -7,9 +7,11 @@
   min-height: 100%;
 }
 
-/* 悬浮即显区域显示文本光标（提示可点击聚焦）；按钮等自带 pointer 的元素自行覆盖 */
+/* 文本光标只落在内容区：宿主管的是纵向滚动条，若宿主整体 cursor:text，
+   悬停它的滚动条也会变成输入光标（自绘滚动条跟随元素光标）。
+   宿主箭头、正文文本光标——滚动条判定区在宿主边缘，正文覆盖其余面积 */
 .wysiwyg-host {
-  cursor: text;
+  cursor: default;
 }
 
 .wysiwyg-host .luci-prose {
@@ -20,6 +22,7 @@
   padding: 16px 20px 40vh;
   min-height: 100%;
   outline: none;
+  cursor: text;
   caret-color: var(--accent);
   word-break: break-word;
   user-select: text;
@@ -97,6 +100,9 @@
   margin: 1em 0;
   line-height: 1.6;
   box-shadow: inset 0 0 0 1px var(--code-edge);
+  /* 代码块自带横向滚动条：外壳用箭头光标（否则悬停滚动条是输入光标），
+     文本光标交给内部 code 元素 */
+  cursor: default;
 }
 
 .wysiwyg-host .luci-prose pre code {
@@ -104,6 +110,7 @@
   padding: 0;
   font-size: 13px;
   color: inherit;
+  cursor: text;
 }
 
 /* 即显代码块行号（pm-codeblock-chrome 行号 widget）：每逻辑行行首一个，
@@ -216,13 +223,29 @@ html[data-theme-css] .wysiwyg-host .luci-prose pre {
   margin-right: 7px;
 }
 
-/* 表格：内容自适应宽度（窄窗口横向滚动，不压扁成竖排文字） */
+/* 表格：内容自适应宽度（窄窗口横向滚动，不压扁成竖排文字）。
+   滚动外壳由 pm-table-view 的 nodeView 提供（与预览 md-table-wrap 同构）：
+   表格 width:max-content 超出内容列时在壳内横向滚动，不再顶破整页布局 */
+.wysiwyg-host .luci-prose .luci-table-wrap {
+  max-width: 100%;
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* 横向滚动条用箭头光标：外壳是滚动容器，光标落在它身上，不覆盖单元格 */
+  cursor: default;
+}
+
 .wysiwyg-host .luci-prose table {
   border-collapse: collapse;
-  margin: 1em 0;
+  margin: 0;
   width: max-content;
   min-width: 100%;
   font-size: 0.94em;
+  cursor: text;
+}
+/* 外壳自身的上下外边距已留白：表格在壳内不再叠一次，避免双倍间距 */
+.wysiwyg-host .luci-prose .luci-table-wrap > table {
+  margin: 0;
 }
 
 .wysiwyg-host .luci-prose th,

@@ -206,6 +206,9 @@ kbd {
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
+  /* 窗口无边框（frame:false）：顶层上边框线把应用与桌面/背后窗口分离，
+     缺了它标题栏与内容底色连成一片、窗口上边缘看不出来 */
+  border-top: 1px solid var(--border);
 }
 
 .app-body {
