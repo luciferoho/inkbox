@@ -64,8 +64,18 @@
   --preview-line-height: 1.7;
   --editor-font-size: 13.5px;
   --editor-line-height: 1.75;
-  /* 纸面宽度：可用宽度百分比 */
-  --paper-width: 80%;
+  /* 内容列统一宽度（全局设置，所有主题一致）：预览/即显内容列共用，
+     窗口更窄时 min() 自动退化为占满；主题 #write 的 max-width 由
+     CONTENT_FINAL 覆盖到同一变量 */
+  --content-width: 800px;
+}
+
+/* 内置（无主题）模式的内容列：与主题模式 CONTENT_FINAL 同一宽度来源。
+   预览/即显生效，源码编辑不限宽（代码编辑要整行可用） */
+.md-preview,
+.luci-prose {
+  max-width: min(var(--content-width), 100%);
+  margin-inline: auto;
 }
 
 [data-theme='dark'] {

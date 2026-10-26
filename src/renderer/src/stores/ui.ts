@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { defaultConfig, type AppConfig, type PluginCommand, type PluginInfo, type UpdateStatePayload, type WindowPrefs } from '@shared/types'
+import { CONTENT_WIDTH_MAX, CONTENT_WIDTH_MIN, defaultConfig, type AppConfig, type PluginCommand, type PluginInfo, type UpdateStatePayload, type WindowPrefs } from '@shared/types'
 import type { ShortcutOverrides } from '@shared/shortcuts'
 import { i18n, resolveLocale, t, type LocalePref } from '@/i18n'
 import { setTypographer } from '@/services/markdown'
@@ -109,12 +109,13 @@ export const useUiStore = defineStore('ui', {
         choices: { text: string; value: string; danger?: boolean }[]
         resolve: (value: string) => void
       },
-    /* 排版偏好（全局：字号/行距；纸宽为窗口私有，见 winPrefs） */
-    editorPrefs: { fontSize: 16, lineHeight: 1.7 } as AppConfig['editor'],
-    /* 窗口私有偏好：各窗口尺寸不同，纸宽/侧栏宽独立调整、不同步 */
-    winPrefs: { pageWidthPct: 80, sidebarWidth: 264 } as WindowPrefs,
-    /* 纸宽滑杆的动态最小值（保证纸面不窄于 620px，随窗口/侧栏状态变化） */
-    pageWidthMinPct: 50,
+    /* 排版偏好（全局：字号/行距/内容列宽度） */
+    editorPrefs: { fontSize: 16, lineHeight: 1.7, contentWidth: 800 } as AppConfig['editor'],
+    /* 内容宽度滑杆的下限：最小窗口下侧栏拉满+快捷键面板打开后的剩余可用宽度 */
+    contentWidthMin: CONTENT_WIDTH_MIN,
+    contentWidthMax: CONTENT_WIDTH_MAX,
+    /* 窗口私有偏好：各窗口尺寸不同，侧栏宽独立调整、不同步 */
+    winPrefs: { sidebarWidth: 264 } as WindowPrefs,
     /* 外观扩展（M3）：外部 CSS 主题 + 字体族；'' = 内置默认 */
     appearance: { themeCss: '', themeVariant: 'auto', bodyFont: '', codeFont: '' },
     /* 单变体主题锁定：主题只提供浅色/深色其一时，主题切换锁定到该模式并禁用 */
@@ -131,13 +132,11 @@ export const useUiStore = defineStore('ui', {
     async init(): Promise<void> {
       const cfg = await window.api.app.getConfig()
       this.applyConfig(cfg)
-      this.updatePageWidthMin()
       window
         .matchMedia('(prefers-color-scheme: dark)')
         .addEventListener('change', () => {
           if (this.themePref === 'system') this.applyTheme()
         })
-      window.addEventListener('resize', () => this.updatePageWidthMin())
     },
     applyConfig(cfg: AppConfig): void {
       this.themePref = cfg.theme
@@ -179,7 +178,6 @@ export const useUiStore = defineStore('ui', {
       this.winPrefs = { ...p }
       this.applyEditorPrefs()
       this.applySidebarWidth()
-      this.updatePageWidthMin()
     },
     applySidebarWidth(): void {
       document.documentElement.style.setProperty('--sidebar-width', `${this.winPrefs.sidebarWidth}px`)
@@ -188,23 +186,21 @@ export const useUiStore = defineStore('ui', {
     resizeSidebarLive(width: number): void {
       this.winPrefs.sidebarWidth = Math.min(440, Math.max(200, Math.round(width)))
       this.applySidebarWidth()
-      this.updatePageWidthMin()
     },
     async persistSidebarWidth(): Promise<void> {
       await window.api.app.setWindowPrefs(useDocumentsStore().windowKey, {
         sidebarWidth: this.winPrefs.sidebarWidth
       })
     },
-    /** 排版偏好 → CSS 变量。纸宽为可用宽度百分比（100% = 占满可用宽度，只留四周间距） */
+    /** 排版偏好 → CSS 变量 */
     applyEditorPrefs(): void {
-      const { fontSize, lineHeight } = this.editorPrefs
-      const { pageWidthPct } = this.winPrefs
+      const { fontSize, lineHeight, contentWidth } = this.editorPrefs
       const root = document.documentElement.style
       root.setProperty('--preview-font-size', `${fontSize}px`)
       root.setProperty('--preview-line-height', String(lineHeight))
       root.setProperty('--editor-font-size', `${Math.max(11, fontSize - 2.5)}px`)
       root.setProperty('--editor-line-height', String(lineHeight))
-      root.setProperty('--paper-width', `${pageWidthPct}%`)
+      root.setProperty('--content-width', `${contentWidth}px`)
     },
     /** 拼写检查（4.2，自研引擎）：广播事件驱动三端重扫/装卸。
      *  原生 spellcheck 属性仅保留语义（Chromium 服务在本机不可用）；
@@ -213,20 +209,20 @@ export const useUiStore = defineStore('ui', {
     applySpellcheck(): void {
       window.dispatchEvent(new CustomEvent('inkbox:spellcheck', { detail: this.editorPrefs.spellcheck ? 'true' : 'false' }))
     },
-    /** 重算纸宽滑杆最小值：保证纸面物理宽度不小于 620px（随窗口/侧栏状态变化） */
-    updatePageWidthMin(): void {
-      const rail = 52
-      const panel = this.sidebarOpen ? this.winPrefs.sidebarWidth : 0
-      const pad = 50 // paper-scroll 左右留白 + 纸卡边框
-      const available = Math.max(320, window.innerWidth - rail - panel - pad)
-      this.pageWidthMinPct = Math.min(90, Math.max(40, Math.ceil((620 / available) * 100)))
-    },
-    /** 字号/行距（全局，跨窗口同步）；纸宽走 setPageWidth（窗口私有）。
+    /** 字号/行距/内容宽度（全局，跨窗口同步）。
      *  注意必须展开成普通对象：editorPrefs 是 reactive 代理，Proxy 过不了
      *  IPC 结构化克隆（invoke 静默失败），设置会"看着生效实则没保存" */
     async setEditorPrefs(patch: Partial<AppConfig['editor']>): Promise<void> {
       const spellBefore = this.editorPrefs.spellcheck
-      this.editorPrefs = { ...this.editorPrefs, ...patch }
+      // 内容宽度钳制在 [下限, 1600]：滑杆本身限制了范围，这里兜住程序化/旧值越界
+      const next = { ...this.editorPrefs, ...patch }
+      if (patch.contentWidth !== undefined) {
+        next.contentWidth = Math.min(
+          CONTENT_WIDTH_MAX,
+          Math.max(this.contentWidthMin, Math.round(Number(patch.contentWidth) || this.contentWidthMin))
+        )
+      }
+      this.editorPrefs = next
       this.applyEditorPrefs()
       // 智能标点必须先切 flag 再触发重渲染（Preview watch 在本函数返回前就会跑）
       setTypographer(!!this.editorPrefs.typographer)
@@ -314,14 +310,6 @@ export const useUiStore = defineStore('ui', {
         this.themePref = cfg.theme
         this.applyTheme()
       }
-    },
-    /** 纸面宽度（窗口私有，不广播）：立即生效并按窗口键持久化 */
-    async setPageWidth(pageWidthPct: number): Promise<void> {
-      this.winPrefs.pageWidthPct = Math.min(100, Math.max(this.pageWidthMinPct, Math.round(pageWidthPct)))
-      this.applyEditorPrefs()
-      await window.api.app.setWindowPrefs(useDocumentsStore().windowKey, {
-        pageWidthPct: this.winPrefs.pageWidthPct
-      })
     },
     async setAutosave(patch: Partial<AppConfig['autosave']>): Promise<void> {
       if (patch.enabled !== undefined) this.autosaveEnabled = patch.enabled
@@ -436,7 +424,6 @@ export const useUiStore = defineStore('ui', {
     },
     toggleSidebar(): void {
       this.sidebarOpen = !this.sidebarOpen
-      this.updatePageWidthMin() // 可用宽度变化，滑杆最小值随之更新
     },
     setSidebarMode(mode: SidebarMode): void {
       this.sidebarMode = mode

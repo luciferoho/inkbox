@@ -998,11 +998,15 @@ ${SCOPE} blockquote.md-alert::before {
 /** 主题样式之后的兜底：Typora 的 #write 由 base 居中（max-width + margin auto），
  *  主题只给 max-width；我们的容器必须补 margin-inline:auto 才能居中（否则内容
  *  列贴左、右侧大片空白，sonnet 实测）。字号/行距保持用户设置优先。
+ *  内容列统一宽度：主题 #write 各自的 max-width（实测 640–1200px/无限制不等）
+ *  一律覆盖到 --content-width，全部主题同一列宽；!important 压过主题的
+ *  同名 important（blubook 的 margin 实测用过）；min() 在窄窗口退化为占满。
  *  放在主题 CSS 之后是必须的：与主题规则同特异度时靠后即可覆盖（THEME_RESET
  *  在主题之前，只适合主题不会写同选择器的场景）。 */
 const CONTENT_FINAL = `
 ${SCOPE} {
-  margin-inline: auto;
+  max-width: min(var(--content-width, 800px), 100%) !important;
+  margin-inline: auto !important;
   font-size: var(--preview-font-size, 16px);
   line-height: var(--preview-line-height, 1.7);
 }

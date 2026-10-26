@@ -493,18 +493,18 @@ function checkUpdate(): void {
               <span class="value">{{ ui.editorPrefs.lineHeight.toFixed(1) }}</span>
             </div>
             <div class="row">
-              <span class="label">{{ $t('settings.pageWidth') }}</span>
+              <span class="label">{{ $t('settings.contentWidth') }}</span>
               <input
                 type="range"
-                :min="ui.pageWidthMinPct"
-                max="100"
-                step="1"
-                :value="ui.winPrefs.pageWidthPct"
-                @input="ui.setPageWidth(Number(($event.target as HTMLInputElement).value))"
+                :min="ui.contentWidthMin"
+                :max="ui.contentWidthMax"
+                step="10"
+                :value="ui.editorPrefs.contentWidth"
+                @input="ui.setEditorPrefs({ contentWidth: Number(($event.target as HTMLInputElement).value) })"
               />
-              <span class="value">{{ ui.winPrefs.pageWidthPct }}%</span>
+              <span class="value">{{ ui.editorPrefs.contentWidth }}px</span>
             </div>
-            <p class="row-hint">{{ $t('settings.pwHint', { min: ui.pageWidthMinPct }) }}</p>
+            <p class="row-hint">{{ $t('settings.cwHint', { min: ui.contentWidthMin }) }}</p>
               </template>
 
               <!-- 启动与窗口 -->
