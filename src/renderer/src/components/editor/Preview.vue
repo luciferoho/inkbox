@@ -797,6 +797,10 @@ function onScrollDom(): void {
     docs.activeId,
     el.scrollTop / Math.max(1, el.scrollHeight - el.clientHeight)
   )
+  // 内容锚随真实滚动持续重写：锚只在切签时捕获的话，「预览直接滚动后
+  // 不切签直接换模式」（预览→双栏→预览）会按上一次切签的旧锚落位
+  const a = captureViewAnchor()
+  if (a) saveViewAnchor(docs.activeId, a)
   if (blocks.length === 0) return
   const edge = edgeOf(el)
   if (edge) {
@@ -1329,6 +1333,9 @@ function wrapSpell(root: HTMLElement): void {
     acceptNode(node: Text): number {
       const parent = node.parentElement
       if (!parent || SPELL_SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT
+      // mermaid 图表整体跳过：SVG 命名空间元素 tagName 保留小写（style≠STYLE），
+      // 上面的标签集挡不住——内嵌 <style> 被包装会破坏选择器，图表渲染成黑块
+      if (parent.closest('svg')) return NodeFilter.FILTER_REJECT
       if (parent.closest('.spell-err')) return NodeFilter.FILTER_REJECT
       if (!/[A-Za-z]{2,}/.test(node.data)) return NodeFilter.FILTER_REJECT
       return NodeFilter.FILTER_ACCEPT
