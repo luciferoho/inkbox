@@ -217,6 +217,8 @@ const api = {
     toggleAlwaysOnTop: (): void => ipcRenderer.send('win:toggleAlwaysOnTop'),
     /** 拖出标签到新窗口 */
     openDoc: (doc: DetachDoc): void => ipcRenderer.send('win:openDoc', doc),
+    /** 打开设置（独立窗口，全应用共用一个实例；已开则聚焦） */
+    openSettings: (): void => ipcRenderer.send('win:openSettings'),
     /** 拖入窗口的文件 → 绝对路径（Electron ≥32 移除 File.path，webUtils 仅 preload 侧可用） */
     pathsForFiles: (files: File[]): string[] => files.map((f) => webUtils.getPathForFile(f)),
     /** 启动时一次性取走初始文档与窗口键 */

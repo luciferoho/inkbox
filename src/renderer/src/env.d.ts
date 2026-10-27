@@ -125,6 +125,8 @@ interface Window {
       toggleAlwaysOnTop(): void
       close(): void
       openDoc(doc: import('@shared/types').DetachDoc): void
+      /** 打开设置（独立窗口，全应用共用一个实例；已开则聚焦） */
+      openSettings(): void
       takeInitialDoc(): Promise<import('@shared/types').InitialDoc>
       closeConfirmed(): Promise<void>
       onRequestClose(cb: () => void): () => void

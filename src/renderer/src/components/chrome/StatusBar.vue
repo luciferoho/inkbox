@@ -111,7 +111,7 @@ function applyFamilyVariant(key: string, variant: string): void {
 
 function openThemeSettings(): void {
   themeMenuOpen.value = false
-  ui.settingsOpen = true
+  ui.openSettings()
 }
 
 /** 写作辅助徽标：点击切换 + toast 反馈状态 */

@@ -76,7 +76,6 @@ export const useUiStore = defineStore('ui', {
     /* 光标/内容变化序号：同一行连续输入时 currentLine 不变，预览靠它触发跟随 */
     caretSeq: 0,
     /* 弹层 */
-    settingsOpen: false,
     exportOpen: false,
     viewerImage: null as string | null,
     /* 外部修改重载信号：编辑器 watch 该序号后从 store 重新整档同步 */
@@ -445,8 +444,10 @@ export const useUiStore = defineStore('ui', {
       this.viewLineLockUntil = Date.now() + 700
       this.jumpLine = { line, seq: (this.jumpLine?.seq ?? 0) + 1 }
     },
+    /** 打开设置：独立窗口（全应用共用一个实例），由主进程创建/聚焦；
+     *  用户调设置时可同时看到各编辑器窗口的实际效果 */
     openSettings(): void {
-      this.settingsOpen = true
+      window.api.win.openSettings()
     },
     openExport(): void {
       this.exportOpen = true
