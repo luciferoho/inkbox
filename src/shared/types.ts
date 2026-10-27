@@ -31,6 +31,8 @@ export interface AppConfig {
   restoreFolders: boolean
   /** 工作区文件树仅显示可打开的文档类型（Markdown/纯文本），过滤后为空的文件夹一并隐藏；默认关（显示全部） */
   wsOpenableOnly: boolean
+  /** 打开文档时在标题下方显示完整路径；默认开 */
+  showDocPath?: boolean
   /** 登录系统后自动启动（app.setLoginItemSettings） */
   openAtLogin: boolean
   /** 点窗口关闭按钮的行为：quit = 退出程序；tray = 最小化到托盘（托盘菜单退出） */
@@ -148,6 +150,7 @@ export const defaultConfig: AppConfig = {
   restoreTabs: true,
   restoreFolders: true,
   wsOpenableOnly: false,
+  showDocPath: true,
   openAtLogin: false,
   closeAction: 'quit',
   shortcuts: {},

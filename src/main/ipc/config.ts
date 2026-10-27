@@ -105,6 +105,8 @@ function load(): AppConfig {
         )
       },
       autosave: { ...defaultConfig.autosave, ...raw.autosave },
+      // 旧配置无此键视为开；非布尔垃圾值同样落回默认
+      showDocPath: raw.showDocPath !== false,
       shortcuts: normalizeShortcuts(raw.shortcuts),
       upload: normalizeUpload(raw.upload),
       plugins: normalizePlugins(raw.plugins),

@@ -373,6 +373,8 @@ export const zh = {
   'settings.spellcheck': '拼写检查',
   'settings.spellcheckHint': '编辑器内为英文单词标红（Chromium 内置词典）；中文不参与检查，默认关闭',
   'settings.vimMode': 'Vim 模式',
+  'settings.showDocPath': '显示文档路径',
+  'settings.showDocPathHint': '打开文档时在标题下方显示完整路径；关闭后只显示文件名，不影响编辑与保存',
   'settings.navAppearance': '外观与排版',  'settings.navStartup': '启动与窗口',
   'settings.vimModeHint': '源码与双栏模式启用 vim 键位（含模式指示条）；即显模式不受影响。普通模式下 Enter/Backspace 回归 vim 语义，插入态保留列表续行',
   'settings.gUpload': '图床',

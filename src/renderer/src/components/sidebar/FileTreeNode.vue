@@ -2,7 +2,7 @@
 import { nextTick, ref, watch } from 'vue'
 import type { DirEntry } from '@shared/types'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useDocumentsStore } from '@/stores/documents'
+import { useDocumentsStore, samePath } from '@/stores/documents'
 import { useUiStore } from '@/stores/ui'
 import { t } from '@/i18n'
 
@@ -22,6 +22,12 @@ function isMarkdown(name: string): boolean {
 /** 仅可打开过滤开启时，子树内没有可打开文档的文件夹标记为「空」（淡化显示） */
 function isEmptyDir(): boolean {
   return ui.wsOpenableOnly && props.entry.isDir && ws.isEmptyDir(props.entry.path)
+}
+
+/** 当前激活标签对应的文件：树只渲染当前工作区子树，能匹配上就说明文档在
+ *  工作区内；外部文件/未落盘文档匹配不到任何节点，自然不高亮 */
+function isActiveFile(): boolean {
+  return !props.entry.isDir && !!docs.active?.path && samePath(docs.active.path, props.entry.path)
 }
 
 /** 悬浮提示：空文件夹补充说明（否则用户不明白为什么淡化） */
@@ -55,7 +61,7 @@ watch(
   <div>
     <button
       class="node"
-      :class="{ dir: entry.isDir, md: !entry.isDir && isMarkdown(entry.name), open: ws.expanded[entry.path], 'empty-dir': isEmptyDir() }"
+      :class="{ dir: entry.isDir, md: !entry.isDir && isMarkdown(entry.name), open: ws.expanded[entry.path], 'empty-dir': isEmptyDir(), active: isActiveFile() }"
       :style="{ paddingLeft: `${8 + (depth - 1) * 14}px` }"
       :title="nodeTitle()"
       @click="click"
@@ -170,6 +176,15 @@ watch(
 
 .node.md {
   color: var(--text);
+}
+
+/* 当前打开文档：主题令牌驱动（主题模式下 .panel 的 --accent-soft 已被
+   侧栏换肤块重定义，blubook 这类藏青侧栏自动跟随）；置于 .md 之后，
+   同特异性按源序覆盖其 color，悬停态也不丢高亮 */
+.node.active {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 600;
 }
 
 /* 应用内打不开的文件（图片等）不用手型光标：点了也没反应，手型会误导用户 */
