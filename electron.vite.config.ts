@@ -37,6 +37,15 @@ export default defineConfig({
     server: {
       watch: { usePolling: true, interval: 300 }
     },
+    // 双入口：主窗口（编辑器 index.html）与独立设置窗口（settings.html）
+    build: {
+      rollupOptions: {
+        input: {
+          main: resolve(__dirname, 'src/renderer/index.html'),
+          settings: resolve(__dirname, 'src/renderer/settings.html')
+        }
+      }
+    },
     plugins: [vue()]
   }
 })

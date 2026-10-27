@@ -16,6 +16,9 @@
   --surface: #ffffff;
   --surface-2: #f2f0ec;
   --border: #e6e3dd;
+  /* 窗口框线（无边框窗口的上边框线，独立于内部发丝线 --border）：
+     默认中性灰 #AAAAAA，主题显式声明边框色时由主题接管（theme-css 变量桥） */
+  --win-border: #aaaaaa;
   --text: #37352f;
   --text-2: #86817a;
   --accent: #c9701f;
@@ -91,6 +94,7 @@
   --surface: #1e212a;
   --surface-2: #272b35;
   --border: #2b2f3a;
+  --win-border: #555555;
   --text: #d2d8e2;
   --text-2: #8d95a5;
   --accent: #e3a45c;
@@ -207,8 +211,9 @@ kbd {
   background: var(--bg);
   color: var(--text);
   /* 窗口无边框（frame:false）：顶层上边框线把应用与桌面/背后窗口分离，
-     缺了它标题栏与内容底色连成一片、窗口上边缘看不出来 */
-  border-top: 1px solid var(--border);
+     缺了它标题栏与内容底色连成一片、窗口上边缘看不出来。
+     颜色走 --win-border 令牌：默认 #AAAAAA，随主题明暗/主题声明联动 */
+  border-top: 1px solid var(--win-border);
 }
 
 .app-body {

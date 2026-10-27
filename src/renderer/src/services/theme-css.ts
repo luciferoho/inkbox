@@ -361,6 +361,7 @@ const APP_TOKENS = [
   '--surface',
   '--surface-2',
   '--border',
+  '--win-border',
   '--text',
   '--text-2',
   '--accent',
@@ -422,6 +423,7 @@ const POLARITY_LIGHT: Record<string, string> = {
   '--surface': '#ffffff',
   '--surface-2': '#efe9e0',
   '--border': '#e4dcd0',
+  '--win-border': '#aaaaaa',
   '--text': '#2b2420',
   '--text-2': '#7c7267',
   '--accent': '#c9701f',
@@ -452,6 +454,7 @@ const POLARITY_DARK: Record<string, string> = {
   '--surface': '#272019',
   '--surface-2': '#332a21',
   '--border': '#3b3128',
+  '--win-border': '#555555',
   '--text': '#eae2d6',
   '--text-2': '#a89d8e',
   '--accent': '#e6a054',
@@ -796,6 +799,10 @@ export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): str
     const v = valueOf('--control-text-color')
     if (v && !set.has('--text-2')) set.set('--text-2', v)
   }
+  // 主题显式声明的边框色快照（--border-color 桥接或同名 --border，取自派生之前）：
+  // 窗口框线 --win-border 随后由它接管；仅从底色派生的 --border 不算显式声明，
+  // 框线保持默认中性灰（#AAAAAA/#555555），避免跟随过淡的派生值又看不清
+  const explicitBorder = set.has('--border') ? set.get('--border') : null
   if (bg) {
     const derived: [string, string][] = [
       ['--surface', mix(bg, '#fff', light ? 45 : 92)],
@@ -820,6 +827,9 @@ export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): str
   }
   for (const k of CODE_TOKENS) if (!set.has(k)) set.set(k, codeBundle[k])
   const bundle = light ? POLARITY_LIGHT : POLARITY_DARK
+  // 窗口框线接管要先于极性兜底：主题显式声明了边框色（且没自己写 --win-border）
+  // 时跟随主题，否则落 #AAAAAA/#555555 默认
+  if (explicitBorder && !set.has('--win-border')) set.set('--win-border', explicitBorder)
   for (const [k, v] of Object.entries(bundle)) if (!set.has(k)) set.set(k, v)
   // 语法色可读性兜底：主题作者常把浅色变体的 cm-def 颜色原样留在暗色文件里
   // （sonnet-dark 的 #0051c2 在 #262624 上几乎看不见）。能静态解析的颜色在

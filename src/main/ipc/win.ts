@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow, screen, webContents, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
-import { consumeInitialDoc, createAppWindow } from '../window'
+import { consumeInitialDoc, createAppWindow, showSettingsWindow } from '../window'
 import { markQuitting } from '../tray'
 import type { DetachDoc } from '@shared/types'
 
@@ -82,6 +82,11 @@ export function registerWinIpc(): void {
   /** 拖出标签 / 右键「移到新窗口」：带着文档载荷开新窗口 */
   ipcMain.on('win:openDoc', (_e, doc: DetachDoc) => {
     createAppWindow(doc)
+  })
+
+  /** 打开设置：独立窗口全应用共用一个实例，重复调用 = 聚焦既有窗口 */
+  ipcMain.on('win:openSettings', (e) => {
+    showSettingsWindow(BrowserWindow.fromWebContents(e.sender))
   })
 
   /** 新窗口渲染层启动时一次性取走初始文档与窗口键 */

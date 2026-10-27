@@ -153,3 +153,89 @@ export function createAppWindow(doc?: DetachDoc): BrowserWindow {
 export function createMainWindow(): BrowserWindow {
   return createAppWindow()
 }
+
+/* ---------- 独立设置窗口：所有窗口共用一个实例，重复打开 = 聚焦已有窗口 ---------- */
+
+let settingsWin: BrowserWindow | null = null
+
+/** 设置窗口：无边框小工具窗，内容是独立渲染入口 settings.html（不含编辑器）。
+ *  关闭不走托盘隐藏/未保存检查，直接关；不参与会话/草稿/文件登记。 */
+export function showSettingsWindow(origin?: BrowserWindow | null): void {
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    if (settingsWin.isMinimized()) settingsWin.restore()
+    settingsWin.show()
+    settingsWin.focus()
+    return
+  }
+  // 以发起窗口所在显示器居中（多显示器时设置窗出现在用户手边）
+  const base = origin && !origin.isDestroyed() ? origin.getBounds() : screen.getPrimaryDisplay().bounds
+  const wa = screen.getDisplayMatching(base).workArea
+  const win = new BrowserWindow({
+    width: Math.min(800, Math.max(720, wa.width - 40)),
+    height: Math.min(660, Math.max(560, wa.height - 40)),
+    minWidth: 720,
+    minHeight: 560,
+    maximizable: false,
+    fullscreenable: false,
+    frame: false,
+    show: false,
+    backgroundColor: themeBackgroundColor(),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      spellcheck: false,
+      backgroundThrottling: false
+    }
+  })
+  settingsWin = win
+
+  win.on('system-context-menu', (e) => e.preventDefault())
+
+  // 应用级快捷键在设置窗同样生效（app:settings 命中时命令发回本窗、渲染层忽略，
+  // 其余命令无监听者即无操作——比放行页面默认行为更符合应用快捷键语义）
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || input.isAutoRepeat) return
+    if (isMenuSuspended()) return
+    const accel = accelFromEvent({
+      key: input.key,
+      ctrlKey: input.control,
+      altKey: input.alt,
+      shiftKey: input.shift,
+      metaKey: input.meta
+    })
+    if (!accel) return
+    const norm = normalizeForCompare(accel)
+    const map = effectiveShortcuts(getConfig().shortcuts)
+    for (const [id, value] of Object.entries(map)) {
+      if (!value || normalizeForCompare(value) !== norm) continue
+      event.preventDefault()
+      win.webContents.send('menu:command', id)
+      return
+    }
+  })
+
+  win.on('closed', () => {
+    settingsWin = null
+  })
+
+  win.on('ready-to-show', () => {
+    win.webContents.setZoomFactor(1)
+    win.show()
+    win.focus()
+  })
+
+  // 关于页的外部链接与主窗口一致：一律走系统浏览器
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
+  if (process.env.ELECTRON_RENDERER_URL) {
+    void win.loadURL(process.env.ELECTRON_RENDERER_URL + '/settings.html')
+  } else {
+    void win.loadFile(join(__dirname, '../renderer/settings.html'))
+  }
+}

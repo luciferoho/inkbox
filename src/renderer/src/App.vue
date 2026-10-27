@@ -23,8 +23,7 @@ import TableContextMenu from '@/components/chrome/TableContextMenu.vue'
 import ConfirmDialog from '@/components/chrome/ConfirmDialog.vue'
 import Toast from '@/components/chrome/Toast.vue'
 import QuickOpen from '@/components/chrome/QuickOpen.vue'
-// 弹窗类按需加载（exporter 连带 pdf/字体资源链，设置页打开频率低）
-const SettingsDialog = defineAsyncComponent(() => import('@/components/chrome/SettingsDialog.vue'))
+// 弹窗类按需加载（exporter 连带 pdf/字体资源链，打开频率低；设置已独立成窗口）
 const UpdateDialog = defineAsyncComponent(() => import('@/components/chrome/UpdateDialog.vue'))
 const ExportDialog = defineAsyncComponent(() => import('@/components/chrome/ExportDialog.vue'))
 import { useAutosave } from '@/composables/useAutosave'
@@ -236,7 +235,7 @@ onBeforeUnmount(() => {
 /** 禅模式下的 Esc：无任何弹层时退出禅模式 */
 function onZenEsc(e: KeyboardEvent): void {
   if (!ui.zenMode || e.key !== 'Escape') return
-  if (ui.confirm || ui.choice || ui.viewerImage || ui.settingsOpen || ui.exportOpen) return
+  if (ui.confirm || ui.choice || ui.viewerImage || ui.exportOpen) return
   ui.toggleZen()
 }
 
@@ -431,7 +430,6 @@ async function handleRequestClose(): Promise<void> {
     <ImageViewer />
     <ImageContextMenu />
     <TableContextMenu />
-    <SettingsDialog />
     <UpdateDialog />
     <ExportDialog />
     <ConfirmDialog />
