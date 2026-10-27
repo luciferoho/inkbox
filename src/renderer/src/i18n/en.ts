@@ -375,6 +375,8 @@ export const en: MsgSchema = {
   'settings.spellcheck': 'Spell check',
   'settings.spellcheckHint': 'Underline misspelled English words in editors (built-in Chromium dictionary); non-Latin text is skipped. Off by default',
   'settings.vimMode': 'Vim mode',
+  'settings.showDocPath': 'Show document path',
+  'settings.showDocPathHint': 'Shows the full path under the document title; turn off to display the file name only. Editing and saving are unaffected',
   'settings.navAppearance': 'Appearance & Layout',  'settings.navStartup': 'Startup & Window',
   'settings.vimModeHint': 'Enables vim keybindings in source & split editing with a mode status bar; live (WYSIWYG) mode is unaffected. In normal mode Enter/Backspace keep vim semantics, list continuation stays in insert mode',
   'settings.gUpload': 'Image hosting',

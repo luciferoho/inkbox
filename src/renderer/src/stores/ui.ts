@@ -46,6 +46,8 @@ export const useUiStore = defineStore('ui', {
     restoreFolders: true,
     /* 工作区文件树仅显示可打开的文档类型（默认关 = 显示全部文件） */
     wsOpenableOnly: false,
+    /* 打开文档时在标题下方显示完整路径（默认开） */
+    showDocPath: true,
     /* 登录系统后自动启动（主进程写系统登录项，仅打包后生效） */
     openAtLogin: false,
     /* 点窗口关闭按钮的行为：quit = 退出程序；tray = 最小化到托盘 */
@@ -147,6 +149,7 @@ export const useUiStore = defineStore('ui', {
       this.restoreTabs = cfg.restoreTabs ?? true
       this.restoreFolders = cfg.restoreFolders ?? true
       this.wsOpenableOnly = cfg.wsOpenableOnly ?? false
+      this.showDocPath = cfg.showDocPath ?? true
       this.openAtLogin = cfg.openAtLogin ?? false
       this.closeAction = cfg.closeAction ?? 'quit'
       this.shortcuts = cfg.shortcuts ?? {}
@@ -336,6 +339,11 @@ export const useUiStore = defineStore('ui', {
     async setWsOpenableOnly(v: boolean): Promise<void> {
       this.wsOpenableOnly = v
       await window.api.app.setConfig({ wsOpenableOnly: v })
+    },
+    /** 打开文档时显示完整路径（全局偏好，跨窗口同步） */
+    async setShowDocPath(v: boolean): Promise<void> {
+      this.showDocPath = v
+      await window.api.app.setConfig({ showDocPath: v })
     },
     async setOpenAtLogin(v: boolean): Promise<void> {
       this.openAtLogin = v

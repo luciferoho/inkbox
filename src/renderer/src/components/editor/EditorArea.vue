@@ -172,7 +172,7 @@ watch(
               <span class="name-text">{{ docs.active.name }}</span>
               <span v-if="docs.active.dirty" class="dot" />
             </span>
-            <span class="doc-path">{{ docs.active.path ?? $t('welcome.unsavedPath') }}</span>
+            <span v-if="ui.showDocPath" class="doc-path">{{ docs.active.path ?? $t('welcome.unsavedPath') }}</span>
           </div>
           <div class="mode-switch">
             <button

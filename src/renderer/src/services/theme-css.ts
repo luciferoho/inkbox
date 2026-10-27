@@ -879,6 +879,10 @@ export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): str
     set.set('--side-text', sideText)
     const sideActive = valueOf('--active-file-bg-color')
     if (sideActive) set.set('--side-active', sideActive)
+    // 文件树活动项文字色：主题自带 --active-file-text-color 就用主题的，
+    // 否则用侧栏文字色（藏青底上的琥珀 --accent-strong 对比不可控）
+    const sideActiveText = valueOf('--active-file-text-color')
+    if (sideActiveText) set.set('--side-active-text', sideActiveText)
     panelSkin = `
 /* 侧栏面板跟随主题侧栏色（--side-bar-bg-color 与页面底色成对设计，如 blubook）：
    在面板作用域重定义局部令牌，子元素沿用的 surface/text/border 全部换肤 */
@@ -889,6 +893,10 @@ html[data-theme-css] .sidebar-wrap .panel {
   --text-2: color-mix(in srgb, var(--side-text) 72%, var(--bg-rail));
   --border: color-mix(in srgb, var(--side-text) 16%, var(--bg-rail));
   --accent-soft: var(--side-active, color-mix(in srgb, var(--side-text) 14%, var(--bg-rail)));
+}
+/* 文件树当前文档高亮的文字色随侧栏皮（特异性压过组件 scoped 的 accent-strong） */
+html[data-theme-css] .sidebar-wrap .panel .node.active {
+  color: var(--side-active-text, var(--side-text));
 }
 `
   }

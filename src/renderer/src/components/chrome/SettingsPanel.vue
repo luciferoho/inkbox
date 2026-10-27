@@ -582,6 +582,19 @@ function checkUpdate(): void {
         </div>
         <p class="row-hint">{{ $t('settings.vimModeHint') }}</p>
         <div class="row">
+          <span class="label">{{ $t('settings.showDocPath') }}</span>
+          <button
+            class="switch"
+            role="switch"
+            :aria-checked="ui.showDocPath"
+            :class="{ on: ui.showDocPath }"
+            @click="ui.setShowDocPath(!ui.showDocPath)"
+          >
+            <i class="knob" />
+          </button>
+        </div>
+        <p class="row-hint">{{ $t('settings.showDocPathHint') }}</p>
+        <div class="row">
           <span class="label">{{ $t('settings.autosave') }}</span>
           <button
             class="switch"
