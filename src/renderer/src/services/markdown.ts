@@ -666,10 +666,20 @@ function canonicalSepCell(cell: string): string {
  * - 主题分割线：`***`/`___`/`- - -` 统一 `---`；仅前行为空行时归一——
  *   紧贴段落的 `---` 是 setext 标题下划线，语义不同，不能碰。
  * - 链接/图片目标的 `./` 前缀（管线把相对路径补成 `./x` 回推）。
+ * - PM 序列化器的防误判转义：`[TOC]`/`[!NOTE]` 等行首标记被回写成 `\[TOC]`/`\[!`
+ *   （与 gh-alerts 解析侧的可选转义配对），渲染语义相同，归一防"打开即未保存"。
+ * - autolink 包装：裸网址被回写成 `<https://…>`，渲染等价，剥包装比较。
  */
 function normalizeStyleLines(lines: string[], masked: Set<number>): string[] {
-  // 第一遍：链接目标 ./ 前缀（围栏内容不动）
-  const out = lines.map((l, i) => (masked.has(i) ? l : l.replace(/\]\(\.\//g, '](')))
+  // 第一遍：链接目标 ./ 前缀 + `[` 类标记的转义剥除 + autolink 剥包装（围栏内容不动）
+  const out = lines.map((l, i) =>
+    masked.has(i)
+      ? l
+      : l
+          .replace(/\]\(\.\//g, '](')
+          .replace(/\\(\[TOC\]|\[!)/g, '$1')
+          .replace(/<((?:https?|ftp):\/\/[^<>\s]+)>/g, '$1')
+  )
   const res: string[] = []
   let i = 0
   while (i < out.length) {
@@ -766,12 +776,17 @@ export function canonicalizeContent(src: string): string {
     )
   }
   flushFence()
-  // 列表项之前的引导空行：即显序列化常省略（无序列表可打断段落）。
+  // 列表项之前的引导空行：即显序列化常省略（无序列表可打断段落）；
+  // 脚注定义 `[^x]:` 之前的引导空行：即显序列化常补插。两类同属风格件。
   // 尾随空行/换行同样抹平：milkdown 序列化不保证文末换行，与磁盘文本（Typora
   // 惯例保留尾随换行）只差文末空行时不算真实编辑——否则"打开即未保存"
   return normalizeStyleLines(out, masked)
     .join('\n')
     .replace(/\n\n+(?=(?:[-*+]|\d+[.)])[\t ])/g, '\n')
+    .replace(/\n\n+(?=\[\^[^\]\n]+\]:)/g, '\n')
+    // 标题行之前的引导空行：ATX 标题自成块，紧排与空行分隔渲染一致
+    // （即显序列化恒在标题间补空行；示例文档的紧排标题层级演示即为此类）
+    .replace(/\n\n+(?=#{1,6}[\t ])/g, '\n')
     .replace(/[\s\n]+$/, '')
 }
 

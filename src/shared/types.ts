@@ -197,6 +197,7 @@ export type MenuCommand =
   | 'edit:find'
   | 'app:settings'
   | 'help:sample'
+  | 'help:markdown'
 
 /** 拖出标签到新窗口时转移的文档载荷 */
 export interface DetachDoc {

@@ -118,10 +118,8 @@ export function createMenu(win: BrowserWindow): void {
     {
       label: m('mHelp'),
       submenu: [
-        {
-          label: m('mSample'),
-          click: () => send(win, 'help:sample')
-        },
+        item('help:markdown', m('mMarkdownHelp')),
+        item('help:sample', m('mSample')),
         {
           label: m('mAbout'),
           click: () => {

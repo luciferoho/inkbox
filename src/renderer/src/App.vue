@@ -107,6 +107,9 @@ function dispatch(cmd: MenuCommand): void {
     case 'help:sample':
       docs.openSample()
       break
+    case 'help:markdown':
+      docs.openMarkdownHelp()
+      break
   }
 }
 
