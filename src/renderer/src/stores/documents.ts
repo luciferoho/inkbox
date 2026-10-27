@@ -8,6 +8,7 @@ import { htmlToMarkdown } from '@/services/richPaste'
 import { normalizeOrderedNumbering } from '@/services/markdown'
 import { contentEquivalent } from '@/services/content-equivalence'
 import sampleDoc from '@samples/示例.md?raw'
+import markdownHelpDoc from '@samples/Markdown语法帮助.md?raw'
 
 /** 主页（欢迎页）标签的固定 id */
 export const HOME_ID = 0
@@ -162,6 +163,24 @@ export const useDocumentsStore = defineStore('documents', {
         path: null,
         name: '示例.md',
         content: sampleDoc,
+        dirty: false,
+        savedContent: ''
+      }
+      this.tabs.push(tab)
+      this.activeId = tab.id
+    },
+    /** 内置 Markdown 语法手册：与示例文档同为未落盘标签，重复打开激活既有项 */
+    openMarkdownHelp(): void {
+      const existing = this.tabs.find((t) => t.name === 'Markdown 语法.md' && t.path === null)
+      if (existing) {
+        this.activeId = existing.id
+        return
+      }
+      const tab: DocTab = {
+        id: nextId++,
+        path: null,
+        name: 'Markdown 语法.md',
+        content: markdownHelpDoc,
         dirty: false,
         savedContent: ''
       }
