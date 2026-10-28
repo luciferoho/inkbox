@@ -10,7 +10,7 @@ import type { MenuCommand } from './types'
 export interface ShortcutCommand {
   id: MenuCommand
   labelKey: string
-  group: 'file' | 'edit' | 'view'
+  group: 'file' | 'edit' | 'view' | 'help'
   /** 默认 Electron 加速键（CmdOrCtrl 写法保留跨平台可能） */
   accel: string
 }
@@ -37,7 +37,8 @@ export const SHORTCUT_COMMANDS: ShortcutCommand[] = [
   { id: 'view:toggleZen', labelKey: 'sc.zen', group: 'view', accel: 'F10' },
   { id: 'view:toggleSearch', labelKey: 'sc.workspaceSearch', group: 'view', accel: 'CmdOrCtrl+Shift+F' },
   { id: 'view:toggleShortcuts', labelKey: 'sc.shortcutPanel', group: 'view', accel: 'CmdOrCtrl+/' },
-  { id: 'app:settings', labelKey: 'sc.settings', group: 'view', accel: 'CmdOrCtrl+,' }
+  { id: 'app:settings', labelKey: 'sc.settings', group: 'view', accel: 'CmdOrCtrl+,' },
+  { id: 'help:markdown', labelKey: 'sc.markdownHelp', group: 'help', accel: 'F1' }
 ]
 
 /** config.shortcuts：命令 id → 覆盖加速键（'' = 禁用）；缺省项用注册表默认值 */
