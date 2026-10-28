@@ -115,7 +115,10 @@ import {
   tocSchema,
   tocView,
   tocUpdatePlugin,
-  htmlSpanSchema
+  htmlSpanSchema,
+  htmlTableSchema,
+  htmlTableView,
+  setHtmlTableDocDir
 } from '@/editor/wysiwyg-extensions'
 // remark 解析插件序列（单一来源；等价比较共用同一序列）
 import { wysiwygRemarkPlugins } from '@/editor/wysiwyg-remark-pipeline'
@@ -376,6 +379,7 @@ function docDirOf(): string | null {
  *  注入的空标题哨兵由 remark transformer dropSplitHeadings 在解析后移除 */
 function toWysiwygSource(md: string): string {
   const docDir = docDirOf()
+  setHtmlTableDocDir(docDir) // HTML 表格视图的图片相对路径基准
   let src = splitAdjacentOrderedLists(md)
   // file:/// 与盘符绝对路径（](E:/x/y.png)）→ luci-img：不依赖 docDir。
   // dev 下渲染层是 http 源，file: 子资源被 webSecurity 拦截（CSP 放行也不够），
@@ -1535,6 +1539,9 @@ onMounted(() => {
     .use(tocSchema)
     .use(tocView)
     .use(tocUpdatePlugin)
+    // 块级 HTML 表格白名单（原子渲染节点，序列化原样还原）
+    .use(htmlTableSchema)
+    .use(htmlTableView)
     // 行内 HTML 白名单 mark
     .use(htmlSpanSchema)
     .use(listener)

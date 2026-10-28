@@ -13,7 +13,7 @@ import remarkGemoji from 'remark-gemoji'
 import remarkFootnotes from 'remark-footnotes'
 import remarkFrontmatter from 'remark-frontmatter'
 import { guardMathText } from '@/editor/wysiwyg-math'
-import { splitInlineMarks, tocBlock, mergeHtmlSpans } from '@/editor/wysiwyg-extensions'
+import { splitInlineMarks, tocBlock, mergeHtmlSpans, htmlTableBlock } from '@/editor/wysiwyg-extensions'
 
 interface MdastNode {
   type?: string
@@ -71,5 +71,7 @@ export const wysiwygRemarkPlugins: { plugin: any; options: any }[] = [
   // 独占一段的 [TOC] → toc 块节点（tocView 实时渲染可点击目录）
   { plugin: tocBlock, options: {} },
   // 行内 HTML 白名单：<u>/<mark>/<kbd> 等配对标签 → htmlSpan mark
-  { plugin: mergeHtmlSpans, options: {} }
+  { plugin: mergeHtmlSpans, options: {} },
+  // 块级 HTML 表格白名单：完整 <table>…</table> 块 → htmlTable 原子节点（序列化原样）
+  { plugin: htmlTableBlock, options: {} }
 ]

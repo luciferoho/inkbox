@@ -503,6 +503,129 @@ export function preprocessCenter(src: string): string {
 }
 
 /**
+ * 块级 HTML 表格白名单（GitHub README 常见的 <table> 图片布局写法）：
+ * 首行 <table…>、末行 </table> 的整块放行为原始 HTML——与 GitHub 的 html block
+ * 语义一致，块内不再走 markdown 解析；但逐标签过滤：只放行表格骨架 + 行内
+ * 格式标签，属性仅 align/width/height/colspan/rowspan/valign/src/alt（src 仅
+ * http(s)/相对路径），其余标签与属性一律转义，安全面与 html:false 相同。
+ * 未闭合的表格块不命中，照旧按转义文本渲染。html_block token 自带 map，
+ * 双栏同步滚动沿用既有源码行号链路。即显侧不在本白名单内（仍显示字面）。
+ */
+const TABLE_ALLOWED_TAGS: Record<string, ReadonlySet<string>> = {
+  table: new Set(['align', 'width']),
+  thead: new Set(['align', 'valign']),
+  tbody: new Set(['align', 'valign']),
+  tfoot: new Set(['align', 'valign']),
+  tr: new Set(['align', 'valign']),
+  th: new Set(['align', 'width', 'colspan', 'rowspan', 'valign']),
+  td: new Set(['align', 'width', 'colspan', 'rowspan', 'valign']),
+  caption: new Set(['align']),
+  colgroup: new Set(['align', 'width', 'span']),
+  col: new Set(['align', 'width', 'span']),
+  strong: new Set([]),
+  b: new Set([]),
+  em: new Set([]),
+  i: new Set([]),
+  del: new Set([]),
+  s: new Set([]),
+  sub: new Set([]),
+  sup: new Set([]),
+  mark: new Set([]),
+  u: new Set([]),
+  kbd: new Set([]),
+  br: new Set([]),
+  img: new Set(['src', 'alt', 'width', 'height'])
+}
+
+const TABLE_TAG_RE = /^<(\/?)([a-z][a-z0-9-]*)((?:\s[^<>]*?)?)(\/?)>$/i
+const TABLE_ATTR_RE = /([a-zA-Z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g
+const TABLE_SAFE_SRC_RE = /^(https?:\/\/|\.?\/|#)/i
+
+export function sanitizeHtmlTableBlock(raw: string): string {
+  return raw.replace(/<[^>]*>/g, (whole) => {
+    const m = TABLE_TAG_RE.exec(whole)
+    if (!m) return escapeHtml(whole)
+    const [, slash, rawName, attrPart = '', selfClose] = m
+    const tag = rawName.toLowerCase()
+    const allowed = TABLE_ALLOWED_TAGS[tag]
+    if (!allowed) return escapeHtml(whole)
+    if (slash) return `</${tag}>`
+    const attrs: string[] = []
+    if (tag !== 'br') {
+      let am: RegExpExecArray | null
+      TABLE_ATTR_RE.lastIndex = 0
+      while ((am = TABLE_ATTR_RE.exec(attrPart))) {
+        const name = am[1].toLowerCase()
+        const value = am[2] ?? am[3] ?? am[4] ?? ''
+        if (!allowed.has(name)) continue
+        if (name === 'src' && !TABLE_SAFE_SRC_RE.test(value.trim())) continue
+        attrs.push(`${name}="${escapeHtml(value)}"`)
+      }
+    }
+    const voidSuffix = selfClose || tag === 'br' || tag === 'img' ? ' /' : ''
+    return `<${tag}${attrs.length ? ' ' + attrs.join(' ') : ''}${voidSuffix}>`
+  })
+}
+
+md.block.ruler.before('paragraph', 'luci_html_table', (state, startLine, endLine, silent) => {
+  if (silent) return false
+  const lineText = (l: number): string =>
+    state.src.slice(state.bMarks[l] + state.tShift[l], state.eMarks[l]).trim()
+  if (!/^<table(\s[^<>]*)?>$/i.test(lineText(startLine))) return false
+  let close = -1
+  for (let l = startLine + 1; l < endLine; l++) {
+    if (/^<\/table>$/i.test(lineText(l))) {
+      close = l
+      break
+    }
+  }
+  if (close < 0) return false
+  const raw = state.src.slice(state.bMarks[startLine], state.eMarks[close])
+  const token = state.push('html_block', '', 0)
+  token.content = sanitizeHtmlTableBlock(raw)
+  token.map = [startLine, close + 1]
+  token.markup = 'luci_html_table'
+  state.line = close + 1
+  return true
+})
+
+/* 白名单表格块内的 <img> 与 markdown 图片走同一套路径解析：相对路径（含
+   file:/// 与盘符绝对路径）→ luci-img:// 协议，依赖文档目录 docDir；
+   http(s)/锚点/根绝对路径原样保留。预览渲染规则与即显表格视图共用 */
+export function rewriteHtmlImgSrc(html: string, docDir: string | null | undefined): string {
+  if (!docDir || !html.includes('<img')) return html
+  const toLuciImg = (abs: string): string =>
+    `luci-img://${encodeURIComponent(abs).replace(/%2F/gi, '/')}`
+  return html.replace(/(<img\b[^>]*?\bsrc=)(["'])([^"']*?)\2/gi, (whole, head, quote, raw) => {
+    const trimmed = raw.trim()
+    if (/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/|#)/.test(trimmed)) {
+      const absFile = /^(?:file:\/\/\/)?([a-zA-Z]:[\\/].*)$/i.exec(trimmed)
+      if (!absFile) return whole
+      let abs = absFile[1].replace(/\\/g, '/')
+      try {
+        abs = decodeURIComponent(abs)
+      } catch {
+        /* 游离 % 序列：按原样拼接 */
+      }
+      return `${head}${quote}${toLuciImg(abs)}${quote}`
+    }
+    let rel = trimmed.replace(/^\.\//, '')
+    try {
+      rel = decodeURIComponent(rel)
+    } catch {
+      /* 游离 % 序列：按原样拼接 */
+    }
+    const abs = docDir.replace(/[\\/]+$/, '').replace(/\\/g, '/') + '/' + rel
+    return `${head}${quote}${toLuciImg(abs)}${quote}`
+  })
+}
+
+md.renderer.rules.html_block = (tokens, idx, _options, env) => {
+  const docDir: string | undefined = (env as { docDir?: string } | undefined)?.docDir
+  return rewriteHtmlImgSrc(tokens[idx].content, docDir) + '\n'
+}
+
+/**
  * 相邻有序列表分隔（仅渲染层，不改文档内容）：
  * 退出列表后新开的有序列表与上一个列表之间只隔空行时，CommonMark/markdown-it
  * 会把两者并成一个列表继续编号。在接缝注入空 ATX 标题行终止上一个列表——
