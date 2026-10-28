@@ -13,6 +13,13 @@
   word-break: break-word;
 }
 
+/* 拼写检查开启时预览正文临时 contenteditable（输入被 beforeinput 全拦）：
+   caret 隐藏维持只读观感 */
+.md-preview[contenteditable='true'] {
+  caret-color: transparent;
+  outline: none;
+}
+
 .md-preview > :first-child {
   margin-top: 0;
 }
@@ -87,11 +94,42 @@
   line-height: 1.6;
   box-shadow: inset 0 0 0 1px var(--code-edge);
 }
+
+/* 主题兜底：自定义主题的 pre 规则（如 phycat 的 overflow: visible）会把
+   横向长行画出代码块边界（窄面板实测溢出）——高优先级收口，横向内容一律
+   在块内滚动，绝不出界 */
+.md-preview pre,
+html[data-theme-css] .md-preview pre,
+html[data-theme-css] .md-preview pre.luci-code {
+  max-width: 100% !important;
+  overflow-x: auto !important;
+}
 .md-preview pre code {
   background: none;
   padding: 0;
   font-size: 13px;
   color: inherit;
+}
+
+/* 行号（七.2）：fence 渲染把高亮 HTML 逐行包 <span class="md-cl">（行间以
+   换行文本分隔，pre 白空格保留换行语义），行号是每个行 span 的 ::before——
+   不改变 pre/code 的 display 与白空格，自定义主题的 pre/code 规则零冲突。
+   行号随内容横向滚动（GitHub 行为）；不参与选择/复制（::before 不进
+   textContent，复制与导出按 code 元素取文本天然干净） */
+.md-preview pre code {
+  counter-reset: mdline;
+}
+
+.md-preview pre code .md-cl::before {
+  counter-increment: mdline;
+  content: counter(mdline);
+  display: inline-block;
+  min-width: 2.1em;
+  margin-right: 1.2em;
+  text-align: right;
+  color: var(--code-comment);
+  user-select: none;
+  pointer-events: none;
 }
 
 /* 代码块 chrome：语言标签栏 + 复制按钮（fence 渲染包 .md-code 容器） */
@@ -236,6 +274,25 @@ html[data-theme-css] .md-preview .md-front-matter {
   font-weight: 600;
 }
 
+/* 块级 HTML 表格（白名单，带 luci-html-table 标记类）：与 markdown 表格的
+   max-content 策略不同——它的用途是图片版式，内容（2560px 大图）会把
+   max-content 撑出内容列。这里固定吃满内容宽 + 固定布局：列宽按 width
+   属性分配（50% 即各半），图片按列收缩，长文本强制断行 */
+.md-preview table.luci-html-table {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 0;
+}
+.md-preview table.luci-html-table th,
+.md-preview table.luci-html-table td {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.md-preview table.luci-html-table img {
+  max-width: 100%;
+  height: auto;
+}
+
 /* 其他 */
 .md-preview hr {
   border: none;
@@ -251,6 +308,19 @@ html[data-theme-css] .md-preview .md-front-matter {
   max-width: 100%;
   border-radius: 8px;
   cursor: zoom-in;
+}
+/* 破图占位：与即显侧同规则（加载失败给虚线框，不静默隐身） */
+.md-preview img.img-broken {
+  min-width: 160px;
+  min-height: 56px;
+  border: 1.5px dashed color-mix(in srgb, var(--text-2) 55%, transparent);
+  background: color-mix(in srgb, var(--text-2) 7%, transparent);
+  object-fit: none;
+  overflow: hidden;
+  padding: 4px 8px;
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: default;
 }
 /* 双栏联动：源码光标落在图片语法上 → 预览对应图轻量高亮（琥珀描边 + 微光,
    跟随主题变量;只标边界不遮内容） */

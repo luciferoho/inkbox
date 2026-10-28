@@ -11,6 +11,16 @@ declare module 'markdown-it-emoji/lib/data/full.mjs' {
   export default defs
 }
 
+/** nspell（hunspell 客户端）：无官方类型 */
+declare module 'nspell' {
+  interface NspellInstance {
+    correct(word: string): boolean
+    suggest(word: string): string[]
+  }
+  const Nspell: new (dictionary: { aff: string; dic: string }) => NspellInstance
+  export default Nspell
+}
+
 // 与 src/preload/index.ts 暴露的 window.api 保持同步（M1 抽到 @shared 统一）
 interface Window {
   api: {
@@ -24,6 +34,8 @@ interface Window {
       create(path: string, isDir: boolean): Promise<void>
       rename(oldPath: string, newPath: string): Promise<void>
       delete(path: string): Promise<void>
+      /** 资源管理器中打开并选中该文件/目录（标签右键等） */
+      showInFolder(path: string): Promise<void>
       readDir(path: string): Promise<import('@shared/types').DirEntry[]>
       listFiles(root: string): Promise<string[]>
     }
@@ -34,7 +46,7 @@ interface Window {
       openFile(): Promise<string | null>
       openFolder(): Promise<string | null>
       openImage(): Promise<string | null>
-      saveFile(defaultName?: string, kind?: 'md' | 'html' | 'tex'): Promise<string | null>
+      saveFile(defaultName?: string, kind?: 'md' | 'html' | 'tex' | 'opml' | 'epub'): Promise<string | null>
     }
     export: {
       pdf(html: string, opts: import('@shared/types').PdfExportOptions, defaultName?: string): Promise<string | null>
@@ -113,6 +125,8 @@ interface Window {
       toggleAlwaysOnTop(): void
       close(): void
       openDoc(doc: import('@shared/types').DetachDoc): void
+      /** 打开设置（独立窗口，全应用共用一个实例；已开则聚焦） */
+      openSettings(): void
       takeInitialDoc(): Promise<import('@shared/types').InitialDoc>
       closeConfirmed(): Promise<void>
       onRequestClose(cb: () => void): () => void

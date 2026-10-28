@@ -69,6 +69,7 @@ import FindBar from './FindBar.vue'
 import { htmlToMarkdown } from '@/services/richPaste'
 import { isHttpUrl, linkTextFromSelection } from '@/editor/paste-link'
 import { insertImageFiles, insertImageFromDisk } from '@/editor/insert-image'
+import { cmSpellcheck } from '@/editor/cm-spellcheck'
 import { t } from '@/i18n'
 import {
   detectTable,
@@ -88,7 +89,7 @@ import { registerCmView } from '@/editor/cm-registry'
 import { fenceCompletion } from '@/editor/cm-fence-completion'
 import { emojiShortcodeSource } from '@/editor/cm-emoji-completion'
 import { findState, sameQuery } from '@/editor/find-state'
-import { saveViewProgress, saveViewCursor, loadView } from '@/editor/tab-view-state'
+import { saveViewProgress, saveViewCursor, clearViewAnchor, loadView } from '@/editor/tab-view-state'
 
 const emit = defineEmits<{
   (e: 'scroll-sync', line: number, frac: number, edge: ScrollEdge): void
@@ -151,6 +152,9 @@ async function syncVim(on: boolean): Promise<void> {
   await loadVim()
   view?.dispatch({ effects: vimComp.reconfigure(vimExt as Extension[]) })
 }
+/** 拼写检查装饰（4.2 自研引擎）按需装卸 */
+const spellComp = new Compartment()
+
 /** CodeMirror 内置界面短语（搜索面板等）随语言热切换 */
 const phrasesComp = new Compartment()
 /** 光标所在表格（停靠工具条的数据源：在表格内 → 表格操作，否则 → 格式化操作） */
@@ -217,6 +221,7 @@ function makeState(content: string): EditorState {
       luciTheme,
       focusComp.of(ui.focusMode ? luciFocusMode : []),
       typewriterComp.of(ui.typewriterMode ? luciTypewriterMode : []),
+      spellComp.of(ui.editorPrefs.spellcheck ? cmSpellcheck : []),
       vimComp.of(ui.vimMode && vimExt ? vimExt : []),
       EditorView.updateListener.of((u: ViewUpdate) => {
         // Vim 插入态回报（状态栏徽标），先于 applying 守卫
@@ -459,7 +464,7 @@ let scrollPending = false
 let syncedScrollTop = -1
 function onScrollDom(): void {
   if (Date.now() < lockUntil || scrollPending) return
-  scrollPending = true
+    scrollPending = true
   window.setTimeout(() => {
     scrollPending = false
     // 排队期间若刚发生过程序同步，丢弃本次陈旧行号，避免回声
@@ -495,6 +500,9 @@ function onScrollDom(): void {
         tabId,
         sd.scrollTop / Math.max(1, sd.scrollHeight - sd.clientHeight)
       )
+      // CM 滚走后预览的旧内容锚不再反映当前位置（双栏联动不重写锚），
+      // 失效之——否则切到预览模式按旧锚落位（实测漂移可达 45%）
+      clearViewAnchor(tabId)
     }
     emit('scroll-sync', lineObj.number + frac, 0, null)
   }, 16)
@@ -539,9 +547,26 @@ onMounted(() => {
   view.scrollDOM.addEventListener('scroll', onScrollDom, { passive: true })
   // 点击编辑区任意位置（含内边距/行号间隙）都要拿到焦点，避免"点了但打不了字"
   host.value.addEventListener('mousedown', onHostMousedown)
+  // 拼写检查开关（4.2）：按设置应用 + 跟随设置切换广播
+  applySpellcheckAttr(ui.editorPrefs.spellcheck ? 'true' : 'false')
+  window.addEventListener('inkbox:spellcheck', onSpellcheckBroadcast)
   // 启动即开着 Vim 模式：动态加载后挂载（首次引入 lib 再缓存）
   if (ui.vimMode) void syncVim(true)
 })
+
+function applySpellcheckAttr(v: string): void {
+  view?.contentDOM.setAttribute('spellcheck', v)
+}
+
+function onSpellcheckBroadcast(e: Event): void {
+  applySpellcheckAttr((e as CustomEvent<string>).detail ?? 'false')
+  // 自研拼写装饰随开关装卸（引擎懒加载后由就绪回调再触发一次重配置）
+  void import('@/editor/cm-spellcheck').then((m) => {
+    view?.dispatch({
+      effects: spellComp.reconfigure(ui.editorPrefs.spellcheck ? m.cmSpellcheck : [])
+    })
+  })
+}
 
 function onHostMousedown(): void {
   if (view && !view.hasFocus) view.focus()
@@ -550,6 +575,7 @@ function onHostMousedown(): void {
 onBeforeUnmount(() => {
   pushFind() // 卸载前最后推一次（正常情况下每次变化都已实时推送，这里是兜底）
   host.value?.removeEventListener('mousedown', onHostMousedown)
+  window.removeEventListener('inkbox:spellcheck', onSpellcheckBroadcast)
   view?.scrollDOM.removeEventListener('scroll', onScrollDom)
   unregisterCm?.()
   view?.destroy()
@@ -568,6 +594,10 @@ watch(
     if (host.value && host.value.offsetParent !== null) {
       const sd = cm.scrollDOM
       saveViewProgress(old, sd.scrollTop / Math.max(1, sd.scrollHeight - sd.clientHeight))
+      // 锚点只在预览可见时新鲜：旧标签不是双栏（预览没跟着动）即过期，
+      // 清掉防止下次双栏恢复按旧锚点落位（两窗格各恢复各的位置）
+      const oldTab = docs.tabs.find((t) => t.id === old)
+      if (oldTab?.mode !== 'split') clearViewAnchor(old)
     }
     saveViewCursor(old, cm.state.selection.main.head)
     applying = true
@@ -580,16 +610,80 @@ watch(
     const len = cm.state.doc.length
     pullFind(id, true) // 无条件恢复（视图刚重建，高亮需要重亮）
     if (cm.hasFocus) cm.contentDOM.blur() // 摘焦点，减少光标自动滚动诱因
-    // 浏览进度恢复：按垂直滚动比例落位（CM 的 heightMap 高度是全量稳定的，
-    // 比例一次落位即准，无需旧方案的两拍校正）。无记录 → 回顶
-    const sd = cm.scrollDOM
-    sd.scrollTop = saved ? saved.frac * Math.max(0, sd.scrollHeight - sd.clientHeight) : 0
-    lockUntil = Date.now() + 150
+    applyLanding()
     if (cursor !== undefined && cursor <= len) {
       cm.dispatch({ selection: { anchor: cursor } }) // 不带 scrollIntoView，不打扰落位
     }
   }
 )
+
+/** 落位 rAF 短钉句柄（0 = 无钉） */
+let landingPin = 0
+
+/** 计算落位目标（applyLanding 与短钉共用）：整档替换后高度图是估算值，
+ *  首帧测量后 scrollHeight 会变——目标必须按当前高度图现算，不能冻结 */
+function landingTarget(): number {
+  if (!view) return 0
+  const cm = view
+  const sd = cm.scrollDOM
+  const saved = loadView(docs.activeId)
+  const a = ui.editorMode === 'split' ? saved?.anchor : undefined
+  if (a?.kind === 'block' && (a.line ?? 0) > 0) {
+    const ln = Math.min(Math.max(1, Math.round(a.line ?? 1)), cm.state.doc.lines)
+    const pos = cm.state.doc.line(ln).from
+    const content = sd.querySelector<HTMLElement>('.cm-content')
+    const block = cm.lineBlockAt(pos)
+    return Math.max(0, block.top + (content?.offsetTop ?? 0) - 6)
+  }
+  if (a?.kind === 'bottom') return sd.scrollHeight
+  if (a?.kind === 'top') return 0
+  return saved ? saved.frac * Math.max(0, sd.scrollHeight - sd.clientHeight) : 0
+}
+
+/** 按共享进度落位（切签与进入源码可见模式共用）：
+ *  双栏优先预览写下的内容锚（行号落位，与预览同一事实来源——frac 在双栏
+ *  下由两窗格交替写入，语义会漂移成「预览在 1.3.2、编辑器在结尾」这种走散）；
+ *  锚点缺失/过期（编辑、即显离开时已清）回退 frac 比例，无记录回顶。
+ *  行号落位后补一发 scrollIntoView：heightMap 在可见后才实测，按精确值再对齐 */
+function applyLanding(): void {
+  if (!view) return
+  const cm = view
+  const sd = cm.scrollDOM
+  const saved = loadView(docs.activeId)
+  const a = ui.editorMode === 'split' ? saved?.anchor : undefined
+  if (a?.kind === 'block' && (a.line ?? 0) > 0) {
+    const ln = Math.min(Math.max(1, Math.round(a.line ?? 1)), cm.state.doc.lines)
+    const pos = cm.state.doc.line(ln).from
+    cm.dispatch({ effects: EditorView.scrollIntoView(pos, { y: 'start', yMargin: 6 }) })
+  }
+  sd.scrollTop = landingTarget()
+  lockUntil = Date.now() + 150
+  // CM 在 setState 后首次测量会按实测高度补偿滚动位置（估算偏短时一帧内
+  // 往下顶几百 px），且切签瞬间高度图未实测、比例目标本身偏短——rAF 短钉：
+  // 每帧按最新高度图重算目标并钉回，连续 3 帧稳定或 700ms 即撤；
+  // 钉回后当帧又被改走视为用户在滚，立即放手。钉帧期间压住 lockUntil，
+  // 程序性滚动不落袋（否则中间值毒化 frac）
+  cancelAnimationFrame(landingPin)
+  let stable = 0
+  let corrections = 0
+  const start = Date.now()
+  const tick = (): void => {
+    lockUntil = Math.max(lockUntil, Date.now() + 80)
+    const target = landingTarget()
+    const cur = sd.scrollTop
+    if (Math.abs(cur - target) > 2) {
+      // CM 测量补偿只纠正一两次；连续被改走是用户在滚（滚轮是连续事件），
+      // 超过预算立即放手
+      if (++corrections > 3) return
+      sd.scrollTop = target
+      stable = 0
+    } else {
+      if (++stable >= 3 || Date.now() - start > 700) return
+    }
+    landingPin = requestAnimationFrame(tick)
+  }
+  landingPin = requestAnimationFrame(tick)
+}
 
 /* ---------- 查找替换（自建停靠条驱动 CM6 SearchQuery；内置面板无计数已弃用） ---------- */
 
@@ -844,14 +938,10 @@ watch(
       }
       // 面板可见后再落位（pre-flush 时机上 CM 还被 v-show 隐藏，scrollHeight=0，
       // 比例会写 0）；进度读取同样延迟——离开中的窗格（如即显卸载）的落袋
-      // 保存发生在父组件渲染期间，watcher 触发时还没落袋。多阶段补拍覆盖竞态
+      // 保存发生在父组件渲染期间，watcher 触发时还没执行——此刻读会拿到上次
+      // 的旧值甚至空值。多阶段补拍覆盖竞态；双栏按锚点行号落位（applyLanding）
       const applyFrac = (): void => {
-        if (!view) return
-        const saved = loadView(docs.activeId)
-        if (!saved) return
-        const sd = view.scrollDOM
-        sd.scrollTop = saved.frac * Math.max(0, sd.scrollHeight - sd.clientHeight)
-        lockUntil = Date.now() + 150
+        applyLanding()
       }
       void nextTick(applyFrac)
       window.setTimeout(applyFrac, 60)

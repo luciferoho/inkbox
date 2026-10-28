@@ -7,9 +7,11 @@
   min-height: 100%;
 }
 
-/* 悬浮即显区域显示文本光标（提示可点击聚焦）；按钮等自带 pointer 的元素自行覆盖 */
+/* 文本光标只落在内容区：宿主管的是纵向滚动条，若宿主整体 cursor:text，
+   悬停它的滚动条也会变成输入光标（自绘滚动条跟随元素光标）。
+   宿主箭头、正文文本光标——滚动条判定区在宿主边缘，正文覆盖其余面积 */
 .wysiwyg-host {
-  cursor: text;
+  cursor: default;
 }
 
 .wysiwyg-host .luci-prose {
@@ -20,6 +22,7 @@
   padding: 16px 20px 40vh;
   min-height: 100%;
   outline: none;
+  cursor: text;
   caret-color: var(--accent);
   word-break: break-word;
   user-select: text;
@@ -97,6 +100,9 @@
   margin: 1em 0;
   line-height: 1.6;
   box-shadow: inset 0 0 0 1px var(--code-edge);
+  /* 代码块自带横向滚动条：外壳用箭头光标（否则悬停滚动条是输入光标），
+     文本光标交给内部 code 元素 */
+  cursor: default;
 }
 
 .wysiwyg-host .luci-prose pre code {
@@ -104,6 +110,20 @@
   padding: 0;
   font-size: 13px;
   color: inherit;
+  cursor: text;
+}
+
+/* 即显代码块行号（pm-codeblock-chrome 行号 widget）：每逻辑行行首一个，
+   与预览行号观感一致；不可编辑不选中（widget decoration 不进文档） */
+.wysiwyg-host .luci-prose pre .pm-code-ln {
+  display: inline-block;
+  min-width: 2.1em;
+  margin-right: 1.2em;
+  text-align: right;
+  color: var(--code-comment);
+  user-select: none;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 代码块 chrome：语言标签栏 + 复制按钮（pm-codeblock-chrome 的 widget 栏 + 相邻 pre） */
@@ -203,13 +223,29 @@ html[data-theme-css] .wysiwyg-host .luci-prose pre {
   margin-right: 7px;
 }
 
-/* 表格：内容自适应宽度（窄窗口横向滚动，不压扁成竖排文字） */
+/* 表格：内容自适应宽度（窄窗口横向滚动，不压扁成竖排文字）。
+   滚动外壳由 pm-table-view 的 nodeView 提供（与预览 md-table-wrap 同构）：
+   表格 width:max-content 超出内容列时在壳内横向滚动，不再顶破整页布局 */
+.wysiwyg-host .luci-prose .luci-table-wrap {
+  max-width: 100%;
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* 横向滚动条用箭头光标：外壳是滚动容器，光标落在它身上，不覆盖单元格 */
+  cursor: default;
+}
+
 .wysiwyg-host .luci-prose table {
   border-collapse: collapse;
-  margin: 1em 0;
+  margin: 0;
   width: max-content;
   min-width: 100%;
   font-size: 0.94em;
+  cursor: text;
+}
+/* 外壳自身的上下外边距已留白：表格在壳内不再叠一次，避免双倍间距 */
+.wysiwyg-host .luci-prose .luci-table-wrap > table {
+  margin: 0;
 }
 
 .wysiwyg-host .luci-prose th,
@@ -229,16 +265,52 @@ html[data-theme-css] .wysiwyg-host .luci-prose pre {
 }
 
 /* 分隔线 / 图片 */
+/* 即显分割线（luci-hr wrap）：wrap 撑出 18px 点击判定区（nodeView 点击
+   → NodeSelection，选中后 Backspace 删除）；内部真 <hr> 由主题 hr 线规则
+   接管（border/背景样式原样生效），本体只占线的高度 */
+.wysiwyg-host .luci-prose .luci-hr {
+  display: flex;
+  align-items: center;
+  height: 18px;
+  cursor: default;
+}
+
+.wysiwyg-host .luci-prose .luci-hr hr {
+  flex: 1;
+  margin: 0 auto;
+}
+
+/* 非主题模式（无 data-theme-css）的 hr 线样式（原规则，主题模式由主题接管） */
 .wysiwyg-host .luci-prose hr {
   border: none;
   border-top: 1px solid var(--border);
-  margin: 2em auto;
   width: 62%;
+  cursor: default;
+}
+
+/* 选中态：wrap 描边提示（与图片选中外框一致） */
+.wysiwyg-host .luci-prose .luci-hr--sel {
+  box-shadow: inset 0 0 0 2px var(--accent-soft);
+  border-radius: 4px;
 }
 
 .wysiwyg-host .luci-prose img {
   max-width: 100%;
   border-radius: 8px;
+}
+
+/* 破图占位：加载失败的图片不再 0×0 隐身——虚线框 + 底色，
+   Chromium 会自动显示 alt 文案与裂图图标（有尺寸才显示） */
+.wysiwyg-host .luci-prose img.img-broken {
+  min-width: 160px;
+  min-height: 56px;
+  border: 1.5px dashed color-mix(in srgb, var(--text-2) 55%, transparent);
+  background: color-mix(in srgb, var(--text-2) 7%, transparent);
+  object-fit: none;
+  overflow: hidden;
+  padding: 4px 8px;
+  color: var(--text-2);
+  font-size: 12px;
 }
 
 /* ProseMirror 交互态 */
@@ -294,7 +366,7 @@ html[data-theme-css] .wysiwyg-host .luci-prose pre {
   width: 22px;
   height: 22px;
   border: 2.5px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #e6a054;
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: mask-spin 0.9s linear infinite;
 }
@@ -700,4 +772,104 @@ html[data-theme-css] .wysiwyg-host .luci-prose pre {
   display: block;
   height: 0;
   visibility: hidden;
+}
+
+/* 块级 HTML 块（Typora 语义）：默认渲染白名单结果；光标进入后切换成
+   带 HTML 标签的源码块（.is-editing），离开再恢复渲染 */
+.wysiwyg-host .luci-html-block {
+  position: relative;
+  margin: 1em 0;
+}
+
+.wysiwyg-host .luci-html-block .luci-html-render {
+  cursor: text;
+}
+
+/* 渲染层里的表格：与预览同一观感（固定布局、图片收敛到列内） */
+.wysiwyg-host .luci-html-block .luci-html-render table.luci-html-table {
+  table-layout: fixed;
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  font-size: 0.94em;
+}
+.wysiwyg-host .luci-html-block .luci-html-render table.luci-html-table th,
+.wysiwyg-host .luci-html-block .luci-html-render table.luci-html-table td {
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  text-align: left;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.wysiwyg-host .luci-html-block .luci-html-render table.luci-html-table th {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+.wysiwyg-host .luci-html-block .luci-html-render img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+/* 源码层：底色/圆角沿用代码块样式，只补语言标签与可编辑光标 */
+.wysiwyg-host .luci-prose pre.luci-html-src {
+  display: none;
+  position: relative;
+  cursor: text;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.wysiwyg-host .luci-html-block.is-editing .luci-html-src {
+  display: block;
+}
+
+.wysiwyg-host .luci-html-block.is-editing .luci-html-render {
+  display: none;
+}
+
+.wysiwyg-host .luci-prose pre.luci-html-src::before {
+  content: 'HTML';
+  position: absolute;
+  top: 4px;
+  right: 10px;
+  font-family: var(--font-body);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+  opacity: 0.65;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 链接内联源码（Typora）：光标进入链接时展开 [文字](地址) */
+.wysiwyg-host .luci-prose .luci-link-src-bracket,
+.wysiwyg-host .luci-prose .luci-link-src-tail {
+  font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace;
+  font-size: 0.86em;
+  color: var(--text-2);
+}
+
+.wysiwyg-host .luci-prose .luci-link-src-text {
+  color: inherit;
+  text-decoration: none;
+}
+
+.wysiwyg-host .luci-prose .luci-link-src-url {
+  min-width: 8ch;
+  max-width: 60ch;
+  padding: 0 2px;
+  border: none;
+  border-bottom: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-2);
+  font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace;
+  font-size: 0.86em;
+  line-height: 1.4;
+  outline: none;
+}
+
+.wysiwyg-host .luci-prose .luci-link-src-url:focus {
+  border-bottom-color: var(--accent);
+  background: var(--surface-2);
 }

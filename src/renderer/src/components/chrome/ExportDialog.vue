@@ -5,6 +5,8 @@ import { useDocumentsStore } from '@/stores/documents'
 import { buildExportHtml } from '@/services/exporter'
 import { exportExtraCss } from '@/services/appearance'
 import { mdToLaTeX } from '@/services/latex'
+import { mdToOPML } from '@/services/opml'
+import { buildEpubBase64 } from '@/services/epub'
 import { t } from '@/i18n'
 // pdf.js 按需加载 + 独立 worker 资源（Electron iframe 内嵌 PDF 查看器不可靠，自渲染最稳）
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
@@ -20,7 +22,7 @@ const PREVIEW_MAX_PAGES = 5
 const ui = useUiStore()
 const docs = useDocumentsStore()
 
-type ExportFmt = 'html' | 'pdf' | 'png' | 'latex'
+type ExportFmt = 'html' | 'pdf' | 'png' | 'latex' | 'opml' | 'epub'
 const fmt = ref<ExportFmt>('html')
 /** 按标签记忆导出格式：开关弹窗保留所选，关标签即清除（下方 watch 剪枝） */
 const fmtByTab = new Map<number, ExportFmt>()
@@ -49,7 +51,9 @@ const HINT_KEYS: Record<ExportFmt, string> = {
   html: 'export.hintHtml',
   pdf: 'export.hintPdf',
   png: 'export.hintPng',
-  latex: 'export.hintLaTeX'
+  latex: 'export.hintLaTeX',
+  opml: 'export.hintOpml',
+  epub: 'export.hintEpub'
 }
 
 const MARGINS: { key: 'normal' | 'narrow' | 'none'; labelKey: string }[] = [
@@ -133,9 +137,10 @@ watch(
 function activePreviewHtml(): string | null {
   const preview = document.querySelector('.md-preview')
   if (!preview || !preview.innerHTML.trim()) return null
-  // 剥离预览专用的代码块 chrome（语言标签栏/复制按钮），导出产物保持纯净结构
+  // 剥离预览专用的代码块 chrome（语言标签栏/复制按钮/行号结构），导出产物保持纯净结构
   const clone = preview.cloneNode(true) as HTMLElement
   clone.querySelectorAll('.md-code-bar').forEach((el) => el.remove())
+  clone.querySelectorAll('.md-cl').forEach((el) => el.replaceWith(...el.childNodes))
   clone.querySelectorAll('.md-code').forEach((el) => el.replaceWith(...el.childNodes))
   // 列宽拖拽是视图态（会话内记忆），不应固化进导出产物：清掉表格/单元格上的
   // 宽度与布局样式，导出页按内容自适应（超宽表格由导出 CSS 兜底换行）
@@ -181,6 +186,10 @@ async function renderPdfPreview(b64: string, seq: number): Promise<void> {
     canvas.width = Math.floor(viewport.width)
     canvas.height = Math.floor(viewport.height)
     canvas.className = 'pdf-page'
+    // 量宽发生在对话框转场期间（clientWidth 偏大），转场后可能略超内容区——
+    // 行内 max-width 收敛显示尺寸（scoped 样式对 JS 动态节点不生效）
+    canvas.style.maxWidth = '100%'
+    canvas.style.height = 'auto'
     host.appendChild(canvas)
     await page.render({ canvas, viewport }).promise
     if (seq !== genSeq) {
@@ -201,6 +210,17 @@ async function regenerate(): Promise<void> {
     clearPdfHost()
     previewHtml.value = ''
     texPreview.value = mdToLaTeX(tab.content)
+    previewFailed.value = false
+    if (seq === genSeq) generating.value = false
+    return
+  }
+  // OPML：大纲 XML 纯文本预览
+  if (fmt.value === 'opml') {
+    const seq = ++genSeq
+    generating.value = true
+    clearPdfHost()
+    previewHtml.value = ''
+    texPreview.value = mdToOPML(tab.name, tab.content)
     previewFailed.value = false
     if (seq === genSeq) generating.value = false
     return
@@ -270,6 +290,42 @@ async function doExport(): Promise<void> {
     }
     return
   }
+  // OPML：大纲 XML，同样不依赖预览 DOM
+  if (fmt.value === 'opml') {
+    busy.value = true
+    try {
+      const xml = mdToOPML(tab.name, tab.content)
+      const path = await window.api.dialog.saveFile(`${name}.opml`, 'opml')
+      if (!path) return
+      await window.api.fs.writeFile(path, xml)
+      ui.showToast(t('export.savedOpml', { name: path.split(/[\\/]/).pop() }))
+      ui.exportOpen = false
+    } catch (err) {
+      exportError.value = err instanceof Error ? err.message : String(err)
+    } finally {
+      busy.value = false
+    }
+    return
+  }
+  // ePub：整档渲染按 H1 分章打成 ZIP 包（二进制 base64 落盘）
+  if (fmt.value === 'epub') {
+    busy.value = true
+    try {
+      const sepIdx = Math.max(tab.path?.lastIndexOf('/') ?? -1, tab.path?.lastIndexOf('\\') ?? -1)
+      const docDir = sepIdx > 0 && tab.path ? tab.path.slice(0, sepIdx) : null
+      const b64 = await buildEpubBase64(tab.name, tab.content, docDir)
+      const path = await window.api.dialog.saveFile(`${name}.epub`, 'epub')
+      if (!path) return
+      await window.api.fs.writeFileBinary(path, b64)
+      ui.showToast(t('export.savedEpub', { name: path.split(/[\\/]/).pop() }))
+      ui.exportOpen = false
+    } catch (err) {
+      exportError.value = err instanceof Error ? err.message : String(err)
+    } finally {
+      busy.value = false
+    }
+    return
+  }
   const body = activePreviewHtml()
   if (body === null) {
     ui.showToast(t('export.emptyDoc'))
@@ -328,11 +384,13 @@ async function doExport(): Promise<void> {
 
             <div class="field">
               <span class="label">{{ $t('export.format') }}</span>
-              <div class="seg">
+              <div class="seg seg-fmt">
                 <button :class="{ on: fmt === 'png' }" @click="fmt = 'png'">PNG</button>
                 <button :class="{ on: fmt === 'pdf' }" @click="fmt = 'pdf'">PDF</button>
                 <button :class="{ on: fmt === 'html' }" @click="fmt = 'html'">HTML</button>
                 <button :class="{ on: fmt === 'latex' }" @click="fmt = 'latex'">LaTeX</button>
+                <button :class="{ on: fmt === 'opml' }" @click="fmt = 'opml'">OPML</button>
+                <button :class="{ on: fmt === 'epub' }" @click="fmt = 'epub'">ePub</button>
               </div>
             </div>
 
@@ -408,7 +466,7 @@ async function doExport(): Promise<void> {
             <div v-else-if="fmt === 'pdf'" ref="pdfHost" class="pdf-host">
               <p v-if="pdfPageHint" class="pdf-hint">{{ pdfPageHint }}</p>
             </div>
-            <pre v-else-if="fmt === 'latex'" class="tex-view">{{ texPreview }}</pre>
+            <pre v-else-if="fmt === 'latex' || fmt === 'opml'" class="tex-view">{{ texPreview }}</pre>
             <div v-else-if="!generating && !previewFailed" class="preview-empty">{{ $t('export.preparing') }}</div>
           </div>
         </section>
@@ -501,6 +559,12 @@ async function doExport(): Promise<void> {
   border-radius: 8px;
   background: var(--bg);
   border: 1px solid var(--border);
+}
+
+/* 格式六选一：2×3 网格，按钮多不溢出（图二反馈） */
+.seg-fmt {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .seg button {
@@ -604,14 +668,19 @@ async function doExport(): Promise<void> {
   background: var(--bg);
 }
 
-/* PDF 预览：A4 页面卡片纵向排布 */
+/* PDF 预览：A4 页面卡片纵向排布；灰底 + 页间间隔（WPS 视图风格，
+   一眼可辨分页边界，也缓解"页面之间贴在一起显空"的观感） */
 .pdf-host {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding: 20px 28px;
+  overflow-x: hidden; /* 生成期量宽与转场后实际宽度差几 px 时不再出横向滚动条 */
+  padding: 24px 28px 32px;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  background: color-mix(in srgb, var(--text-2) 10%, var(--bg));
   align-items: center;
   gap: 16px;
 }
@@ -621,6 +690,8 @@ async function doExport(): Promise<void> {
   border-radius: 2px;
   box-shadow: 0 2px 14px rgba(20, 16, 12, 0.28);
   flex-shrink: 0;
+  max-width: 100%; /* 量宽误差兜底：canvas 位图宽略超内容区时按容器收敛 */
+  height: auto;
 }
 
 /* LaTeX 预览：等宽源码全文 */

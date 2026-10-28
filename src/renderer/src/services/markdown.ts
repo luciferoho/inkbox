@@ -121,6 +121,13 @@ export const md: MarkdownIt = MarkdownItDefault({
   .use(footnote)
   .use(emoji)
 
+/* 智能标点（4.3，可选开关）：markdown-it 的 typographer——直引号→弯引号、
+   --→en 破折号、---→em 破折号、...→省略号。只影响预览/导出渲染，
+   源码与即显序列化不动；默认关（写作场景中文为主，直引号替换易误伤代码示例） */
+export function setTypographer(enabled: boolean): void {
+  md.set({ typographer: enabled })
+}
+
 /* 表格外套横向滚动容器：窄窗口/超宽表格不压扁内容，改为容器内横向滚动；
    列宽拖拽（2.2）注入的固定 px 宽度也由该容器承接溢出 */
 md.renderer.rules.table_open = (tokens, idx, options, _env, self) =>
@@ -402,11 +409,13 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   return defaultLinkOpen(tokens, idx, options, env, self)
 }
 
-/* 放行 SVG data URI 图片：img 上下文不执行脚本，CSP 另有兜底；
-   javascript:/vbscript:/file: 等仍由默认策略拦截 */
+/* 放行 SVG data URI 图片与 file:/// 本地绝对路径图片：img 上下文不执行脚本，
+   CSP 另有兜底；javascript:/vbscript: 等仍由默认策略拦截。file: 放行后由
+   下方图片规则转成 luci-img 协议，预览不直接以 file: 加载 */
 const defaultValidateLink = md.validateLink
 md.validateLink = (url: string): boolean => {
   if (/^data:image\/svg\+xml/i.test(url)) return true
+  if (/^file:\/\/\//i.test(url)) return true
   return defaultValidateLink(url)
 }
 
@@ -418,7 +427,18 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
   const tok = tokens[idx]
   const raw = String(tok.attrGet('src') ?? '')
   const docDir: string | undefined = (env as { docDir?: string } | undefined)?.docDir
-  if (raw && docDir && !/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/|#)/.test(raw)) {
+  // file:/// 与盘符绝对路径 → luci-img（不依赖 docDir；与即显 toWysiwygSource 同规则，
+  // dev 的 http 源加载不了 file: 子资源）
+  const absFile = /^(?:file:\/\/\/)?([a-zA-Z]:[\/\\][^)\s]*)$/i.exec(raw)
+  if (absFile) {
+    let abs = absFile[1].replace(/\\/g, '/')
+    try {
+      abs = decodeURIComponent(abs)
+    } catch {
+      /* 游离 % 序列：按原样拼接 */
+    }
+    tok.attrSet('src', 'luci-img://' + encodeURIComponent(abs).replace(/%2F/gi, '/'))
+  } else if (raw && docDir && !/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/|#)/.test(raw)) {
     // markdown-it 对链接目标做过一次百分号编码（中文/空格 → %XX）：先解码回原始文件名
     // 再重组，否则 encodeURIComponent 二次编码会让主进程解码后剩字面量 % 路径（404 裂图）
     let rel = raw.replace(/^\.\//, '')
@@ -480,6 +500,142 @@ export function preprocessCenter(src: string): string {
   return src.replace(CENTER_BLOCK_RE, (_m, _tag: string, inner: string) => {
     return `@@CENTER_START@@\n${inner}\n@@CENTER_END@@`
   })
+}
+
+/**
+ * 块级 HTML 表格白名单（GitHub README 常见的 <table> 图片布局写法）：
+ * 首行 <table…>、末行 </table> 的整块放行为原始 HTML——与 GitHub 的 html block
+ * 语义一致，块内不再走 markdown 解析；但逐标签过滤：只放行表格骨架 + 行内
+ * 格式标签 + 链接（a[href]，href 仅 http(s)/mailto/相对路径/锚点），属性仅
+ * align/width/height/colspan/rowspan/valign/src/alt/title（src 仅 http(s)/相对
+ * 路径），其余标签与属性一律转义，安全面与 html:false 相同。
+ * 未闭合的表格块不命中，照旧按转义文本渲染。html_block token 自带 map，
+ * 双栏同步滚动沿用既有源码行号链路。即显侧由 wysiwyg-extensions 的
+ * htmlTableBlock 复用同一套净化规则投影（原始 HTML 存节点属性）。
+ */
+const TABLE_ALLOWED_TAGS: Record<string, ReadonlySet<string>> = {
+  table: new Set(['align', 'width']),
+  thead: new Set(['align', 'valign']),
+  tbody: new Set(['align', 'valign']),
+  tfoot: new Set(['align', 'valign']),
+  tr: new Set(['align', 'valign']),
+  th: new Set(['align', 'width', 'colspan', 'rowspan', 'valign']),
+  td: new Set(['align', 'width', 'colspan', 'rowspan', 'valign']),
+  caption: new Set(['align']),
+  colgroup: new Set(['align', 'width', 'span']),
+  col: new Set(['align', 'width', 'span']),
+  strong: new Set([]),
+  b: new Set([]),
+  em: new Set([]),
+  i: new Set([]),
+  del: new Set([]),
+  s: new Set([]),
+  sub: new Set([]),
+  sup: new Set([]),
+  mark: new Set([]),
+  u: new Set([]),
+  kbd: new Set([]),
+  br: new Set([]),
+  a: new Set(['href', 'title']),
+  img: new Set(['src', 'alt', 'width', 'height'])
+}
+
+const TABLE_TAG_RE = /^<(\/?)([a-z][a-z0-9-]*)((?:\s[^<>]*?)?)(\/?)>$/i
+const TABLE_ATTR_RE = /([a-zA-Z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g
+const TABLE_SAFE_SRC_RE = /^(https?:\/\/|\.?\/|#)/i
+/** href 只放行 http(s)/mailto 与相对路径、锚点（挡 javascript:/data: 等协议） */
+function isSafeHtmlHref(value: string): boolean {
+  const t = value.trim()
+  if (!t) return true
+  if (/^(?:https?:\/\/|mailto:)/i.test(t)) return true
+  return !/^[a-z][a-z0-9+.-]*:/i.test(t)
+}
+
+export function sanitizeHtmlTableBlock(raw: string): string {
+  return raw.replace(/<[^>]*>/g, (whole) => {
+    const m = TABLE_TAG_RE.exec(whole)
+    if (!m) return escapeHtml(whole)
+    const [, slash, rawName, attrPart = '', selfClose] = m
+    const tag = rawName.toLowerCase()
+    const allowed = TABLE_ALLOWED_TAGS[tag]
+    if (!allowed) return escapeHtml(whole)
+    if (slash) return `</${tag}>`
+    const attrs: string[] = []
+    if (tag !== 'br') {
+      let am: RegExpExecArray | null
+      TABLE_ATTR_RE.lastIndex = 0
+      while ((am = TABLE_ATTR_RE.exec(attrPart))) {
+        const name = am[1].toLowerCase()
+        const value = am[2] ?? am[3] ?? am[4] ?? ''
+        if (!allowed.has(name)) continue
+        if (name === 'src' && !TABLE_SAFE_SRC_RE.test(value.trim())) continue
+        if (name === 'href' && !isSafeHtmlHref(value)) continue
+        attrs.push(`${name}="${escapeHtml(value)}"`)
+      }
+    }
+    const voidSuffix = selfClose || tag === 'br' || tag === 'img' ? ' /' : ''
+    // 自带标记类（不让用户 class 过白名单）：样式层据此把 HTML 表格钉在内容宽内
+    const ownClass = tag === 'table' ? ' class="luci-html-table"' : ''
+    return `<${tag}${ownClass}${attrs.length ? ' ' + attrs.join(' ') : ''}${voidSuffix}>`
+  })
+}
+
+md.block.ruler.before('paragraph', 'luci_html_table', (state, startLine, endLine, silent) => {
+  if (silent) return false
+  const lineText = (l: number): string =>
+    state.src.slice(state.bMarks[l] + state.tShift[l], state.eMarks[l]).trim()
+  if (!/^<table(\s[^<>]*)?>$/i.test(lineText(startLine))) return false
+  let close = -1
+  for (let l = startLine + 1; l < endLine; l++) {
+    if (/^<\/table>$/i.test(lineText(l))) {
+      close = l
+      break
+    }
+  }
+  if (close < 0) return false
+  const raw = state.src.slice(state.bMarks[startLine], state.eMarks[close])
+  const token = state.push('html_block', '', 0)
+  token.content = sanitizeHtmlTableBlock(raw)
+  token.map = [startLine, close + 1]
+  token.markup = 'luci_html_table'
+  state.line = close + 1
+  return true
+})
+
+/* 白名单表格块内的 <img> 与 markdown 图片走同一套路径解析：相对路径（含
+   file:/// 与盘符绝对路径）→ luci-img:// 协议，依赖文档目录 docDir；
+   http(s)/锚点/根绝对路径原样保留。预览渲染规则与即显表格视图共用 */
+export function rewriteHtmlImgSrc(html: string, docDir: string | null | undefined): string {
+  if (!docDir || !html.includes('<img')) return html
+  const toLuciImg = (abs: string): string =>
+    `luci-img://${encodeURIComponent(abs).replace(/%2F/gi, '/')}`
+  return html.replace(/(<img\b[^>]*?\bsrc=)(["'])([^"']*?)\2/gi, (whole, head, quote, raw) => {
+    const trimmed = raw.trim()
+    if (/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/|#)/.test(trimmed)) {
+      const absFile = /^(?:file:\/\/\/)?([a-zA-Z]:[\\/].*)$/i.exec(trimmed)
+      if (!absFile) return whole
+      let abs = absFile[1].replace(/\\/g, '/')
+      try {
+        abs = decodeURIComponent(abs)
+      } catch {
+        /* 游离 % 序列：按原样拼接 */
+      }
+      return `${head}${quote}${toLuciImg(abs)}${quote}`
+    }
+    let rel = trimmed.replace(/^\.\//, '')
+    try {
+      rel = decodeURIComponent(rel)
+    } catch {
+      /* 游离 % 序列：按原样拼接 */
+    }
+    const abs = docDir.replace(/[\\/]+$/, '').replace(/\\/g, '/') + '/' + rel
+    return `${head}${quote}${toLuciImg(abs)}${quote}`
+  })
+}
+
+md.renderer.rules.html_block = (tokens, idx, _options, env) => {
+  const docDir: string | undefined = (env as { docDir?: string } | undefined)?.docDir
+  return rewriteHtmlImgSrc(tokens[idx].content, docDir) + '\n'
 }
 
 /**
@@ -646,10 +802,20 @@ function canonicalSepCell(cell: string): string {
  * - 主题分割线：`***`/`___`/`- - -` 统一 `---`；仅前行为空行时归一——
  *   紧贴段落的 `---` 是 setext 标题下划线，语义不同，不能碰。
  * - 链接/图片目标的 `./` 前缀（管线把相对路径补成 `./x` 回推）。
+ * - PM 序列化器的防误判转义：`[TOC]`/`[!NOTE]` 等行首标记被回写成 `\[TOC]`/`\[!`
+ *   （与 gh-alerts 解析侧的可选转义配对），渲染语义相同，归一防"打开即未保存"。
+ * - autolink 包装：裸网址被回写成 `<https://…>`，渲染等价，剥包装比较。
  */
 function normalizeStyleLines(lines: string[], masked: Set<number>): string[] {
-  // 第一遍：链接目标 ./ 前缀（围栏内容不动）
-  const out = lines.map((l, i) => (masked.has(i) ? l : l.replace(/\]\(\.\//g, '](')))
+  // 第一遍：链接目标 ./ 前缀 + `[` 类标记的转义剥除 + autolink 剥包装（围栏内容不动）
+  const out = lines.map((l, i) =>
+    masked.has(i)
+      ? l
+      : l
+          .replace(/\]\(\.\//g, '](')
+          .replace(/\\(\[TOC\]|\[!)/g, '$1')
+          .replace(/<((?:https?|ftp):\/\/[^<>\s]+)>/g, '$1')
+  )
   const res: string[] = []
   let i = 0
   while (i < out.length) {
@@ -746,12 +912,17 @@ export function canonicalizeContent(src: string): string {
     )
   }
   flushFence()
-  // 列表项之前的引导空行：即显序列化常省略（无序列表可打断段落）。
+  // 列表项之前的引导空行：即显序列化常省略（无序列表可打断段落）；
+  // 脚注定义 `[^x]:` 之前的引导空行：即显序列化常补插。两类同属风格件。
   // 尾随空行/换行同样抹平：milkdown 序列化不保证文末换行，与磁盘文本（Typora
   // 惯例保留尾随换行）只差文末空行时不算真实编辑——否则"打开即未保存"
   return normalizeStyleLines(out, masked)
     .join('\n')
     .replace(/\n\n+(?=(?:[-*+]|\d+[.)])[\t ])/g, '\n')
+    .replace(/\n\n+(?=\[\^[^\]\n]+\]:)/g, '\n')
+    // 标题行之前的引导空行：ATX 标题自成块，紧排与空行分隔渲染一致
+    // （即显序列化恒在标题间补空行；示例文档的紧排标题层级演示即为此类）
+    .replace(/\n\n+(?=#{1,6}[\t ])/g, '\n')
     .replace(/[\s\n]+$/, '')
 }
 
@@ -887,7 +1058,7 @@ function ensureCodeCopyHandler(): void {
       '.md-code-copy'
     ) as HTMLButtonElement | null
     if (!btn) return
-    const text = btn.closest('.md-code')?.querySelector('pre')?.textContent ?? ''
+    const text = btn.closest('.md-code')?.querySelector('pre code')?.textContent ?? ''
     if (!text) return
     void writeClipboard(text).then((ok) => {
       if (ok) applyCopiedFeedback(btn, t('code.copied'), t('code.copy'))
@@ -898,6 +1069,36 @@ function ensureCodeCopyHandler(): void {
 const defaultFence: RendererRule =
   md.renderer.rules.fence ??
   ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+
+/** 按换行拆分高亮 HTML 为行数组：跨行的未闭合标签在每行首尾补齐/闭合
+ *  （hljs 输出的标签全部是 span，跨行 span——多行注释/字符串——逐行复制开启标签、
+ *  逆序补闭合标签，浏览器解析后与原 HTML 等价，且每行有了独立的开头供 ::before 行号附着） */
+function splitHtmlLines(html: string): string[] {
+  const tokens = html.split(/(<[^>]+>)/)
+  const openStack: string[] = []
+  const lines: string[] = []
+  let cur = ''
+  for (const tk of tokens) {
+    if (!tk) continue
+    if (tk.startsWith('<')) {
+      if (tk.startsWith('</')) openStack.pop()
+      else if (!tk.endsWith('/>')) openStack.push(tk)
+      cur += tk
+      continue
+    }
+    const parts = tk.split('\n')
+    parts.forEach((part, i) => {
+      if (i > 0) {
+        lines.push(cur + '</span>'.repeat(openStack.length))
+        cur = openStack.join('')
+      }
+      cur += part
+    })
+  }
+  lines.push(cur)
+  return lines
+}
+
 md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const tok = tokens[idx]
   const info = tok.info.trim()
@@ -905,7 +1106,14 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
     // 代码块 chrome：语言标签栏 + 复制按钮（导出走 Preview DOM 剥离，见 ExportDialog）
     const lang = escapeHtml(info.split(/\s+/)[0].toLowerCase())
     ensureCodeCopyHandler()
-    const inner = defaultFence(tokens, idx, options, env, self)
+    // 行号（七.2）：高亮 HTML 逐行包 <span class="md-cl">，行号由 CSS counter
+    // 在每个行 span 开头渲染（::before）——不改变 pre/code 的 display，
+    // 与自定义主题的 pre/code 规则零冲突（grid/sticky 方案在 phycat 等主题下碎裂）
+    const inner0 = defaultFence(tokens, idx, options, env, self)
+    const inner = inner0.replace(/<code([^>]*)>([\s\S]*)<\/code>/, (_m, attrs: string, body: string) => {
+      const lines = splitHtmlLines(body.replace(/\n$/, ''))
+      return `<code${attrs}>${lines.map((l) => `<span class="md-cl">${l}</span>`).join('\n')}\n</code>`
+    })
     const label = escapeHtml(t('code.copy'))
     return (
       `<div class="md-code"><div class="md-code-bar">` +

@@ -3,11 +3,13 @@ import { markRule } from '@milkdown/kit/prose'
 import type { Ctx } from '@milkdown/kit/ctx'
 import { InputRule } from '@milkdown/kit/prose/inputrules'
 import { EditorState, Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state'
+import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
 import type { EditorView, NodeView, ViewMutationRecord } from '@milkdown/kit/prose/view'
-import type { Node as PMNode } from '@milkdown/kit/prose/model'
+import type { Mark, Node as PMNode } from '@milkdown/kit/prose/model'
 import remarkGemoji from 'remark-gemoji'
 import remarkFootnotes from 'remark-footnotes'
 import remarkFrontmatter from 'remark-frontmatter'
+import { sanitizeHtmlTableBlock, rewriteHtmlImgSrc } from '@/services/markdown'
 
 /**
  * 即显扩展语法（ROADMAP 1.3/1.4/1.5）：==高亮==、^上标^、~下标~、脚注、emoji。
@@ -202,14 +204,17 @@ export const footnoteReferenceSchema = $nodeSchema('footnote_reference', () => (
   toDOM: (node: PMNode) => [
     'sup',
     { class: 'footnote-ref', 'data-id': String(node.attrs.identifier ?? '') },
-    `[^${String(node.attrs.label || node.attrs.identifier || '')}]`
+    // 角标显示纯编号（与预览管线 markdown-it-footnote 一致；此前显示 [^1] 带语法，切模式跳变）
+    `[${String(node.attrs.label || node.attrs.identifier || '')}]`
   ],
   parseDOM: [
     {
       tag: 'sup.footnote-ref',
       getAttrs: (dom) => {
         if (!(dom instanceof HTMLElement)) return {}
-        return { identifier: dom.dataset.id ?? '', label: dom.textContent ?? '' }
+        // 角标文案是 [1] 展示形态，label 回读要去掉括号（label 进序列化，写 [^label]）
+        const text = (dom.textContent ?? '').replace(/[[\]^]/g, '')
+        return { identifier: dom.dataset.id ?? '', label: text }
       }
     }
   ],
@@ -569,3 +574,465 @@ export const tocUpdatePlugin = $prose(() =>
     })
   })
 )
+
+/* ---------- 块级 HTML 表格白名单（与预览管线 markdown.ts 同一套净化规则） ---------- */
+
+interface MdastBlockNode {
+  type?: string
+  value?: unknown
+  children?: MdastBlockNode[]
+}
+
+/** 完整表格块的 html 节点（首行 <table…>、末行 </table>）→ htmlTable 原子节点。
+ *  序列化原样还原原始 HTML（字节不变 → 不脏）；渲染在视图里净化后投影 */
+export function htmlTableBlock(): (tree: MdastBlockNode) => void {
+  const walk = (node: MdastBlockNode): void => {
+    if (!node.children) return
+    for (let i = 0; i < node.children.length; i++) {
+      const c = node.children[i]
+      if (c.type === 'html' && isTableBlockSource(String(c.value ?? ''))) {
+        node.children[i] = { type: 'htmlTable', value: String(c.value ?? '').trim() }
+        continue
+      }
+      walk(c)
+    }
+  }
+  return (tree) => walk(tree)
+}
+
+function isTableBlockSource(value: string): boolean {
+  const t = value.trim()
+  return /^<table(\s[^<>]*)?>/i.test(t) && /<\/table>$/i.test(t)
+}
+
+export const htmlTableSchema = $nodeSchema('html_table', () => ({
+  // Typora 语义：HTML 块默认渲染成结果，光标进入后才显示源码（可改）。
+  // 节点存原始 HTML 文本，序列化经 html 节点原样回写——字节不变，不引「打开即未保存」
+  content: 'text*',
+  group: 'block',
+  code: true,
+  defining: true,
+  toDOM: () => ['pre', { class: 'luci-html-src-static' }, ['code', {}, 0]],
+  parseDOM: [{ tag: 'pre.luci-html-src-static', preserveWhitespace: 'full' }],
+  parseMarkdown: {
+    match: ({ type }) => type === 'htmlTable',
+    runner: (state, node, type) => {
+      state.openNode(type)
+      if (node.value) state.addText(String(node.value))
+      state.closeNode()
+    }
+  },
+  toMarkdown: {
+    match: (node) => node.type.name === 'html_table',
+    runner: (state, node) => {
+      // 原始 HTML 经 html 节点原样输出（remark-stringify 不转义 html 节点）
+      state.addNode('html', undefined, node.textContent)
+    }
+  }
+}))
+
+/** 视图层文档目录（图片相对路径 → luci-img）；WysiwygEditor 挂载/切签时同步 */
+let htmlTableDocDir: string | null = null
+export function setHtmlTableDocDir(dir: string | null): void {
+  htmlTableDocDir = dir
+}
+
+/** 选区是否与块节点 [pos, pos+size) 相交（光标进入或整块选中） */
+function selectionTouchesBlock(state: EditorState, pos: number, size: number): boolean {
+  const sel = state.selection
+  return sel.from <= pos + size && sel.to > pos
+}
+
+/**
+ * HTML 块视图：默认渲染白名单 HTML（只读投影），
+ * 光标/选区进入节点时切换成源码块（可编辑），离开后恢复渲染。
+ * 渲染层与源码层同时挂在一个 wrapper 下，CSS 按 .is-editing 互斥显示。
+ */
+class HtmlTableBlockView implements NodeView {
+  dom: HTMLElement
+  contentDOM: HTMLElement
+  private renderEl: HTMLElement
+  private view: EditorView
+  private getPos: () => number | undefined
+  private node: PMNode
+  private active = false
+  private lastSource = ''
+
+  constructor(node: PMNode, view: EditorView, getPos: () => number | undefined) {
+    this.node = node
+    this.view = view
+    this.getPos = getPos
+
+    this.dom = document.createElement('div')
+    this.dom.className = 'luci-html-block'
+
+    this.renderEl = document.createElement('div')
+    this.renderEl.className = 'luci-html-render'
+    this.renderEl.contentEditable = 'false'
+    this.dom.appendChild(this.renderEl)
+
+    const src = document.createElement('pre')
+    src.className = 'luci-html-src'
+    const code = document.createElement('code')
+    code.className = 'language-html'
+    src.appendChild(code)
+    this.dom.appendChild(src)
+
+    this.contentDOM = code
+    this.render(node)
+    this.renderEl.addEventListener('mousedown', this.onRenderMouseDown)
+    liveHtmlBlockViews.add(this)
+  }
+
+  /** 点击渲染层：普通点击就地进源码；Ctrl/Cmd+点击打开表格内链接 */
+  private onRenderMouseDown = (e: MouseEvent): void => {
+    const a = (e.target as HTMLElement | null)?.closest?.('a[href]')
+    if (a && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      openLinkTarget(a.getAttribute('href') ?? '')
+      return
+    }
+    e.preventDefault()
+    const pos = this.getPos()
+    if (pos == null) return
+    // 先亮出源码层，再落光标——否则 display:none 的 contentDOM 收不到选区
+    this.setActive(true)
+    const state = this.view.state
+    const target = Math.min(pos + 1, state.doc.content.size)
+    this.view.dispatch(state.tr.setSelection(TextSelection.near(state.doc.resolve(target))))
+    this.view.focus()
+  }
+
+  private render(node: PMNode): void {
+    const raw = node.textContent
+    if (raw === this.lastSource) return
+    this.lastSource = raw
+    // 展示走净化 + 图片协议改写；节点里始终是原始 HTML
+    this.renderEl.innerHTML = rewriteHtmlImgSrc(sanitizeHtmlTableBlock(raw), htmlTableDocDir)
+  }
+
+  private setActive(active: boolean): void {
+    if (active === this.active) return
+    this.active = active
+    this.dom.classList.toggle('is-editing', active)
+    if (!active) this.render(this.node)
+  }
+
+  /** 每次 view 更新都调用（选区变化不会触发 NodeView.update） */
+  syncActive(state: EditorState): void {
+    const pos = this.getPos()
+    if (pos == null) return
+    this.setActive(selectionTouchesBlock(state, pos, this.node.nodeSize))
+  }
+
+  /** 块在文档中的位置（键盘进出块时按它定位 NodeView） */
+  anchorPos(): number | undefined {
+    return this.getPos()
+  }
+
+  /** 键盘进入块前先亮源码层 */
+  reveal(): void {
+    this.setActive(true)
+  }
+
+  update(node: PMNode): boolean {
+    if (node.type.name !== 'html_table') return false
+    this.node = node
+    if (!this.active) this.render(node)
+    return true
+  }
+
+  ignoreMutation(m: ViewMutationRecord): boolean {
+    // 渲染层是纯投影；源码层（contentDOM）的突变必须交给 ProseMirror
+    return !this.contentDOM.contains(m.target as Node)
+  }
+
+  destroy(): void {
+    this.renderEl.removeEventListener('mousedown', this.onRenderMouseDown)
+    liveHtmlBlockViews.delete(this)
+  }
+}
+
+const liveHtmlBlockViews = new Set<HtmlTableBlockView>()
+
+/** 键盘从相邻块进入 HTML 块前，先把源码层亮出来（隐藏的 contentDOM 收不到选区） */
+function revealHtmlBlockAt(pos: number): void {
+  for (const v of liveHtmlBlockViews) {
+    if (v.anchorPos() === pos) {
+      v.reveal()
+      return
+    }
+  }
+}
+
+export const htmlTableView = $view(htmlTableSchema.node, () => (node, view, getPos) =>
+  new HtmlTableBlockView(node, view, getPos)
+)
+
+/** 选区驱动的 HTML 块渲染/源码切换（NodeView.update 不覆盖纯选区变化） */
+export const htmlBlockSyncPlugin = $prose(
+  () =>
+    new Plugin({
+      view: () => ({
+        update: (view: EditorView) => {
+          for (const v of [...liveHtmlBlockViews]) v.syncActive(view.state)
+        }
+      })
+    })
+)
+
+/**
+ * 上下方向键进出 HTML 块：内容层收起时浏览器无法把光标落进隐藏的 contentDOM，
+ * ProseMirror 会直接跳过整块。这里在块边界接管方向键，先亮源码再落光标。
+ */
+export function createHtmlBlockKeyPlugin(): Plugin {
+  return new Plugin({
+    props: {
+      handleKeyDown: (view, event) => {
+        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return false
+        if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return false
+        const { state } = view
+        const sel = state.selection
+        if (!(sel instanceof TextSelection) || !sel.empty) return false
+        const $head = sel.$head
+        if (!$head.parent.isTextblock) return false
+
+        if ($head.parent.type.name === 'html_table') {
+          // 源码态里走到首/末行：退出块（离开后渲染层自动恢复）
+          if (event.key === 'ArrowUp' && view.endOfTextblock('up')) {
+            const before = $head.before($head.depth)
+            view.dispatch(
+              state.tr.setSelection(TextSelection.near(state.doc.resolve(Math.max(0, before)), -1))
+            )
+            return true
+          }
+          if (event.key === 'ArrowDown' && view.endOfTextblock('down')) {
+            const after = $head.after($head.depth)
+            view.dispatch(
+              state.tr.setSelection(
+                TextSelection.near(state.doc.resolve(Math.min(after, state.doc.content.size)), 1)
+              )
+            )
+            return true
+          }
+          return false
+        }
+
+        if (event.key === 'ArrowUp') {
+          if (!view.endOfTextblock('up')) return false
+          const before = $head.before($head.depth)
+          if (before <= 0) return false
+          const prev = state.doc.resolve(before).nodeBefore
+          if (!prev || prev.type.name !== 'html_table') return false
+          const start = before - prev.nodeSize
+          revealHtmlBlockAt(start)
+          const target = start + Math.max(1, prev.content.size)
+          view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, target)))
+          return true
+        }
+
+        if (!view.endOfTextblock('down')) return false
+        const after = $head.after($head.depth)
+        const next = state.doc.resolve(after).nodeAfter
+        if (!next || next.type.name !== 'html_table') return false
+        revealHtmlBlockAt(after)
+        const target = Math.min(after + 1, state.doc.content.size)
+        view.dispatch(state.tr.setSelection(TextSelection.create(state.doc, target)))
+        return true
+      }
+    }
+  })
+}
+
+/* ---------- 链接：Typora 语义（Ctrl/Cmd+点击打开；光标进入就地展开源码） ---------- */
+
+/** 打开链接目标；相对路径按文档目录解析成本机文件 */
+function openLinkTarget(href: string): void {
+  const url = href.trim()
+  if (!url) return
+  if (/^(?:https?:\/\/|mailto:)/i.test(url)) {
+    window.open(url, '_blank', 'noopener')
+    return
+  }
+  if (url.startsWith('#')) {
+    const id = decodeURIComponent(url.slice(1))
+    document.getElementById(id)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    return
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return // 其他协议（luci-img 等）不打开
+  if (!htmlTableDocDir) return
+  // 相对链接交给渲染层解析（能拿到文档目录；.md 应用内打开，其余走系统默认）
+  window.dispatchEvent(new CustomEvent('luci:open-relative-link', { detail: { href: url } }))
+}
+
+/**
+ * 即显里的链接是 PM link mark（<a href>）：默认点击会让 Electron 整页导航，
+ * 必须拦。约定与 Typora 一致——普通点击只落光标（便于就地编辑），
+ * Ctrl/Cmd+点击才打开；打开走 window.open → 主进程 setWindowOpenHandler
+ * 转系统浏览器/默认应用（与预览模式链接同一条链路）
+ */
+export function createLinkClickPlugin(): Plugin {
+  return new Plugin({
+    props: {
+      handleClick: (_view, _pos, event) => {
+        const target = event.target as HTMLElement | null
+        const a = target?.closest?.('a[href]')
+        if (!a) return false
+        event.preventDefault() // 阻止应用内导航
+        if (event.ctrlKey || event.metaKey) openLinkTarget(a.getAttribute('href') ?? '')
+        return false // 光标照常落位（PM 默认行为）
+      }
+    }
+  })
+}
+
+interface LinkSourceInfo {
+  from: number
+  to: number
+  href: string
+  mark: Mark
+}
+
+/** 光标所在链接的整段范围（同一 link mark 的连续文本） */
+function findLinkSource(state: EditorState): LinkSourceInfo | null {
+  const sel = state.selection
+  if (!sel.empty) return null
+  const linkType = state.schema.marks.link
+  if (!linkType) return null
+  const $pos = sel.$from
+  if (!$pos.parent.isTextblock) return null
+
+  const children: { from: number; to: number; node: PMNode }[] = []
+  let pos = $pos.start()
+  $pos.parent.forEach((child) => {
+    children.push({ from: pos, to: pos + child.nodeSize, node: child })
+    pos += child.nodeSize
+  })
+  const idx = children.findIndex((c) => c.node.isText && $pos.pos >= c.from && $pos.pos <= c.to)
+  if (idx < 0) return null
+  const markAt = (i: number): Mark | null =>
+    children[i]?.node.marks.find((m) => m.type === linkType) ?? null
+  // 光标正好停在链接起点（前一个文本节点的末尾）时归到链接这一侧
+  let active = idx
+  if (!markAt(active) && $pos.pos === children[active].to && active + 1 < children.length && markAt(active + 1)) {
+    active++
+  }
+  const mark = markAt(active)
+  if (!mark) return null
+
+  let start = active
+  while (start > 0 && markAt(start - 1)?.eq(mark)) start--
+  let end = active
+  while (end < children.length - 1 && markAt(end + 1)?.eq(mark)) end++
+  return {
+    from: children[start].from,
+    to: children[end].to,
+    href: String(mark.attrs.href ?? ''),
+    mark
+  }
+}
+
+/** 展开后的地址行：提交新地址（空 = 去掉链接），只动这一个链接的范围 */
+function commitLinkHref(view: EditorView, info: LinkSourceInfo, raw: string): void {
+  const href = raw.trim()
+  if (href === info.href) return
+  const { state } = view
+  const linkType = state.schema.marks.link
+  if (!linkType || info.to > state.doc.content.size) return
+  linkCache = null
+  const tr = state.tr.removeMark(info.from, info.to, linkType)
+  if (href) {
+    tr.addMark(info.from, info.to, linkType.create({ ...info.mark.attrs, href }))
+  }
+  view.dispatch(tr)
+}
+
+function bracketEl(text: string): HTMLSpanElement {
+  const span = document.createElement('span')
+  span.className = 'luci-link-src-bracket'
+  span.textContent = text
+  span.contentEditable = 'false'
+  return span
+}
+
+function buildLinkTail(view: EditorView, info: LinkSourceInfo): HTMLElement {
+  const wrap = document.createElement('span')
+  wrap.className = 'luci-link-src-tail'
+  wrap.contentEditable = 'false'
+
+  const open = bracketEl('](')
+  const input = document.createElement('input')
+  input.className = 'luci-link-src-url'
+  input.spellcheck = false
+  input.value = info.href
+  input.size = Math.max(8, Math.min(80, info.href.length))
+  input.setAttribute('aria-label', '链接地址')
+  const close = bracketEl(')')
+
+  let settled = false
+  const commit = (): void => {
+    if (settled) return
+    settled = true
+    commitLinkHref(view, info, input.value)
+  }
+
+  input.addEventListener('mousedown', (e) => e.stopPropagation())
+  input.addEventListener('click', (e) => e.stopPropagation())
+  input.addEventListener('input', () => {
+    input.size = Math.max(8, Math.min(80, input.value.length))
+  })
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation()
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      commit()
+      input.blur()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      settled = true
+      input.value = info.href
+      linkCache = null
+      input.blur()
+    }
+  })
+  input.addEventListener('blur', () => commit())
+
+  wrap.append(open, input, close)
+  return wrap
+}
+
+/** 装饰缓存：输入地址期间避免每次选区刷新都重建 input（会丢焦点） */
+let linkCache: { info: LinkSourceInfo; decos: DecorationSet } | null = null
+
+/**
+ * 光标进入链接时就地展开 `[文字](地址)`（Typora 行内源码）：
+ * 方括号是 widget，地址是行内输入框；离开链接自动收回成普通链接。
+ */
+export function createLinkSourcePlugin(): Plugin {
+  return new Plugin({
+    props: {
+      decorations(state) {
+        const info = findLinkSource(state)
+        if (!info) {
+          linkCache = null
+          return null
+        }
+        if (
+          linkCache &&
+          linkCache.info.from === info.from &&
+          linkCache.info.to === info.to &&
+          linkCache.info.href === info.href
+        ) {
+          return linkCache.decos
+        }
+        const decos = DecorationSet.create(state.doc, [
+          Decoration.widget(info.from, () => bracketEl('['), { side: -1 }),
+          Decoration.inline(info.from, info.to, { class: 'luci-link-src-text' }),
+          Decoration.widget(info.to, (view) => buildLinkTail(view, info), { side: 1 })
+        ])
+        linkCache = { info, decos }
+        return decos
+      }
+    }
+  })
+}

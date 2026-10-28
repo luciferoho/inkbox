@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 与主窗口同一套 CSP（插件宿主 unsafe-eval 在设置窗口不会用到，保持一致便于维护） -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https: file: luci-img: theme-resource:; font-src 'self' data: https: theme-resource:; connect-src 'self' ws: theme-resource:"
+    />
+    <title>Inkbox 设置</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/settings-main.ts"></script>
+  </body>
+</html>

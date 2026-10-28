@@ -51,7 +51,7 @@ import {
 import { createCenterPlugin } from '@/editor/pm-center'
 import { createGhAlertsPlugin } from '@/editor/gh-alerts'
 import { findState, sameQuery } from '@/editor/find-state'
-import { saveViewProgress, loadView } from '@/editor/tab-view-state'
+import { saveViewProgress, loadView, clearViewAnchor } from '@/editor/tab-view-state'
 import { applyCachedImageSizes, rememberImgSize } from '@/editor/img-size-cache'
 import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createPasteLinkPlugin } from '@/editor/paste-link'
@@ -74,27 +74,28 @@ import { registerPmTableExecutor, type TableMenuAction } from '@/editor/table-co
 import { writeClipboard } from '@/editor/code-copy'
 import { createElementToolbar, findTableSelection, type ElToolbarState } from '@/editor/pm-element-toolbar'
 import { createCodeblockChromePlugin } from '@/editor/pm-codeblock-chrome'
+import { createSpellcheckPlugin } from '@/editor/pm-spellcheck'
 import { createCodeHighlightPlugin } from '@/editor/pm-code-highlight'
 import { createQuoteEscapePlugin } from '@/editor/pm-quote-escape'
+import { createLeafDeletePlugin } from '@/editor/pm-leaf-delete'
+import { hrView } from '@/editor/pm-hr-view'
+import { wrappedTableView } from '@/editor/pm-table-view'
 import { createTaskTogglePlugin } from '@/editor/pm-task-toggle'
 import { parseAltMods, buildAltMods, stepWidth, luciToDisplaySrc, type ImageMods } from '@/editor/image-utils'
 import { splitAdjacentOrderedLists, parseOutline } from '@/services/markdown'
 // 单换行 → 硬换行：与预览管线 markdown-it 的 breaks:true 对齐（否则即显把
 // 段内单换行折叠成空格，同一文档两种模式显示不一致）
-import remarkBreaks from 'remark-breaks'
 import { t } from '@/i18n'
 // 图片修饰符即显渲染:extendSchema 返回新 holder,须 .use 挂载生效
 import { styledImageSchema } from '@/editor/wysiwyg-image-style'
 // KaTeX 数学（ROADMAP 1.1）：remark-math 解析 + atom 节点嵌套视图编辑
-import remarkMath from 'remark-math'
 import {
   mathInlineSchema,
   mathBlockSchema,
   mathInlineView,
   mathBlockView,
   inlineMathInputRule,
-  blockMathInputRule,
-  guardMathText
+  blockMathInputRule
 } from '@/editor/wysiwyg-math'
 // Mermaid 图表（ROADMAP 1.2）：code_block 双模 nodeView（mermaid 渲染/其他语言原样）
 import { mermaidCodeView, mermaidFocusPlugin, rethemeMermaidViews } from '@/editor/wysiwyg-mermaid'
@@ -107,21 +108,24 @@ import {
   superscriptInputRule,
   subscriptInputRule,
   inlineMarkStringifyHandlers,
-  splitInlineMarks,
   footnoteReferenceSchema,
   footnoteDefinitionSchema,
   footnoteReferenceInputRule,
   yamlSchema,
-  tocBlock,
   tocSchema,
   tocView,
   tocUpdatePlugin,
   htmlSpanSchema,
-  mergeHtmlSpans
+  htmlTableSchema,
+  htmlTableView,
+  htmlBlockSyncPlugin,
+  createHtmlBlockKeyPlugin,
+  setHtmlTableDocDir,
+  createLinkClickPlugin,
+  createLinkSourcePlugin
 } from '@/editor/wysiwyg-extensions'
-import remarkGemoji from 'remark-gemoji'
-import remarkFootnotes from 'remark-footnotes'
-import remarkFrontmatter from 'remark-frontmatter'
+// remark 解析插件序列（单一来源；等价比较共用同一序列）
+import { wysiwygRemarkPlugins } from '@/editor/wysiwyg-remark-pipeline'
 // 专注/打字机（ROADMAP 1.8）：与源码侧共用 ui 开关
 import { createWysiwygFocusPlugin, createWysiwygTypewriterPlugin } from '@/editor/pm-focus'
 import type { FindQuery, FindStatus } from '@/find-shared'
@@ -354,44 +358,6 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
 /* ---------- 本地相对路径图片 ⇄ luci-img://（数据层改写） ---------- */
 
 /**
- * remark mdast 清洗：Milkdown 的 image schema 声明 `validate: "string"`，
- * 而 remark 对无 alt/title 的图片给出 null → PM 校验抛 RangeError →
- * Milkdown 的 addNode 把失败静默吞掉 → 图片节点蒸发（段落一起消失）。
- * 在 remark 解析后、PM 转换前把 null 归一化为空串。
- */
-interface MdastNode {
-  type?: string
-  depth?: number
-  alt?: unknown
-  title?: unknown
-  children?: MdastNode[]
-}
-
-function normalizeImageNulls() {
-  return (tree: MdastNode): void => {
-    const walk = (n: MdastNode): void => {
-      if (n.type === 'image') {
-        if (n.alt === null || n.alt === undefined) n.alt = ''
-        if (n.title === null || n.title === undefined) n.title = ''
-      }
-      n.children?.forEach((c) => walk(c))
-    }
-    walk(tree)
-  }
-}
-
-/** 相邻有序列表分隔的哨兵（toWysiwygSource 注入的空一级标题）：
- *  remark 解析后移除，PM 文档与序列化输出里不留痕迹 */
-function dropSplitHeadings() {
-  return (tree: MdastNode): void => {
-    if (!tree.children) return
-    tree.children = tree.children.filter(
-      (c) => !(c.type === 'heading' && c.depth === 1 && (!c.children || c.children.length === 0))
-    )
-  }
-}
-
-/**
  * Milkdown/ProseMirror 按 src 字面值渲染 <img>，相对路径相对应用源解析必裂图；
  * 在 DOM 层改写会被 ProseMirror 的 DOM 同步恢复（上一版方案无效的根因）。
  * 改在数据层：进入即显时把相对路径转为 luci-img:// 绝对协议（state 里显示正确），
@@ -412,12 +378,50 @@ function docDirOf(): string | null {
   return sepIdx > 0 ? p.slice(0, sepIdx).replace(/\\/g, '/') : null
 }
 
+/** Ctrl+点击相对链接：.md 在应用内新标签打开，其他文件交系统默认应用 */
+function onOpenRelativeLink(e: Event): void {
+  const href = (e as CustomEvent<{ href?: string }>).detail?.href ?? ''
+  const dir = docDirOf()
+  if (!href || !dir) return
+  const clean = href.split(/[?#]/)[0].replace(/^\.\//, '')
+  let rel = clean
+  try {
+    rel = decodeURIComponent(clean)
+  } catch {
+    /* 游离 % 序列按原样 */
+  }
+  const abs = `${dir}/${rel}`
+  if (/\.md$/i.test(rel)) {
+    void docs.openPath(abs)
+    return
+  }
+  window.open(`file:///${encodeURI(abs)}`, '_blank', 'noopener')
+}
+
 /** 相对路径图片 → luci-img://（跳过协议/绝对/锚点与代码围栏）；
  *  同时做相邻有序列表分隔（与 markdown-it 预览管线同一预处理，两模式渲染一致）：
  *  注入的空标题哨兵由 remark transformer dropSplitHeadings 在解析后移除 */
 function toWysiwygSource(md: string): string {
   const docDir = docDirOf()
+  setHtmlTableDocDir(docDir) // HTML 块渲染层的图片相对路径基准
   let src = splitAdjacentOrderedLists(md)
+  // file:/// 与盘符绝对路径（![x](E:/x/y.png)）→ luci-img：不依赖 docDir。
+  // dev 下渲染层是 http 源，file: 子资源被 webSecurity 拦截（CSP 放行也不够），
+  // 统一走 luci 协议使 dev/prod 渲染一致；序列化还原见 fromWysiwygSource。
+  // 只改图片语法：链接的 href 必须保持原样（相对链接被改成 luci-img 后会被
+  // Milkdown 的 URL 白名单清空 → 链接变纯文本）
+  src = src.replace(
+    /(!\[[^\]]*\]\()((?:file:\/\/\/)?[a-zA-Z]:[\/\\][^)\s]*)(\))/g,
+    (_whole, open: string, p: string, close: string) => {
+      let abs = p.replace(/^file:\/\/\//i, '').replace(/\\/g, '/')
+      try {
+        abs = decodeURIComponent(abs)
+      } catch {
+        /* 游离 % 序列按原样 */
+      }
+      return `${open}${buildLuciUrl(abs)}${close}`
+    }
+  )
   if (!docDir) return src
   const lines = src.split('\n')
   let fence: string | null = null
@@ -430,7 +434,7 @@ function toWysiwygSource(md: string): string {
     }
     if (fence !== null) continue
     lines[i] = lines[i].replace(
-      /(\]\()([^)\s]+)(\))/g,
+      /(!\[[^\]]*\]\()([^)\s]+)(\))/g,
       (whole, open: string, src: string, close: string) => {
         if (/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/|#)/.test(src)) return whole
         let rel = src.replace(/^\.\//, '')
@@ -504,7 +508,9 @@ function fromWysiwygSource(md: string): string {
     if (normAbs.toLowerCase().startsWith(normDir + '/')) {
       return `](./${normAbs.slice(normDir.length + 1)})`
     }
-    return `](${normAbs})`
+    // 目录外的本机绝对路径还原为 file:///（再进即显会转回 luci-img，往返稳定；
+    // 裸 `](E:/x.png)` 无协议，浏览器当相对路径解析必裂图）
+    return `](file:///${normAbs})`
   })
 }
 
@@ -913,7 +919,13 @@ const elToolbarPlugin = $prose(() =>
   })
 )
   // 代码块 chrome：语言标签栏 + 复制按钮（每块上方 widget 栏）
+// 即显分割线 nodeView（wrap 点击热区 + 主题线保留）
+const hrNodeView = hrView
+// 即显表格 nodeView（横向滚动外壳，宽表格不再顶破内容列）
+const tableNodeView = wrappedTableView
   const codeblockChromePlugin = $prose(() => createCodeblockChromePlugin())
+  const leafDeletePlugin = $prose(() => createLeafDeletePlugin())
+  const spellcheckPlugin = $prose(() => createSpellcheckPlugin())
   // 代码块语法高亮（hljs，与预览同一语言注册表与配色令牌）
   const codeHighlightPlugin = $prose(() => createCodeHighlightPlugin())
 // Esc 跳出引用块（列表 Tab/Shift+Tab 在视图级 handleKeys，优先级更高）
@@ -923,6 +935,10 @@ const taskTogglePlugin = $prose(() => createTaskTogglePlugin())
 // 专注/打字机（F8/F9 与状态栏按钮，开关经 watch 派发空事务驱动重算）
 const wysiwygFocusPlugin = $prose(() => createWysiwygFocusPlugin())
 const wysiwygTypewriterPlugin = $prose(() => createWysiwygTypewriterPlugin())
+// 链接交互：普通点击落光标、Ctrl/Cmd+点击系统浏览器打开（阻断 Electron 页内导航）
+const linkClickPlugin = $prose(() => createLinkClickPlugin())
+// 链接源码：光标进入链接时就地展开 [文字](地址)（Typora 行内编辑）
+const linkSourcePlugin = $prose(() => createLinkSourcePlugin())
 
 /* ---------- 元素工具条:图片/表格操作 ---------- */
 
@@ -947,7 +963,13 @@ function onWysiwygFollow(): void {
     if (!hostEl) return
     withView((view) => {
       const rect = hostEl.getBoundingClientRect()
-      const coords = view.posAtCoords({ left: rect.left + 24, top: rect.top + 8 })
+      // 自定义主题按 Typora 惯例给内容根加 max-width + auto 边距（可达数百 px），
+      // host 左缘 +24 的固定采样点会落在内容区外的空边上（posAtCoords 返回 null，
+      // 跟随静默失效）——采样点先钳进 PM 内容盒再解析
+      const box = view.dom.getBoundingClientRect()
+      const x = Math.min(Math.max(rect.left + 24, box.left + 4), box.right - 4)
+      const y = Math.min(Math.max(rect.top + 8, box.top + 4), box.bottom - 4)
+      const coords = view.posAtCoords({ left: x, top: y })
       if (!coords) return
       const headings: number[] = []
       view.state.doc.descendants((n, pos) => {
@@ -958,13 +980,18 @@ function onWysiwygFollow(): void {
         return true
       })
       if (headings.length === 0) return
+      const outline = parseOutline(docs.active?.content ?? '')
       let idx = -1
       for (let k = 0; k < headings.length; k++) {
         if (headings[k] <= coords.pos) idx = k
         else break
       }
-      if (idx < 0) return
-      const outline = parseOutline(docs.active?.content ?? '')
+      // 视口顶落在首个标题之前（文档开头的横幅/引言区）：高亮清空，
+      // 置到首标题前一行的判定带外，不能卡在上一节
+      if (idx < 0) {
+        ui.viewLine = Math.max(1, (outline[0]?.line ?? 1) - 1)
+        return
+      }
       if (outline[idx]) ui.viewLine = outline[idx].line
     })
   })
@@ -1055,8 +1082,16 @@ function applyWysiwygProgress(): void {
 
 /** 图片加载：记录固有尺寸（供重进首帧占位）+ 批量按进度重新落位；
  *  最后一次加载 200ms 后再补一次（布局完全收敛后的终落位） */
+/** 破图标记：加载失败的图片打上 img-broken（样式给占位框 + alt 文案可见）。
+ *  error 不冒泡，捕获委托覆盖 PM 重绘出的新 img 元素 */
+function onHostImgError(e: Event): void {
+  const img = e.target as HTMLImageElement | null
+  if (img && img.tagName === 'IMG') img.classList.add('img-broken')
+}
+
 function onHostImgLoad(e: Event): void {
   const img = e.target as HTMLImageElement | null
+  if (img && img.tagName === 'IMG') img.classList.remove('img-broken')
   if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
     rememberImgSize(img.src, img.naturalWidth, img.naturalHeight)
   }
@@ -1077,6 +1112,8 @@ function saveWysiwygProgress(id: number | null): void {
   if (id === null || !host.value || host.value.offsetParent === null) return
   const hostEl = host.value
   saveViewProgress(id, hostEl.scrollTop / Math.max(1, hostEl.scrollHeight - hostEl.clientHeight))
+  // 即显滚走后预览的旧内容锚过期（即显不写锚），清掉防后续按旧锚落位
+  clearViewAnchor(id)
 }
 
 /** 恢复浏览进度（切签与重挂载共用）。多阶段补拍（nextTick/60ms/250ms）
@@ -1442,6 +1479,10 @@ onMounted(() => {
   if (!host.value) return
   // 主题令牌落定 → 图表按新配色重绘（换主题但明暗不变时 effectiveTheme 不触发）
   window.addEventListener('inkbox:theme-applied', onThemeApplied)
+  // 拼写检查开关（4.2）：设置切换/重挂载后同步宿主属性
+  window.addEventListener('inkbox:spellcheck', onSpellcheckBroadcast)
+  // Ctrl+点击相对链接（扩展层只做协议判断，打开动作留在渲染层）
+  window.addEventListener('luci:open-relative-link', onOpenRelativeLink)
   // 预览侧拖列宽（广播）→ 本侧装饰器重算
   offTableWidths = onColWidthsChanged(() => {
     const v = getView()
@@ -1457,6 +1498,8 @@ onMounted(() => {
   host.value.addEventListener('scroll', onHostScroll, { passive: true })
   // 图片加载：记录尺寸 + 切签锚点重对齐（load 不冒泡，捕获委托）
   host.value.addEventListener('load', onHostImgLoad, { capture: true, passive: true })
+  // 图片加载失败：标记破图占位（缺文件时 0×0 隐身，用户无从察觉），成功后由 load 摘除
+  host.value.addEventListener('error', onHostImgError, { capture: true })
   // 用户滚轮即接管：停用切签锚点的自动重对齐
   host.value.addEventListener(
     'wheel',
@@ -1474,29 +1517,10 @@ onMounted(() => {
     .config((ctx) => {
       ctx.set(rootCtx, host.value!)
       ctx.set(defaultValueCtx, toWysiwygSource(docs.active?.content ?? ''))
-      // remarkPluginsCtx 元素格式为 { plugin, options }（core 按 plug.plugin 取值 use）
-      ctx.update(remarkPluginsCtx, (ps) => [
-        ...ps,
-        { plugin: normalizeImageNulls, options: {} } as never,
-        { plugin: dropSplitHeadings, options: {} } as never,
-        { plugin: remarkBreaks, options: {} } as never,
-        // $...$ / $$...$$ → mdast inlineMath/math，由 wysiwyg-math 的 schema 接住
-        { plugin: remarkMath, options: {} } as never,
-        // 误判护栏：货币/含空格的 $ 对还原为字面文本（与预览管线对齐，roundtrip 无损）
-        { plugin: guardMathText, options: {} } as never,
-        // emoji 短代码 → 字符（纯文本替换，与预览 markdown-it-emoji 一致）
-        { plugin: remarkGemoji, options: {} } as never,
-        // 脚注 [^1] + 定义 → footnoteReference/footnoteDefinition
-        { plugin: remarkFootnotes, options: {} } as never,
-        // ==高亮== ^上标^ ~下标~ 文本切分 → 自定义 mdast 节点（mark schema 接住）
-        { plugin: splitInlineMarks, options: {} } as never,
-        // YAML front matter → yaml 节点（yamlSchema 接住，序列化还原围栏）
-        { plugin: remarkFrontmatter, options: 'yaml' } as never,
-        // 独占一段的 [TOC] → toc 块节点（tocView 实时渲染可点击目录）
-        { plugin: tocBlock, options: {} } as never,
-        // 行内 HTML 白名单：<u>/<mark>/<kbd> 等配对标签 → htmlSpan mark
-        { plugin: mergeHtmlSpans, options: {} } as never
-      ])
+      // remarkPluginsCtx 元素格式为 { plugin, options }（core 按 plug.plugin 取值 use）。
+      // 插件序列在 editor/wysiwyg-remark-pipeline.ts 单一来源维护，
+      // services/content-equivalence 的等价比较共用同一序列
+      ctx.update(remarkPluginsCtx, (ps) => [...ps, ...wysiwygRemarkPlugins])
       // 序列化：mark 系列自定义节点还原为 ==/^/~ 语法
       ctx.update(remarkStringifyOptionsCtx, (prev) => ({
         ...prev,
@@ -1514,7 +1538,8 @@ onMounted(() => {
       })
       ctx.update(editorViewOptionsCtx, (prev) => ({
         ...prev,
-        attributes: { class: 'luci-prose', spellcheck: 'false' },
+        // spellcheck 初始值按设置（4.2）；切换广播见 onSpellcheckBroadcast
+        attributes: { class: 'luci-prose', spellcheck: ui.editorPrefs.spellcheck ? 'true' : 'false' },
         handleKeyDown: (view, event) => handleKeys(view, event)
       }))
     })
@@ -1546,6 +1571,15 @@ onMounted(() => {
     .use(tocSchema)
     .use(tocView)
     .use(tocUpdatePlugin)
+    // 块级 HTML 表格：Typora 语义——默认渲染，光标进入才显示源码
+    .use(htmlTableSchema)
+    .use(htmlTableView)
+    .use(htmlBlockSyncPlugin)
+    .use($prose(() => createHtmlBlockKeyPlugin()))
+    // 链接：普通点击落光标（便于就地改），Ctrl/Cmd+点击走系统浏览器
+    .use(linkClickPlugin)
+    // 链接：光标进入就地展开 [文字](地址)（Typora 行内源码）
+    .use(linkSourcePlugin)
     // 行内 HTML 白名单 mark
     .use(htmlSpanSchema)
     .use(listener)
@@ -1565,7 +1599,11 @@ onMounted(() => {
     .use(codeblockChromePlugin)
     .use(codeHighlightPlugin)
     .use(quoteEscapePlugin)
+    .use(leafDeletePlugin)
+    .use(hrNodeView)
+    .use(tableNodeView)
     .use(taskTogglePlugin)
+    .use(spellcheckPlugin)
     .use(wysiwygFocusPlugin)
     .use(wysiwygTypewriterPlugin)
   void instance.create().then((e) => {
@@ -1586,8 +1624,14 @@ onMounted(() => {
         remark: (src: string) =>
           editor?.action((ctx) => {
             const proc = ctx.get(remarkCtx)
-            const tree = proc.runSync(proc.parse(src)) as unknown as MdastNode
-            const walk = (n: MdastNode): unknown =>
+            interface DebugMdastNode {
+              type?: string
+              alt?: unknown
+              title?: unknown
+              children?: DebugMdastNode[]
+            }
+            const tree = proc.runSync(proc.parse(src)) as unknown as DebugMdastNode
+            const walk = (n: DebugMdastNode): unknown =>
               n.type === 'image'
                 ? { type: n.type, alt: n.alt, title: n.title }
                 : { type: n.type, kids: (n.children ?? []).map(walk) }
@@ -1637,6 +1681,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   offTableWidths?.()
   window.removeEventListener('inkbox:theme-applied', onThemeApplied)
+  window.removeEventListener('inkbox:spellcheck', onSpellcheckBroadcast)
+  window.removeEventListener('luci:open-relative-link', onOpenRelativeLink)
   // 滚动锚落袋必须在这里：模式切换/跨模式切签都会 v-if 卸载本组件，
   // 卸载会跳过排队的 pre-watcher（切签的保存已由 activeId watch 完成，
   // 这里 tabId 与视图内容恒一致，重复保存无害）
@@ -1653,6 +1699,7 @@ onBeforeUnmount(() => {
   host.value?.removeEventListener('mouseout', onHostOut)
   host.value?.removeEventListener('scroll', onHostScroll)
   host.value?.removeEventListener('load', onHostImgLoad, { capture: true })
+  host.value?.removeEventListener('error', onHostImgError, { capture: true })
   host.value?.removeEventListener(
     'wheel',
     () => {
@@ -1728,6 +1775,16 @@ watch(
    effectiveTheme 的 watch 不触发，配色会停在旧主题上 */
 function onThemeApplied(): void {
   rethemeMermaidViews(ui.effectiveTheme === 'dark')
+}
+
+function onSpellcheckBroadcast(e: Event): void {
+  const v = (e as CustomEvent<string>).detail ?? 'false'
+  // 自研拼写装饰（引擎侧不再依赖原生 spellcheck 属性，属性仅保留语义）
+  document.querySelector('.ProseMirror')?.setAttribute('spellcheck', v)
+  editor?.action((ctx) => {
+    const view = ctx.get(editorViewCtx)
+    view.dispatch(view.state.tr.setMeta('spellcheck-rescan', true))
+  })
 }
 
 /* 专注/打字机开关 → 派发空事务，驱动装饰器重算（开关本身不产生事务） */

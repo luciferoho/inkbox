@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
-import { defaultConfig, type AppConfig, type PluginCommand, type PluginInfo, type UpdateStatePayload, type WindowPrefs } from '@shared/types'
+import { CONTENT_WIDTH_MAX, CONTENT_WIDTH_MIN, defaultConfig, type AppConfig, type PluginCommand, type PluginInfo, type UpdateStatePayload, type WindowPrefs } from '@shared/types'
 import type { ShortcutOverrides } from '@shared/shortcuts'
 import { i18n, resolveLocale, t, type LocalePref } from '@/i18n'
+import { setTypographer } from '@/services/markdown'
 import { useDocumentsStore } from './documents'
 
 export type ThemePref = 'light' | 'dark' | 'system'
@@ -43,6 +44,10 @@ export const useUiStore = defineStore('ui', {
     restoreTabs: true,
     /* 再次打开窗口时恢复上次打开的文件夹（默认开） */
     restoreFolders: true,
+    /* 工作区文件树仅显示可打开的文档类型（默认关 = 显示全部文件） */
+    wsOpenableOnly: false,
+    /* 打开文档时在标题下方显示完整路径（默认开） */
+    showDocPath: true,
     /* 登录系统后自动启动（主进程写系统登录项，仅打包后生效） */
     openAtLogin: false,
     /* 点窗口关闭按钮的行为：quit = 退出程序；tray = 最小化到托盘 */
@@ -73,7 +78,6 @@ export const useUiStore = defineStore('ui', {
     /* 光标/内容变化序号：同一行连续输入时 currentLine 不变，预览靠它触发跟随 */
     caretSeq: 0,
     /* 弹层 */
-    settingsOpen: false,
     exportOpen: false,
     viewerImage: null as string | null,
     /* 外部修改重载信号：编辑器 watch 该序号后从 store 重新整档同步 */
@@ -106,12 +110,13 @@ export const useUiStore = defineStore('ui', {
         choices: { text: string; value: string; danger?: boolean }[]
         resolve: (value: string) => void
       },
-    /* 排版偏好（全局：字号/行距；纸宽为窗口私有，见 winPrefs） */
-    editorPrefs: { fontSize: 16, lineHeight: 1.7 },
-    /* 窗口私有偏好：各窗口尺寸不同，纸宽/侧栏宽独立调整、不同步 */
-    winPrefs: { pageWidthPct: 80, sidebarWidth: 264 } as WindowPrefs,
-    /* 纸宽滑杆的动态最小值（保证纸面不窄于 620px，随窗口/侧栏状态变化） */
-    pageWidthMinPct: 50,
+    /* 排版偏好（全局：字号/行距/内容列宽度，默认占满可用宽度） */
+    editorPrefs: { fontSize: 16, lineHeight: 1.7, contentWidth: CONTENT_WIDTH_MAX } as AppConfig['editor'],
+    /* 内容宽度滑杆的下限：最小窗口下侧栏拉满+快捷键面板打开后的剩余可用宽度 */
+    contentWidthMin: CONTENT_WIDTH_MIN,
+    contentWidthMax: CONTENT_WIDTH_MAX,
+    /* 窗口私有偏好：各窗口尺寸不同，侧栏宽独立调整、不同步 */
+    winPrefs: { sidebarWidth: 264 } as WindowPrefs,
     /* 外观扩展（M3）：外部 CSS 主题 + 字体族；'' = 内置默认 */
     appearance: { themeCss: '', themeVariant: 'auto', bodyFont: '', codeFont: '' },
     /* 单变体主题锁定：主题只提供浅色/深色其一时，主题切换锁定到该模式并禁用 */
@@ -128,13 +133,11 @@ export const useUiStore = defineStore('ui', {
     async init(): Promise<void> {
       const cfg = await window.api.app.getConfig()
       this.applyConfig(cfg)
-      this.updatePageWidthMin()
       window
         .matchMedia('(prefers-color-scheme: dark)')
         .addEventListener('change', () => {
           if (this.themePref === 'system') this.applyTheme()
         })
-      window.addEventListener('resize', () => this.updatePageWidthMin())
     },
     applyConfig(cfg: AppConfig): void {
       this.themePref = cfg.theme
@@ -145,6 +148,8 @@ export const useUiStore = defineStore('ui', {
       this.autosaveSilent = cfg.autosave.silent ?? true
       this.restoreTabs = cfg.restoreTabs ?? true
       this.restoreFolders = cfg.restoreFolders ?? true
+      this.wsOpenableOnly = cfg.wsOpenableOnly ?? false
+      this.showDocPath = cfg.showDocPath ?? true
       this.openAtLogin = cfg.openAtLogin ?? false
       this.closeAction = cfg.closeAction ?? 'quit'
       this.shortcuts = cfg.shortcuts ?? {}
@@ -161,6 +166,9 @@ export const useUiStore = defineStore('ui', {
       }
       this.applyTheme()
       this.applyEditorPrefs()
+      // 智能标点 + 拼写检查初始态（markdown 单例与编辑器宿主属性）
+      setTypographer(!!this.editorPrefs.typographer)
+      this.applySpellcheck()
       void this.syncThemeLock()
       // 外观扩展（M3）：外部主题 CSS/字体族/用户 CSS；异步注入，不阻塞首帧
       void import('@/services/appearance').then((m) => m.applyAppearanceConfig(cfg))
@@ -172,7 +180,6 @@ export const useUiStore = defineStore('ui', {
       this.winPrefs = { ...p }
       this.applyEditorPrefs()
       this.applySidebarWidth()
-      this.updatePageWidthMin()
     },
     applySidebarWidth(): void {
       document.documentElement.style.setProperty('--sidebar-width', `${this.winPrefs.sidebarWidth}px`)
@@ -181,39 +188,75 @@ export const useUiStore = defineStore('ui', {
     resizeSidebarLive(width: number): void {
       this.winPrefs.sidebarWidth = Math.min(440, Math.max(200, Math.round(width)))
       this.applySidebarWidth()
-      this.updatePageWidthMin()
     },
     async persistSidebarWidth(): Promise<void> {
       await window.api.app.setWindowPrefs(useDocumentsStore().windowKey, {
         sidebarWidth: this.winPrefs.sidebarWidth
       })
     },
-    /** 排版偏好 → CSS 变量。纸宽为可用宽度百分比（100% = 占满可用宽度，只留四周间距） */
+    /** 排版偏好 → CSS 变量 */
     applyEditorPrefs(): void {
-      const { fontSize, lineHeight } = this.editorPrefs
-      const { pageWidthPct } = this.winPrefs
+      const { fontSize, lineHeight, contentWidth } = this.editorPrefs
       const root = document.documentElement.style
       root.setProperty('--preview-font-size', `${fontSize}px`)
       root.setProperty('--preview-line-height', String(lineHeight))
       root.setProperty('--editor-font-size', `${Math.max(11, fontSize - 2.5)}px`)
       root.setProperty('--editor-line-height', String(lineHeight))
-      root.setProperty('--paper-width', `${pageWidthPct}%`)
+      root.setProperty('--content-width', `${contentWidth}px`)
     },
-    /** 重算纸宽滑杆最小值：保证纸面物理宽度不小于 620px（随窗口/侧栏状态变化） */
-    updatePageWidthMin(): void {
-      const rail = 52
-      const panel = this.sidebarOpen ? this.winPrefs.sidebarWidth : 0
-      const pad = 50 // paper-scroll 左右留白 + 纸卡边框
-      const available = Math.max(320, window.innerWidth - rail - panel - pad)
-      this.pageWidthMinPct = Math.min(90, Math.max(40, Math.ceil((620 / available) * 100)))
+    /** 拼写检查（4.2，自研引擎）：广播事件驱动三端重扫/装卸。
+     *  原生 spellcheck 属性仅保留语义（Chromium 服务在本机不可用）；
+     *  错词波浪线由 editor/pm-spellcheck（即显）、cm-spellcheck（源码）、
+     *  Preview 的 DOM 包装（预览）基于 nspell 词表产出 */
+    applySpellcheck(): void {
+      window.dispatchEvent(new CustomEvent('inkbox:spellcheck', { detail: this.editorPrefs.spellcheck ? 'true' : 'false' }))
     },
-    /** 字号/行距（全局，跨窗口同步）；纸宽走 setPageWidth（窗口私有）。
+    /** 字号/行距/内容宽度（全局，跨窗口同步）。
      *  注意必须展开成普通对象：editorPrefs 是 reactive 代理，Proxy 过不了
      *  IPC 结构化克隆（invoke 静默失败），设置会"看着生效实则没保存" */
     async setEditorPrefs(patch: Partial<AppConfig['editor']>): Promise<void> {
-      this.editorPrefs = { ...this.editorPrefs, ...patch }
+      const spellBefore = this.editorPrefs.spellcheck
+      // 内容宽度钳制在 [下限, 1600]：滑杆本身限制了范围，这里兜住程序化/旧值越界
+      const next = { ...this.editorPrefs, ...patch }
+      if (patch.contentWidth !== undefined) {
+        next.contentWidth = Math.min(
+          CONTENT_WIDTH_MAX,
+          Math.max(this.contentWidthMin, Math.round(Number(patch.contentWidth) || this.contentWidthMin))
+        )
+      }
+      this.editorPrefs = next
       this.applyEditorPrefs()
+      // 智能标点必须先切 flag 再触发重渲染（Preview watch 在本函数返回前就会跑）
+      setTypographer(!!this.editorPrefs.typographer)
       await window.api.app.setConfig({ editor: { ...this.editorPrefs } })
+      this.applySpellcheck()
+      // 拼写检查开关即时重扫：Chromium 只在焦点/编辑时渐进扫描，若不扰动，
+      // 已有内容的波浪线要等光标走到才会出现
+      if (patch.spellcheck !== undefined && patch.spellcheck !== spellBefore) {
+        this.rescanSpellcheck()
+      }
+    },
+
+    /** 触发焦点编辑器立即重扫拼写：Chromium 对 spellcheck 属性翻转才做
+     *  全量重扫（selection 变化不够），三连扰动——attr 往返 + reflow +
+     *  blur/focus，光标由 PM/CM 的 selection 同步自动恢复 */
+    rescanSpellcheck(): void {
+      for (const el of document.querySelectorAll<HTMLElement>('.ProseMirror, .cm-content')) {
+        if (!document.activeElement || !el.contains(document.activeElement)) continue
+        try {
+          el.setAttribute('spellcheck', 'false')
+          void el.offsetHeight // reflow：确保属性翻转被排版管线消费
+          el.setAttribute('spellcheck', 'true')
+          const hadFocus = el.contains(document.activeElement)
+          if (hadFocus) {
+            el.blur()
+            el.focus()
+          }
+        } catch {
+          /* 扰动失败不致命 */
+        }
+        break
+      }
     },
     /** 外观扩展（M3）：主题样式/字体族。广播后各窗口 applyConfig 重注入 */
     async setAppearance(patch: Partial<AppConfig['appearance']>): Promise<void> {
@@ -270,14 +313,6 @@ export const useUiStore = defineStore('ui', {
         this.applyTheme()
       }
     },
-    /** 纸面宽度（窗口私有，不广播）：立即生效并按窗口键持久化 */
-    async setPageWidth(pageWidthPct: number): Promise<void> {
-      this.winPrefs.pageWidthPct = Math.min(100, Math.max(this.pageWidthMinPct, Math.round(pageWidthPct)))
-      this.applyEditorPrefs()
-      await window.api.app.setWindowPrefs(useDocumentsStore().windowKey, {
-        pageWidthPct: this.winPrefs.pageWidthPct
-      })
-    },
     async setAutosave(patch: Partial<AppConfig['autosave']>): Promise<void> {
       if (patch.enabled !== undefined) this.autosaveEnabled = patch.enabled
       if (patch.intervalMs !== undefined) {
@@ -299,6 +334,16 @@ export const useUiStore = defineStore('ui', {
     async setRestoreFolders(v: boolean): Promise<void> {
       this.restoreFolders = v
       await window.api.app.setConfig({ restoreFolders: v })
+    },
+    /** 工作区文件树仅显示可打开的文档类型（全局偏好，跨窗口同步） */
+    async setWsOpenableOnly(v: boolean): Promise<void> {
+      this.wsOpenableOnly = v
+      await window.api.app.setConfig({ wsOpenableOnly: v })
+    },
+    /** 打开文档时显示完整路径（全局偏好，跨窗口同步） */
+    async setShowDocPath(v: boolean): Promise<void> {
+      this.showDocPath = v
+      await window.api.app.setConfig({ showDocPath: v })
     },
     async setOpenAtLogin(v: boolean): Promise<void> {
       this.openAtLogin = v
@@ -386,7 +431,6 @@ export const useUiStore = defineStore('ui', {
     },
     toggleSidebar(): void {
       this.sidebarOpen = !this.sidebarOpen
-      this.updatePageWidthMin() // 可用宽度变化，滑杆最小值随之更新
     },
     setSidebarMode(mode: SidebarMode): void {
       this.sidebarMode = mode
@@ -408,8 +452,10 @@ export const useUiStore = defineStore('ui', {
       this.viewLineLockUntil = Date.now() + 700
       this.jumpLine = { line, seq: (this.jumpLine?.seq ?? 0) + 1 }
     },
+    /** 打开设置：独立窗口（全应用共用一个实例），由主进程创建/聚焦；
+     *  用户调设置时可同时看到各编辑器窗口的实际效果 */
     openSettings(): void {
-      this.settingsOpen = true
+      window.api.win.openSettings()
     },
     openExport(): void {
       this.exportOpen = true

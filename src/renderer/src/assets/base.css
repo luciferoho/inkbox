@@ -5,34 +5,38 @@
 :root {
   color-scheme: light;
 
-  /* 纸面 Light（默认） */
-  --bg: #f6f2ec;
+  /* 净纸 Light（默认）：参考 phycat-caramel 的"净白纸面 + 碳灰正文"——
+     去掉重米黄底（显昏）、正文从近黑降为碳灰（低刺激），琥珀点缀保留 */
+  --bg: #faf9f7;
   /* 墨脊（活动栏）随主题：亮色下与纸面同族，比 surface-2 再深一档做层次 */
-  --bg-rail: #ece4d7;
-  --rail-icon: rgba(43, 36, 32, 0.62);
-  --rail-icon-hover: #b16014;
-  --rail-hover: rgba(43, 36, 32, 0.07);
+  --bg-rail: #f1efeb;
+  --rail-icon: rgba(55, 53, 47, 0.6);
+  --rail-icon-hover: #b26a1b;
+  --rail-hover: rgba(55, 53, 47, 0.06);
   --surface: #ffffff;
-  --surface-2: #efe9e0;
-  --border: #e4dcd0;
-  --text: #2b2420;
-  --text-2: #7c7267;
+  --surface-2: #f2f0ec;
+  --border: #e6e3dd;
+  /* 窗口框线（无边框窗口的上边框线，独立于内部发丝线 --border）：
+     默认中性灰 #AAAAAA，主题显式声明边框色时由主题接管（theme-css 变量桥） */
+  --win-border: #aaaaaa;
+  --text: #37352f;
+  --text-2: #86817a;
   --accent: #c9701f;
   --accent-strong: #b16014;
-  --accent-soft: rgba(201, 112, 31, 0.12);
+  --accent-soft: rgba(201, 112, 31, 0.1);
   /* 文本选区：与琥珀色 ==高亮==/搜索命中区分开，对比度足够醒目 */
   --selection: rgba(58, 118, 190, 0.5);
   --danger: #c2503e;
   --ok: #2e7f72;
 
-  /* 代码块（浅底暖纸）与语法配色：hljs 各类目一令牌，preview/wysiwyg/导出共用 */
-  --code-bg: #f2ecdf;
-  --code-bar: #eae2d2;
-  --code-fg: #2b2420;
-  --code-edge: rgba(38, 32, 25, 0.08);
-  --code-comment: #9c9184;
-  --code-keyword: #b16014;
-  --code-string: #57783b;
+  /* 代码块（浅底净纸）与语法配色：hljs 各类目一令牌，preview/wysiwyg/导出共用 */
+  --code-bg: #f5f4f1;
+  --code-bar: #edebe7;
+  --code-fg: #37352f;
+  --code-edge: rgba(55, 53, 47, 0.1);
+  --code-comment: #9b968c;
+  --code-keyword: #b26a1b;
+  --code-string: #55793c;
   --code-number: #b8503f;
   --code-title: #3565a3;
   --code-attr: #8a6d2f;
@@ -43,8 +47,8 @@
   --radius-s: 6px;
   --radius-m: 10px;
   --radius-l: 14px;
-  --shadow-card: 0 1px 3px rgba(38, 32, 25, 0.06), 0 10px 28px rgba(38, 32, 25, 0.06);
-  --shadow-pop: 0 2px 6px rgba(38, 32, 25, 0.08), 0 16px 40px rgba(38, 32, 25, 0.12);
+  --shadow-card: 0 1px 3px rgba(40, 38, 33, 0.05), 0 10px 28px rgba(40, 38, 33, 0.05);
+  --shadow-pop: 0 2px 6px rgba(40, 38, 33, 0.07), 0 16px 40px rgba(40, 38, 33, 0.11);
 
   /* 字体 */
   --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
@@ -63,46 +67,59 @@
   --preview-line-height: 1.7;
   --editor-font-size: 13.5px;
   --editor-line-height: 1.75;
-  /* 纸面宽度：可用宽度百分比 */
-  --paper-width: 80%;
+  /* 内容列统一宽度（全局设置，所有主题一致；默认 = 上限 1600，占满宽屏）：
+     预览/即显内容列共用，窗口更窄时 min() 自动退化为占满；主题 #write 的
+     max-width 由 CONTENT_FINAL 覆盖到同一变量 */
+  --content-width: 1600px;
+}
+
+/* 内置（无主题）模式的内容列：与主题模式 CONTENT_FINAL 同一宽度来源。
+   预览/即显生效，源码编辑不限宽（代码编辑要整行可用） */
+.md-preview,
+.luci-prose {
+  max-width: min(var(--content-width), 100%);
+  margin-inline: auto;
 }
 
 [data-theme='dark'] {
   color-scheme: dark;
 
-  --bg: #1d1814;
-  --bg-rail: #14100c;
-  --rail-icon: rgba(255, 244, 230, 0.72);
-  --rail-icon-hover: #f4c67f;
-  --rail-hover: rgba(255, 244, 230, 0.08);
-  --surface: #272019;
-  --surface-2: #332a21;
-  --border: #3b3128;
-  --text: #eae2d6;
-  --text-2: #a89d8e;
-  --accent: #e6a054;
-  --accent-strong: #f0b26e;
-  --accent-soft: rgba(230, 160, 84, 0.14);
-  --selection: rgba(124, 170, 222, 0.55);
-  --danger: #d66a55;
-  --ok: #5bb8a8;
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.25), 0 10px 28px rgba(0, 0, 0, 0.22);
-  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.4);
+  /* 墨蓝 Dark：参考 phycat-abyss 的"午夜蓝黑 + 冰灰蓝正文"——暖褐底换蓝黑底
+     （蓝调暗环境更放松），正文从近白降到冰灰（降亮度防刺眼），琥珀点缀微降饱和 */
+  --bg: #171a21;
+  --bg-rail: #101218;
+  --rail-icon: rgba(210, 218, 230, 0.62);
+  --rail-icon-hover: #eab464;
+  --rail-hover: rgba(210, 218, 230, 0.07);
+  --surface: #1e212a;
+  --surface-2: #272b35;
+  --border: #2b2f3a;
+  --win-border: #555555;
+  --text: #d2d8e2;
+  --text-2: #8d95a5;
+  --accent: #e3a45c;
+  --accent-strong: #edb877;
+  --accent-soft: rgba(227, 164, 92, 0.13);
+  --selection: rgba(120, 165, 220, 0.5);
+  --danger: #d97764;
+  --ok: #63b8a6;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.28), 0 10px 28px rgba(0, 0, 0, 0.24);
+  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.32), 0 16px 40px rgba(0, 0, 0, 0.42);
 
-  /* 代码块（暗底暖墨）：维持深底形态，令牌与亮色同名 */
-  --code-bg: #26201a;
-  --code-bar: #1d1812;
-  --code-fg: #ece4d8;
-  /* 描边 7% 太淡：暗色下代码块与纸卡同色系，边界糊（看着费眼睛），加重到 16% */
-  --code-edge: rgba(255, 244, 230, 0.16);
-  --code-comment: #8a7f70;
-  --code-keyword: #f4c67f;
-  --code-string: #a8c98a;
-  --code-number: #e8a3a0;
-  --code-title: #9fc6e8;
-  --code-attr: #d4b483;
-  --code-type: #c9b3f0;
-  --code-deletion: #d66a55;
+  /* 代码块（暗底墨蓝）：维持深底形态，令牌与亮色同名 */
+  --code-bg: #1c1f27;
+  --code-bar: #13151b;
+  --code-fg: #d2d8e2;
+  /* 暗色下代码块与纸卡同色系，边界糊（看着费眼睛），描边加重 */
+  --code-edge: rgba(210, 218, 230, 0.15);
+  --code-comment: #7d8595;
+  --code-keyword: #ecb96f;
+  --code-string: #a5c795;
+  --code-number: #e39a92;
+  --code-title: #9cc3e8;
+  --code-attr: #d0b283;
+  --code-type: #c2aeee;
+  --code-deletion: #d97764;
 }
 
 /* ---------- Reset ---------- */
@@ -129,6 +146,13 @@ body {
   -webkit-font-smoothing: antialiased;
   user-select: none;
   cursor: default;
+}
+
+/* 拼写检查错词（4.2 自研引擎）：三端统一红波浪线 */
+.spell-err {
+  text-decoration: underline wavy color-mix(in srgb, var(--danger) 75%, transparent);
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
 }
 
 ::selection {
@@ -186,6 +210,10 @@ kbd {
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
+  /* 窗口无边框（frame:false）：顶层上边框线把应用与桌面/背后窗口分离，
+     缺了它标题栏与内容底色连成一片、窗口上边缘看不出来。
+     颜色走 --win-border 令牌：默认 #AAAAAA，随主题明暗/主题声明联动 */
+  border-top: 1px solid var(--win-border);
 }
 
 .app-body {

@@ -34,6 +34,8 @@ const api = {
     rename: (oldPath: string, newPath: string): Promise<void> =>
       ipcRenderer.invoke('fs:rename', oldPath, newPath),
     delete: (path: string): Promise<void> => ipcRenderer.invoke('fs:delete', path),
+    /** 资源管理器中打开并选中该文件/目录（标签右键等） */
+    showInFolder: (path: string): Promise<void> => ipcRenderer.invoke('fs:showInFolder', path),
     readDir: (path: string): Promise<DirEntry[]> => ipcRenderer.invoke('fs:readDir', path),
     /** 递归列出工作区全部文件路径（文件树按名筛选用） */
     listFiles: (root: string): Promise<string[]> => ipcRenderer.invoke('fs:listFiles', root)
@@ -48,7 +50,7 @@ const api = {
     openFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFolder'),
     /** 块工具栏「插入图片」：选择本地图片文件 */
     openImage: (): Promise<string | null> => ipcRenderer.invoke('dialog:openImage'),
-    saveFile: (defaultName?: string, kind: 'md' | 'html' | 'tex' = 'md'): Promise<string | null> =>
+    saveFile: (defaultName?: string, kind: 'md' | 'html' | 'tex' | 'opml' | 'epub' = 'md'): Promise<string | null> =>
       ipcRenderer.invoke('dialog:saveFile', defaultName, kind)
   },
   export: {
@@ -215,6 +217,8 @@ const api = {
     toggleAlwaysOnTop: (): void => ipcRenderer.send('win:toggleAlwaysOnTop'),
     /** 拖出标签到新窗口 */
     openDoc: (doc: DetachDoc): void => ipcRenderer.send('win:openDoc', doc),
+    /** 打开设置（独立窗口，全应用共用一个实例；已开则聚焦） */
+    openSettings: (): void => ipcRenderer.send('win:openSettings'),
     /** 拖入窗口的文件 → 绝对路径（Electron ≥32 移除 File.path，webUtils 仅 preload 侧可用） */
     pathsForFiles: (files: File[]): string[] => files.map((f) => webUtils.getPathForFile(f)),
     /** 启动时一次性取走初始文档与窗口键 */

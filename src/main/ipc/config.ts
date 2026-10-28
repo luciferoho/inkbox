@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  CONTENT_WIDTH_MAX,
+  CONTENT_WIDTH_MIN,
   defaultConfig,
   defaultWindowPrefs,
   type AppConfig,
@@ -92,26 +94,32 @@ function load(): AppConfig {
       ...raw,
       editor: {
         fontSize: Number(rawEditor.fontSize) || defaultConfig.editor.fontSize,
-        lineHeight: Number(rawEditor.lineHeight) || defaultConfig.editor.lineHeight
+        lineHeight: Number(rawEditor.lineHeight) || defaultConfig.editor.lineHeight,
+        // 内容列统一宽度：非法/越界值钳回可用区间
+        contentWidth: Math.min(
+          CONTENT_WIDTH_MAX,
+          Math.max(
+            CONTENT_WIDTH_MIN,
+            Math.round(Number(rawEditor.contentWidth) || defaultConfig.editor.contentWidth)
+          )
+        )
       },
       autosave: { ...defaultConfig.autosave, ...raw.autosave },
+      // 旧配置无此键视为开；非布尔垃圾值同样落回默认
+      showDocPath: raw.showDocPath !== false,
       shortcuts: normalizeShortcuts(raw.shortcuts),
       upload: normalizeUpload(raw.upload),
       plugins: normalizePlugins(raw.plugins),
       appearance: normalizeAppearance(raw.appearance),
       recent: normalizeRecent(raw.recent)
     }
-    // 旧版把纸宽/侧栏宽存在全局 config：迁入 w1 的窗口偏好（一次性，读不到就跳过）
+    // 旧版把侧栏宽存在全局 config：迁入 w1 的窗口偏好（一次性，读不到就跳过；
+    // 纸面宽度已下线（固定占满可用宽度），遗留配置不再迁移）
     const legacySidebar = Number(raw.sidebarWidth)
-    const legacyPageWidth = Number(rawEditor.pageWidthPct)
-    if (legacySidebar || legacyPageWidth) {
+    if (legacySidebar) {
       const prefs = loadWindowPrefs()
       if (!prefs.w1) {
-        prefs.w1 = {
-          ...defaultWindowPrefs,
-          ...(legacySidebar ? { sidebarWidth: legacySidebar } : {}),
-          ...(legacyPageWidth ? { pageWidthPct: legacyPageWidth } : {})
-        }
+        prefs.w1 = { ...defaultWindowPrefs, sidebarWidth: legacySidebar }
         persistWindowPrefs(prefs)
       }
     }
@@ -158,10 +166,17 @@ function windowPrefsPath(): string {
   return join(app.getPath('userData'), 'window-prefs.json')
 }
 
+/** 归一化窗口偏好：只保留已知键，磁盘上已下线字段（旧版 pageWidthPct）不再复活 */
+function normalizeWinPrefs(raw: Partial<WindowPrefs> | undefined): WindowPrefs {
+  const w = Number(raw?.sidebarWidth)
+  return { sidebarWidth: Number.isFinite(w) && w > 0 ? w : defaultWindowPrefs.sidebarWidth }
+}
+
 function loadWindowPrefs(): Record<string, WindowPrefs> {
   if (winCache) return winCache
   try {
-    winCache = JSON.parse(readFileSync(windowPrefsPath(), 'utf-8')) as Record<string, WindowPrefs>
+    const raw = JSON.parse(readFileSync(windowPrefsPath(), 'utf-8')) as Record<string, WindowPrefs>
+    winCache = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, normalizeWinPrefs(v)]))
   } catch {
     winCache = {}
   }
@@ -233,14 +248,13 @@ export function registerConfigIpc(): void {
   })
 
   ipcMain.handle('app:getWindowPrefs', (_e, key: string): WindowPrefs => {
-    const stored = loadWindowPrefs()[safeKey(key)]
-    return { ...defaultWindowPrefs, ...stored }
+    return normalizeWinPrefs(loadWindowPrefs()[safeKey(key)])
   })
 
   ipcMain.handle('app:setWindowPrefs', (_e, key: string, patch: Partial<WindowPrefs>): void => {
     const prefs = loadWindowPrefs()
     const k = safeKey(key)
-    prefs[k] = { ...defaultWindowPrefs, ...prefs[k], ...patch }
+    prefs[k] = normalizeWinPrefs({ ...prefs[k], ...patch })
     persistWindowPrefs(prefs)
   })
 

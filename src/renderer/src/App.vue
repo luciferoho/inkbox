@@ -2,7 +2,7 @@
 import { onMounted, onBeforeUnmount, nextTick, defineAsyncComponent, ref } from 'vue'
 import type { MenuCommand, UpdateStatePayload } from '@shared/types'
 import { t } from '@/i18n'
-import { canonicalizeContent } from '@/services/markdown'
+import { contentEquivalent } from '@/services/content-equivalence'
 import { isOpenablePath } from '@/services/openable'
 import { useUiStore } from '@/stores/ui'
 import { initImageContextMenu } from '@/editor/image-context-menu'
@@ -23,8 +23,7 @@ import TableContextMenu from '@/components/chrome/TableContextMenu.vue'
 import ConfirmDialog from '@/components/chrome/ConfirmDialog.vue'
 import Toast from '@/components/chrome/Toast.vue'
 import QuickOpen from '@/components/chrome/QuickOpen.vue'
-// 弹窗类按需加载（exporter 连带 pdf/字体资源链，设置页打开频率低）
-const SettingsDialog = defineAsyncComponent(() => import('@/components/chrome/SettingsDialog.vue'))
+// 弹窗类按需加载（exporter 连带 pdf/字体资源链，打开频率低；设置已独立成窗口）
 const UpdateDialog = defineAsyncComponent(() => import('@/components/chrome/UpdateDialog.vue'))
 const ExportDialog = defineAsyncComponent(() => import('@/components/chrome/ExportDialog.vue'))
 import { useAutosave } from '@/composables/useAutosave'
@@ -108,6 +107,9 @@ function dispatch(cmd: MenuCommand): void {
     case 'help:sample':
       docs.openSample()
       break
+    case 'help:markdown':
+      docs.openMarkdownHelp()
+      break
   }
 }
 
@@ -154,7 +156,7 @@ onMounted(() => {
         continue
       }
       const disk = await window.api.fs.readFile(entry.draft.path).catch(() => null)
-      if (disk !== null && canonicalizeContent(disk) === canonicalizeContent(entry.draft.content)) {
+      if (disk !== null && contentEquivalent(disk, entry.draft.content)) {
         await window.api.drafts.clear(entry.key).catch(() => undefined)
         continue
       }
@@ -236,7 +238,7 @@ onBeforeUnmount(() => {
 /** 禅模式下的 Esc：无任何弹层时退出禅模式 */
 function onZenEsc(e: KeyboardEvent): void {
   if (!ui.zenMode || e.key !== 'Escape') return
-  if (ui.confirm || ui.choice || ui.viewerImage || ui.settingsOpen || ui.exportOpen) return
+  if (ui.confirm || ui.choice || ui.viewerImage || ui.exportOpen) return
   ui.toggleZen()
 }
 
@@ -431,7 +433,6 @@ async function handleRequestClose(): Promise<void> {
     <ImageViewer />
     <ImageContextMenu />
     <TableContextMenu />
-    <SettingsDialog />
     <UpdateDialog />
     <ExportDialog />
     <ConfirmDialog />

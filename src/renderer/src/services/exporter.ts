@@ -1,4 +1,8 @@
-import previewCss from '@/assets/preview.css?raw'
+import previewCssRaw from '@/assets/preview.css?raw'
+import { stripInteractiveCss } from './appearance'
+/* 预览 CSS 的交互态（hover/copy 按钮）对静态导出无意义且会带来鼠标反馈，
+   注入前剥离（与主题 CSS 同一处理，见 appearance.stripInteractiveCss） */
+const previewCss = stripInteractiveCss(previewCssRaw)
 import katexCss from 'katex/dist/katex.min.css?raw'
 /* 字体用显式 ?url 导入（import.meta.glob 扫不到 node_modules；dev 下 ?url 的
    css fetch 到的是转换后模块而非文本，故 CSS 用 raw、字体单独引入再内联） */
@@ -67,12 +71,12 @@ const IMG_MIME: Record<string, string> = {
 
 /* 代码块语法令牌（与 base.css 双主题同名，导出产物脱离应用也要有值） */
 const CODE_TOKENS_LIGHT = `
-  --code-bg: #f2ecdf;
-  --code-fg: #2b2420;
-  --code-edge: rgba(38, 32, 25, 0.08);
-  --code-comment: #9c9184;
-  --code-keyword: #b16014;
-  --code-string: #57783b;
+  --code-bg: #f5f4f1;
+  --code-fg: #37352f;
+  --code-edge: rgba(55, 53, 47, 0.1);
+  --code-comment: #9b968c;
+  --code-keyword: #b26a1b;
+  --code-string: #55793c;
   --code-number: #b8503f;
   --code-title: #3565a3;
   --code-attr: #8a6d2f;
@@ -80,33 +84,78 @@ const CODE_TOKENS_LIGHT = `
   --code-deletion: #c2503e;
 `
 const CODE_TOKENS_DARK = `
-  --code-bg: #26201a;
-  --code-fg: #ece4d8;
-  --code-edge: rgba(255, 244, 230, 0.07);
-  --code-comment: #8a7f70;
-  --code-keyword: #f4c67f;
-  --code-string: #a8c98a;
-  --code-number: #e8a3a0;
-  --code-title: #9fc6e8;
-  --code-attr: #d4b483;
-  --code-type: #c9b3f0;
-  --code-deletion: #d66a55;
+  --code-bg: #1c1f27;
+  --code-fg: #d2d8e2;
+  --code-edge: rgba(210, 218, 230, 0.15);
+  --code-comment: #7d8595;
+  --code-keyword: #ecb96f;
+  --code-string: #a5c795;
+  --code-number: #e39a92;
+  --code-title: #9cc3e8;
+  --code-attr: #d0b283;
+  --code-type: #c2aeee;
+  --code-deletion: #d97764;
+`
+
+/* 导出排版兜底：主题 CSS 注入在页面样式之后，可能带来自身场景的 pre/code
+   规则（如 overflow: visible / 行为改动）导致长代码行溢出容器（PNG 长图里
+   溢出 = 内容被裁掉）。在 extraCss 之后统一收口：代码块折行，绝不横向出界 */
+const EXPORT_FALLBACK_LAYOUT = `
+/* 导出是静态介质（长图/打印页），不存在横向滚动交互：内容已强制折行，
+   overflow visible 既不渲染滚动条，也不建立会破坏 Chromium 打印分页的
+   裁切容器（overflow hidden/auto 的块跨页时后续兄弟会被异常推页） */
+.md-preview pre { overflow: visible !important; max-width: 100%; }
+.md-preview pre code { white-space: pre-wrap !important; word-break: break-word; }
+.md-preview .md-code-bar { display: none !important; }
+/* 行号是应用内的编辑辅助（::before 计数列），导出产物不携带——且行号列
+   会造成 ~15px 横向溢出，让代码块出滚动条（长图被裁/PDF 出横滚） */
+.md-preview pre code .md-cl::before { display: none !important; }
+/* hover 态在源头已剥（previewCss/主题 CSS 注入前经 stripInteractiveCss），
+   静态产物无任何鼠标反馈 */
+.md-preview * { cursor: default !important; }
+`
+
+/* PDF 打印净化：PDF 固定白底，暗色自定义主题的文字色（浅色文字）在白底上
+   不可读——主题 CSS 注入后重申亮色令牌并强制正文/代码/引用的深色，排版
+   （间距/字体/结构）保留主题效果 */
+const EXPORT_SANITIZE_PRINT = `
+body, .md-preview.export-page { background: #fff !important; }
+.md-preview {
+  color: #1f2328 !important;
+  --bg: #fff; --surface: #fff; --surface-2: #f6f8fa; --border: #d0d7de;
+  --text: #1f2328; --text-2: #57606a;
+  --accent: #b16014; --accent-strong: #954d0d; --accent-soft: rgba(177, 96, 20, 0.1);
+  --code-bg: #f6f8fa; --code-fg: #1f2328; --code-bar: #eaeef2;
+  --code-comment: #57606a; --code-keyword: #cf222e; --code-string: #0a3069;
+  --code-number: #0550ae; --code-title: #0550ae; --code-attr: #953800;
+  --code-type: #8250df; --code-deletion: #cf222e;
+  --inline-code-bg: #eff1f3;
+}
+.md-preview h1, .md-preview h2, .md-preview h3, .md-preview h4,
+.md-preview h5, .md-preview h6, .md-preview p, .md-preview li,
+.md-preview td, .md-preview th, .md-preview strong, .md-preview em,
+.md-preview del, .md-preview figcaption { color: #1f2328 !important; }
+.md-preview a { color: #0969da !important; }
+.md-preview blockquote { color: #57606a !important; border-left-color: #d0d7de !important; }
+.md-preview pre, .md-preview pre code { color: #1f2328 !important; }
+.md-preview table, .md-preview th, .md-preview td { border-color: #d0d7de !important; }
+.md-preview hr { border-color: #d0d7de !important; }
 `
 
 /* 纸面亮色主题的设计令牌（HTML/PNG 导出可选亮暗，PDF 固定亮色白底打印） */
 const EXPORT_TOKENS_LIGHT = `
 :root {
-  --bg: #f6f2ec;
+  --bg: #faf9f7;
   --surface: #ffffff;
-  --surface-2: #efe9e0;
-  --border: #e4dcd0;
-  --text: #2b2420;
-  --text-2: #7c7267;
+  --surface-2: #f2f0ec;
+  --border: #e6e3dd;
+  --text: #37352f;
+  --text-2: #86817a;
   --accent: #c9701f;
   --accent-strong: #b16014;
-  --accent-soft: rgba(201, 112, 31, 0.12);
+  --accent-soft: rgba(201, 112, 31, 0.1);
   --danger: #c2503e;
-  --export-shadow: 0 1px 3px rgba(38, 32, 25, 0.05), 0 16px 44px rgba(38, 32, 25, 0.07);
+  --export-shadow: 0 1px 3px rgba(40, 38, 33, 0.05), 0 16px 44px rgba(40, 38, 33, 0.06);
   --radius-m: 10px;
   --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
   --font-serif: Georgia, 'Source Serif SC', 'Noto Serif SC', 'Times New Roman', serif;
@@ -120,17 +169,17 @@ ${CODE_TOKENS_LIGHT}
 /* 墨匣暗色主题的设计令牌（暗色导出：深底浅字，代码块同为暗色） */
 const EXPORT_TOKENS_DARK = `
 :root {
-  --bg: #1d1814;
-  --surface: #272019;
-  --surface-2: #332a21;
-  --border: #3b3128;
-  --text: #eae2d6;
-  --text-2: #a89d8e;
-  --accent: #e6a054;
-  --accent-strong: #f0b26e;
-  --accent-soft: rgba(230, 160, 84, 0.14);
-  --danger: #d66a55;
-  --export-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 16px 44px rgba(0, 0, 0, 0.4);
+  --bg: #171a21;
+  --surface: #1e212a;
+  --surface-2: #272b35;
+  --border: #2b2f3a;
+  --text: #d2d8e2;
+  --text-2: #8d95a5;
+  --accent: #e3a45c;
+  --accent-strong: #edb877;
+  --accent-soft: rgba(227, 164, 92, 0.13);
+  --danger: #d97764;
+  --export-shadow: 0 1px 3px rgba(0, 0, 0, 0.28), 0 16px 44px rgba(0, 0, 0, 0.42);
   --radius-m: 10px;
   --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
   --font-serif: Georgia, 'Source Serif SC', 'Noto Serif SC', 'Times New Roman', serif;
@@ -283,28 +332,39 @@ export async function buildExportHtml(
   const tokens = theme === 'dark' ? EXPORT_TOKENS_DARK : EXPORT_TOKENS_LIGHT
   const pageCss = opts.forPrint
     ? `
+html, body { overflow-x: hidden; }
 body { background: #fff; padding: 0; }
 .export-page { max-width: none; margin: 0; border: none; border-radius: 0; box-shadow: none; }
 .md-preview { --preview-font-size: 13px; --preview-line-height: 1.65; padding: 0 0 6px; }
 .md-preview pre code { font-size: 11px; }
 .md-preview h1 { font-size: 1.55em; }
 .md-preview h2 { font-size: 1.3em; }
-/* 分页保护：标题不与后文断开，整块元素不拦腰截断 */
+/* 分页保护：标题不与后文断开；长代码块/大表格允许自然跨页（整块 avoid 会
+   推到新页留大片空白），表格按行断、行内不截。注意：P4 型"近空白页"的
+   真因是文档内的显式分页标记（md-pagebreak，Typora 兼容），不是这些规则 */
 .md-preview h1, .md-preview h2, .md-preview h3,
 .md-preview h4, .md-preview h5, .md-preview h6 { break-after: avoid; }
-.md-preview pre, .md-preview .mermaid, .md-preview table,
+.md-preview .mermaid,
 .md-preview blockquote, .md-preview .math-block, .md-preview img { break-inside: avoid; }
-.md-preview p, .md-preview li { orphans: 2; widows: 2; }
+.md-preview table, .md-preview .md-table-wrap { break-inside: auto; }
+.md-preview tr { break-inside: avoid; }
+/* 孤行控制 3 行：段落断页首尾各保 3 行，避免残行单独占据新页顶部 */
+.md-preview p, .md-preview li { orphans: 3; widows: 3; }
 /* 超宽表格：打印页宽固定，强制自适应换行（导出不应出现横向裁切） */
 .md-preview .md-table-wrap { overflow: visible; max-width: 100%; }
 .md-preview table { width: 100% !important; table-layout: auto !important; font-size: 10.5px; }
+/* 块级 HTML 表格（图片版式）：固定布局让列宽均分，图片收敛到列内——
+   auto 布局会按 2560px 大图的固有宽度分列，导出页宽装不下 */
+.md-preview table.luci-html-table { table-layout: fixed !important; }
+.md-preview table.luci-html-table img { max-width: 100% !important; height: auto; }
 .md-preview th, .md-preview td {
   width: auto !important; white-space: normal !important;
   word-break: break-word; overflow-wrap: anywhere; padding: 4px 6px;
 }
-/* 打印产物不出现滚动条：代码块自动换行 */
-.md-preview pre { overflow: visible !important; white-space: pre-wrap; word-break: break-word; }
+/* 打印产物不出现滚动条：代码块自动换行；宽图收敛到页宽 */
+.md-preview pre { overflow: hidden !important; white-space: pre-wrap; word-break: break-word; break-inside: auto; }
 .md-preview pre code { white-space: pre-wrap; }
+.md-preview img, .md-preview svg { max-width: 100% !important; height: auto; }
 `
     : `
 body { background: var(--bg); padding: 40px 20px 64px; }
@@ -324,6 +384,9 @@ body { background: var(--bg); padding: 40px 20px 64px; }
 /* 超宽表格：导出页宽固定，去掉预览的横向滚动与拖拽宽度，自适应换行 */
 .md-preview .md-table-wrap { overflow: visible; max-width: 100%; }
 .md-preview table { width: 100% !important; table-layout: auto !important; }
+/* 块级 HTML 表格：固定布局均分列宽 + 图片收敛到列内（同打印分支） */
+.md-preview table.luci-html-table { table-layout: fixed !important; }
+.md-preview table.luci-html-table img { max-width: 100% !important; height: auto; }
 .md-preview th, .md-preview td {
   width: auto !important; white-space: normal !important;
   word-break: break-word; overflow-wrap: anywhere;
@@ -360,6 +423,8 @@ body { background: var(--bg); padding: 40px 20px 64px; }
 <style>${previewCss}</style>
 <style>${pageCss}</style>
 ${opts.extraCss ? `<style>${opts.extraCss}</style>` : ''}
+<style>${EXPORT_FALLBACK_LAYOUT}</style>
+${opts.forPrint ? `<style>${EXPORT_SANITIZE_PRINT}</style>` : ''}
 <style>${EXPORT_TASK_LIST_FIX}</style>
 </head>
 <body>

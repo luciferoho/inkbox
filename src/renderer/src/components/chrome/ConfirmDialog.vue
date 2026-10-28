@@ -51,15 +51,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     <!-- 二选一确认框 -->
     <Transition name="confirm">
       <div v-if="ui.confirm" class="mask" @click.self="ui.resolveConfirm(false)">
-        <section class="dialog" role="alertdialog" :aria-label="ui.confirm.title">
-          <div class="icon" :class="{ danger: ui.confirm.danger }">
-            <svg v-if="ui.confirm.danger" viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-              <path d="M10 4v8" /><circle cx="10" cy="15" r="0.8" fill="currentColor" stroke="none" />
-            </svg>
-            <svg v-else viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
-              <path d="M10 5v6" /><circle cx="10" cy="14.4" r="0.8" fill="currentColor" stroke="none" />
-            </svg>
-          </div>
+        <section class="dialog" :class="{ danger: ui.confirm.danger }" role="alertdialog" :aria-label="ui.confirm.title">
           <h2 class="title">{{ ui.confirm.title }}</h2>
           <p class="message">{{ ui.confirm.message }}</p>
           <div class="actions">
@@ -108,48 +100,35 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .dialog {
-  width: 400px;
+  width: 360px;
   max-width: calc(100vw - 48px);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-pop);
-  padding: 22px 24px 18px;
+  padding: 22px 24px 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
 }
 
-.icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  margin-bottom: 12px;
-}
-
-.icon.danger {
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-  color: var(--danger);
-}
-
 .title {
   font-size: 14.5px;
-  font-weight: 700;
+  font-weight: 600;
   margin-bottom: 8px;
 }
 
 .message {
   font-size: 12.5px;
   color: var(--text-2);
-  line-height: 1.7;
+  line-height: 1.75;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
   margin-bottom: 18px;
+  /* 长路径等居中排版下更易读：两段式文案（说明+路径）左对齐 */
+  max-height: 40vh;
+  overflow-y: auto;
 }
 
 .actions {

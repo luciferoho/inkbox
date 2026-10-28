@@ -111,7 +111,15 @@ function applyFamilyVariant(key: string, variant: string): void {
 
 function openThemeSettings(): void {
   themeMenuOpen.value = false
-  ui.settingsOpen = true
+  ui.openSettings()
+}
+
+/** 写作辅助徽标：点击切换 + toast 反馈状态 */
+function toggleWritingAid(key: 'typographer' | 'spellcheck'): void {
+  const next = !ui.editorPrefs[key]
+  void ui.setEditorPrefs({ [key]: next })
+  const label = t(`settings.${key}`)
+  ui.showToast(t(next ? 'status.aidOn' : 'status.aidOff', { name: label }))
 }
 
 onBeforeUnmount(() => {
@@ -195,6 +203,23 @@ onBeforeUnmount(() => {
         @click="ui.toggleTypewriter()"
       >
         {{ $t('status.typewriter') }}
+      </button>
+      <!-- 写作辅助开关（4.2/4.3）：常显徽标，点击直接切换并提示 -->
+      <button
+        class="badge toggle"
+        :class="{ on: ui.editorPrefs.typographer }"
+        :title="$t('status.typographerTitle')"
+        @click="toggleWritingAid('typographer')"
+      >
+        {{ $t('settings.typographer') }}
+      </button>
+      <button
+        class="badge toggle"
+        :class="{ on: ui.editorPrefs.spellcheck }"
+        :title="$t('status.spellcheckTitle')"
+        @click="toggleWritingAid('spellcheck')"
+      >
+        {{ $t('settings.spellcheck') }}
       </button>
       <span class="badge">Markdown</span>
       <span class="badge">UTF-8</span>

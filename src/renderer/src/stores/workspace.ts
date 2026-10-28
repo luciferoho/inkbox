@@ -3,6 +3,7 @@ import type { DirEntry } from '@shared/types'
 import { useUiStore } from './ui'
 import { useDocumentsStore } from './documents'
 import { t } from '@/i18n'
+import { isOpenablePath } from '@/services/openable'
 
 export interface TreeDraft {
   mode: 'new-file' | 'new-dir' | 'rename'
@@ -21,8 +22,48 @@ export const useWorkspaceStore = defineStore('workspace', {
     expanded: {} as Record<string, boolean>,
     draft: null as TreeDraft | null,
     /** 工作区全部文件路径（按名筛选用；打开/外部变化后刷新） */
-    allFiles: [] as string[]
+    allFiles: [] as string[],
+    /** allFiles 是否已完成本次加载（过滤开关依赖它，避免加载完成前误剪空树） */
+    allFilesLoaded: false
   }),
+  getters: {
+    /** 含可打开文档的文件夹集合（含全部祖先目录），供「空文件夹」标记用：
+     *  不在此集合中的文件夹 = 子树内没有任何可打开文档 */
+    openableDirs(state): Set<string> {
+      const dirs = new Set<string>()
+      const root = state.root
+      if (!root) return dirs
+      for (const f of state.allFiles) {
+        if (!isOpenablePath(f)) continue
+        // 逐级上溯祖先目录直到工作区根（同时兼容 / 与 \ 分隔）
+        let cut = Math.max(f.lastIndexOf('/'), f.lastIndexOf('\\'))
+        while (cut > root.length) {
+          dirs.add(f.slice(0, cut))
+          cut = Math.max(f.lastIndexOf('/', cut - 1), f.lastIndexOf('\\', cut - 1))
+        }
+      }
+      return dirs
+    },
+    /** 文件夹是否为「空」（仅可打开过滤开启时有意义）：子树内没有任何可打开文档。
+     *  全量文件列表未加载完成时不判空（避免启动瞬间整树标空） */
+    isEmptyDir(state) {
+      return (path: string): boolean => {
+        if (!state.allFilesLoaded) return false
+        return !this.openableDirs.has(path)
+      }
+    },
+    /** 文件树渲染用的子项：过滤开关关闭原样返回；开启时只隐藏不可打开的文件。
+     *  文件夹一律保留（新建空文件夹不能凭空消失），由 FileTreeNode 淡化标记空文件夹 */
+    visibleChildren(state) {
+      return (path: string): DirEntry[] => {
+        const list = state.children[path]
+        if (!list) return []
+        const ui = useUiStore()
+        if (!ui.wsOpenableOnly) return list
+        return list.filter((e) => e.isDir || isOpenablePath(e.name))
+      }
+    }
+  },
   actions: {
     async openFolder(): Promise<void> {
       const root = await window.api.dialog.openFolder()
@@ -46,6 +87,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       this.expanded = {}
       this.draft = null
       this.allFiles = []
+      this.allFilesLoaded = false
       useDocumentsStore().persistSession()
     },
 
@@ -95,6 +137,7 @@ export const useWorkspaceStore = defineStore('workspace', {
       } catch {
         this.allFiles = []
       }
+      this.allFilesLoaded = true
     },
 
     /* ---------- 增删改（内联输入草稿） ---------- */
@@ -146,6 +189,7 @@ export const useWorkspaceStore = defineStore('workspace', {
           await window.api.fs.create(`${d.parentPath}/${finalName}`, d.mode === 'new-dir')
         }
         await this.loadDir(d.parentPath)
+        void this.loadAllFiles() // 新建/改名后刷新全量列表（仅可打开过滤依赖它判定空文件夹）
       } catch (err) {
         console.error('[workspace] commit failed:', err)
         useUiStore().statusMessage = t('ws.opFailed')

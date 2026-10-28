@@ -361,6 +361,7 @@ const APP_TOKENS = [
   '--surface',
   '--surface-2',
   '--border',
+  '--win-border',
   '--text',
   '--text-2',
   '--accent',
@@ -422,6 +423,7 @@ const POLARITY_LIGHT: Record<string, string> = {
   '--surface': '#ffffff',
   '--surface-2': '#efe9e0',
   '--border': '#e4dcd0',
+  '--win-border': '#aaaaaa',
   '--text': '#2b2420',
   '--text-2': '#7c7267',
   '--accent': '#c9701f',
@@ -452,6 +454,7 @@ const POLARITY_DARK: Record<string, string> = {
   '--surface': '#272019',
   '--surface-2': '#332a21',
   '--border': '#3b3128',
+  '--win-border': '#555555',
   '--text': '#eae2d6',
   '--text-2': '#a89d8e',
   '--accent': '#e6a054',
@@ -796,6 +799,10 @@ export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): str
     const v = valueOf('--control-text-color')
     if (v && !set.has('--text-2')) set.set('--text-2', v)
   }
+  // 主题显式声明的边框色快照（--border-color 桥接或同名 --border，取自派生之前）：
+  // 窗口框线 --win-border 随后由它接管；仅从底色派生的 --border 不算显式声明，
+  // 框线保持默认中性灰（#AAAAAA/#555555），避免跟随过淡的派生值又看不清
+  const explicitBorder = set.has('--border') ? set.get('--border') : null
   if (bg) {
     const derived: [string, string][] = [
       ['--surface', mix(bg, '#fff', light ? 45 : 92)],
@@ -820,6 +827,9 @@ export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): str
   }
   for (const k of CODE_TOKENS) if (!set.has(k)) set.set(k, codeBundle[k])
   const bundle = light ? POLARITY_LIGHT : POLARITY_DARK
+  // 窗口框线接管要先于极性兜底：主题显式声明了边框色（且没自己写 --win-border）
+  // 时跟随主题，否则落 #AAAAAA/#555555 默认
+  if (explicitBorder && !set.has('--win-border')) set.set('--win-border', explicitBorder)
   for (const [k, v] of Object.entries(bundle)) if (!set.has(k)) set.set(k, v)
   // 语法色可读性兜底：主题作者常把浅色变体的 cm-def 颜色原样留在暗色文件里
   // （sonnet-dark 的 #0051c2 在 #262624 上几乎看不见）。能静态解析的颜色在
@@ -860,6 +870,36 @@ export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): str
     set.set('--rail-icon', `color-mix(in srgb, ${railText} 70%, transparent)`)
     set.set('--rail-hover', `color-mix(in srgb, ${railText} 8%, transparent)`)
   }
+  // 侧栏面板令牌：主题显式给了 --side-bar-bg-color（blubook 藏青侧栏这类
+  // 「侧栏即主题皮」的设计）时，面板整块跟随侧栏色系——文字用侧栏文字色，
+  // 活动项用主题的 --active-file-bg-color。未声明的主题不emit，面板维持现状
+  let panelSkin = ''
+  if (sideBg) {
+    const sideText = valueOf('--control-text-color') ?? '#ddd'
+    set.set('--side-text', sideText)
+    const sideActive = valueOf('--active-file-bg-color')
+    if (sideActive) set.set('--side-active', sideActive)
+    // 文件树活动项文字色：主题自带 --active-file-text-color 就用主题的，
+    // 否则用侧栏文字色（藏青底上的琥珀 --accent-strong 对比不可控）
+    const sideActiveText = valueOf('--active-file-text-color')
+    if (sideActiveText) set.set('--side-active-text', sideActiveText)
+    panelSkin = `
+/* 侧栏面板跟随主题侧栏色（--side-bar-bg-color 与页面底色成对设计，如 blubook）：
+   在面板作用域重定义局部令牌，子元素沿用的 surface/text/border 全部换肤 */
+html[data-theme-css] .sidebar-wrap .panel {
+  --surface: var(--bg-rail);
+  --surface-2: color-mix(in srgb, var(--side-text) 10%, var(--bg-rail));
+  --text: var(--side-text);
+  --text-2: color-mix(in srgb, var(--side-text) 72%, var(--bg-rail));
+  --border: color-mix(in srgb, var(--side-text) 16%, var(--bg-rail));
+  --accent-soft: var(--side-active, color-mix(in srgb, var(--side-text) 14%, var(--bg-rail)));
+}
+/* 文件树当前文档高亮的文字色随侧栏皮（特异性压过组件 scoped 的 accent-strong） */
+html[data-theme-css] .sidebar-wrap .panel .node.active {
+  color: var(--side-active-text, var(--side-text));
+}
+`
+  }
   const accent = set.get('--accent')
   if (accent) set.set('--rail-icon-hover', accent)
   // 主题给了主色但没给配套的强调变体（phycat 只有 --primary-color）：soft/strong
@@ -880,7 +920,10 @@ export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): str
   rules.unshift(`color-scheme: ${light ? 'light' : 'dark'};`)
   // 选择器带上 [data-theme]：特异性高于 base.css 的 [data-theme='dark'] 调色板，
   // 主题配色才能真正接管（对齐 Typora：选主题即整窗换肤）
-  return rules.length ? `\n/* Typora 变量 → 应用令牌 */\n:root[data-theme] { ${rules.join(' ')} }\n` : ''
+  return (
+    (rules.length ? `\n/* Typora 变量 → 应用令牌 */\n:root[data-theme] { ${rules.join(' ')} }\n` : '') +
+    panelSkin
+  )
 }
 
 /** 前置别名桥：主题引用但未定义的变量回落到我们的令牌（主题自己定义的会覆盖这里） */
@@ -998,13 +1041,36 @@ ${SCOPE} blockquote.md-alert::before {
 /** 主题样式之后的兜底：Typora 的 #write 由 base 居中（max-width + margin auto），
  *  主题只给 max-width；我们的容器必须补 margin-inline:auto 才能居中（否则内容
  *  列贴左、右侧大片空白，sonnet 实测）。字号/行距保持用户设置优先。
+ *  内容列统一宽度：主题 #write 各自的 max-width（实测 640–1200px/无限制不等）
+ *  一律覆盖到 --content-width，全部主题同一列宽；!important 压过主题的
+ *  同名 important（blubook 的 margin 实测用过）；min() 在窄窗口退化为占满。
  *  放在主题 CSS 之后是必须的：与主题规则同特异度时靠后即可覆盖（THEME_RESET
  *  在主题之前，只适合主题不会写同选择器的场景）。 */
 const CONTENT_FINAL = `
 ${SCOPE} {
-  margin-inline: auto;
+  /* width 一并收回（blubook #write{width:90%} 会让实际列宽 ≠ 设定值） */
+  width: auto !important;
+  max-width: min(var(--content-width, 1600px), 100%) !important;
+  margin-inline: auto !important;
   font-size: var(--preview-font-size, 16px);
   line-height: var(--preview-line-height, 1.7);
+}
+/* 块级 HTML 表格（图片版式）：固定吃满内容宽 + 固定布局，列宽按 width 属性
+   分配、图片按列收缩。必须放在主题 CSS 之后并带 !important——THEME_RESET 的
+   table:not(:has([data-colwidth])) 规则是 auto 布局，会让 2560px 大图的
+   min-content 把表格撑出内容列（内置主题下实测只能横向滚动查看） */
+${SCOPE} table.luci-html-table {
+  table-layout: fixed !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+${SCOPE} table.luci-html-table th,
+${SCOPE} table.luci-html-table td {
+  min-width: 0 !important;
+}
+${SCOPE} table.luci-html-table img {
+  max-width: 100% !important;
+  height: auto !important;
 }
 /* 围栏底色回收到令牌：主题的 .md-fences 直涂底色（特异性 (0,3,1) 压过内置
    pre 规则）盖掉了 --code-bg——而 Typora 里实际可见的是 CodeMirror 包装层
@@ -1012,6 +1078,21 @@ ${SCOPE} {
    （选区/光标规则除外），这里统一以令牌为底，语法色与底色才同源 */
 ${SCOPE} pre:not(.md-meta-block) {
   background: var(--code-bg);
+}
+/* 代码块内横向滚动：主题的 .md-fences 规则（三重特异度）常把内置的
+   overflow-x:auto 覆盖成 visible，长代码行会把整页撑出横向滚动条（blubook
+   实测 108px）。这里按同一口径收回滚动；mermaid 图表容器除外——图表要按
+   自身尺寸呈现，不是可滚动的代码文本 */
+${SCOPE} pre:not(.md-meta-block):not(.md-mermaid) {
+  overflow-x: auto;
+}
+/* 代码块的横向滚动条同样用箭头光标；文本光标落在内部 code 上
+   （主题规则特异性高于内置，必须在这里补） */
+${SCOPE} pre:not(.md-meta-block) {
+  cursor: default;
+}
+${SCOPE} pre code {
+  cursor: text;
 }
 /* Mermaid 图表容器：Typora 里图表不是代码块——主题的 pre/.md-fences 底色
    不能画在图表外壳上（即显侧图表外壳就是 pre.md-mermaid，语言栏留位会
@@ -1085,6 +1166,11 @@ export async function processThemeCss(
   // 根字号 ≠ 16px 的主题（blubook 14px / nord 18px）：rem 先按主题基准换算成
   // 等值 px，再走作用域化——html 规则已不作用于真实根元素，不换算会整体偏大/偏小
   raw = convertRem(raw, themeRootFontSize(raw) ?? 16)
+  // 标题级别角标（blubook：#write>hN::before{content:'H1'..'H6'}，绝对定位在
+  // 标题左侧的 Typora 页边距区）——我们的内容列没有页边距区，角标与折叠箭头
+  // 叠挤还被裁（用户确认不显示）。剥掉 content 声明：::before 无内容即不生成
+  // （esther 等的 hN::before 空内容装饰线不带 HN 字面量，不受影响）
+  raw = raw.replace(/content\s*:\s*(['"])H[1-6]\1\s*;?/gi, '')
   const withUrls = await rewriteUrls(raw, dir, mode)
   return ALIAS_BLOCK + THEME_RESET + scopeThemeCss(withUrls) + CONTENT_FINAL + typoraValueBridge(withUrls, entry.variant === 'dark' ? 'dark' : 'light')
 }

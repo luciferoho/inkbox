@@ -5,6 +5,7 @@ import { useDocumentsStore } from '@/stores/documents'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUiStore, type EditorMode } from '@/stores/ui'
 import { t } from '@/i18n'
+import { accelKeys, effectiveShortcuts } from '@shared/shortcuts'
 import SourceEditor from './SourceEditor.vue'
 import Preview from './Preview.vue'
 // 即显引擎（Milkdown 全家桶）按需加载：默认双栏模式启动用不到，
@@ -54,6 +55,9 @@ async function removeRecent(path: string): Promise<void> {
 
 /** 主页（= 欢迎页）：无活动文档或活动的是主页标签 */
 const isHome = computed(() => !docs.active || !!docs.active.isHome)
+
+/** 手册按钮键帽跟随改键表（未配键不显示），与快捷键面板同一数据源 */
+const markdownHelpKeys = computed(() => accelKeys(effectiveShortcuts(ui.shortcuts)['help:markdown']).join('+'))
 
 function recentName(path: string): string {
   return path.split(/[\\/]/).pop() || path
@@ -139,6 +143,9 @@ watch(
         <button class="btn-primary" @click="docs.newDoc()">{{ $t('welcome.newDoc') }} <kbd>Ctrl+N</kbd></button>
         <button class="btn-ghost" @click="docs.openFile()">{{ $t('welcome.openFile') }} <kbd>Ctrl+O</kbd></button>
         <button class="btn-ghost" @click="ws.openFolder()">{{ $t('welcome.openFolder') }}</button>
+        <button class="btn-ghost" @click="docs.openMarkdownHelp()">
+          {{ $t('welcome.markdownHelp') }} <kbd v-if="markdownHelpKeys">{{ markdownHelpKeys }}</kbd>
+        </button>
         <button class="btn-ghost" @click="docs.openSample()">{{ $t('welcome.sample') }}</button>
       </div>
 
@@ -172,7 +179,7 @@ watch(
               <span class="name-text">{{ docs.active.name }}</span>
               <span v-if="docs.active.dirty" class="dot" />
             </span>
-            <span class="doc-path">{{ docs.active.path ?? $t('welcome.unsavedPath') }}</span>
+            <span v-if="ui.showDocPath" class="doc-path">{{ docs.active.path ?? $t('welcome.unsavedPath') }}</span>
           </div>
           <div class="mode-switch">
             <button
@@ -370,13 +377,12 @@ watch(
   min-width: 0;
 }
 
-/* 纸宽为可用宽度百分比；min(620px, 100%) 兜底：视口足够时防过窄，
-   视口不足时退化为 100%，绝不撑出横向溢出（同时消除"拖宽死区"）。
-   内容面直接落在工作区底色上（不再用浮起的纸卡）：与 Typora 的整窗换肤
-   一致，自定义主题与内置主题统一——卡片描边/投影/圆角会和外框形成色差 */
+/* 纸面占满可用宽度（只留四周间距）。内容面直接落在工作区底色上
+   （不再用浮起的纸卡）：与 Typora 的整窗换肤一致，自定义主题与内置
+   主题统一——卡片描边/投影/圆角会和外框形成色差 */
 .paper {
   flex: 1;
-  max-width: max(var(--paper-width, 80%), min(620px, 100%));
+  max-width: 100%;
   margin: 0 auto;
   height: 100%;
   background: var(--bg);

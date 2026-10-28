@@ -315,7 +315,7 @@ function fileDir(p: string): string {
           </template>
           <template v-else>
             <FileTreeNode
-              v-for="entry in ws.children[ws.root]"
+              v-for="entry in ws.visibleChildren(ws.root ?? '')"
               :key="entry.path"
               :entry="entry"
               :depth="1"
