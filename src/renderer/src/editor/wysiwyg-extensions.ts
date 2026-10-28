@@ -8,6 +8,7 @@ import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import remarkGemoji from 'remark-gemoji'
 import remarkFootnotes from 'remark-footnotes'
 import remarkFrontmatter from 'remark-frontmatter'
+import { sanitizeHtmlTableBlock, rewriteHtmlImgSrc } from '@/services/markdown'
 
 /**
  * 即显扩展语法（ROADMAP 1.3/1.4/1.5）：==高亮==、^上标^、~下标~、脚注、emoji。
@@ -572,3 +573,90 @@ export const tocUpdatePlugin = $prose(() =>
     })
   })
 )
+
+/* ---------- 块级 HTML 表格白名单（与预览管线 markdown.ts 同一套净化规则） ---------- */
+
+interface MdastBlockNode {
+  type?: string
+  value?: unknown
+  children?: MdastBlockNode[]
+}
+
+/** 完整表格块的 html 节点（首行 <table…>、末行 </table>）→ htmlTable 原子节点。
+ *  序列化原样还原原始 HTML（字节不变 → 不脏）；渲染在视图里净化后投影 */
+export function htmlTableBlock(): (tree: MdastBlockNode) => void {
+  const walk = (node: MdastBlockNode): void => {
+    if (!node.children) return
+    for (let i = 0; i < node.children.length; i++) {
+      const c = node.children[i]
+      if (c.type === 'html' && isTableBlockSource(String(c.value ?? ''))) {
+        node.children[i] = { type: 'htmlTable', value: String(c.value ?? '').trim() }
+        continue
+      }
+      walk(c)
+    }
+  }
+  return (tree) => walk(tree)
+}
+
+function isTableBlockSource(value: string): boolean {
+  const t = value.trim()
+  return /^<table(\s[^<>]*)?>/i.test(t) && /<\/table>$/i.test(t)
+}
+
+export const htmlTableSchema = $nodeSchema('html_table', () => ({
+  group: 'block',
+  atom: true,
+  defining: true,
+  attrs: { html: { default: '', validate: 'string' } },
+  toDOM: () => ['div', { class: 'luci-html-table' }],
+  parseDOM: [{ tag: 'div.luci-html-table' }],
+  parseMarkdown: {
+    match: ({ type }) => type === 'htmlTable',
+    runner: (state, node, type) => {
+      state.openNode(type, { html: String(node.value ?? '') }).closeNode()
+    }
+  },
+  toMarkdown: {
+    match: (node) => node.type.name === 'html_table',
+    runner: (state, node) => {
+      // 原始 HTML 经 html 节点原样输出（字节不变）；展示净化只在视图层
+      state.addNode('html', undefined, String(node.attrs.html ?? ''))
+    }
+  }
+}))
+
+/** 视图层文档目录（图片相对路径 → luci-img）；WysiwygEditor 挂载/切签时同步 */
+let htmlTableDocDir: string | null = null
+export function setHtmlTableDocDir(dir: string | null): void {
+  htmlTableDocDir = dir
+}
+
+class HtmlTableView implements NodeView {
+  dom: HTMLElement
+
+  constructor(node: PMNode) {
+    this.dom = document.createElement('div')
+    this.dom.className = 'luci-html-table'
+    this.render(node)
+  }
+
+  private render(node: PMNode): void {
+    // 展示走净化 + 图片协议改写；节点 attrs 里始终是原始 HTML
+    this.dom.innerHTML = rewriteHtmlImgSrc(
+      sanitizeHtmlTableBlock(String(node.attrs.html ?? '')),
+      htmlTableDocDir
+    )
+  }
+
+  update(node: PMNode): boolean {
+    this.render(node)
+    return true
+  }
+
+  ignoreMutation(_m: ViewMutationRecord): boolean {
+    return true // 纯投影：内容不可编辑，突变一律忽略
+  }
+}
+
+export const htmlTableView = $view(htmlTableSchema.node, () => (node) => new HtmlTableView(node))

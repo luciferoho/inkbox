@@ -773,3 +773,35 @@ html[data-theme-css] .wysiwyg-host .luci-prose pre {
   height: 0;
   visibility: hidden;
 }
+
+/* 块级 HTML 表格白名单（原子渲染节点）：与预览表格同一观感 */
+.wysiwyg-host .luci-html-table {
+  max-width: 100%;
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.wysiwyg-host .luci-html-table table {
+  border-collapse: collapse;
+  margin: 0;
+  width: max-content;
+  min-width: 100%;
+  font-size: 0.94em;
+}
+.wysiwyg-host .luci-html-table th,
+.wysiwyg-host .luci-html-table td {
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  text-align: left;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.wysiwyg-host .luci-html-table th {
+  background: var(--surface-2);
+  font-family: var(--font-body);
+  font-weight: 600;
+}
+.wysiwyg-host .luci-html-table img {
+  max-width: 100%;
+  border-radius: 8px;
+}

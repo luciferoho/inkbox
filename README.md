@@ -1,12 +1,12 @@
 <div align="center">
 
-![](docs/banner.svg)
+![](./docs/banner.svg)
 
 [下载最新版](https://github.com/luciferoho/inkbox/releases/latest) · [问题反馈](https://github.com/luciferoho/inkbox/issues) · [设计规范](./DESIGN.md)
 
 </div>
 
----
+***
 
 ## 简介
 
@@ -16,13 +16,84 @@
 
 ## 界面预览
 
-以下截图均以内置的[功能示例文档](./samples/示例.md)实拍：
+以下截图均以内置的 [展示样张](./samples/展示样张.md) 实拍：
 
-| 即显模式 · 亮色 | 双栏模式 · 亮色（源码 ⇄ 预览同步） |
-|:---:|:---:|
-| ![](docs/shot-wysiwyg-light.png) | ![](docs/shot-split-light.png) |
-| **即显模式 · 暗色** | **预览模式 · 暗色** |
-| ![](docs/shot-wysiwyg-dark.png) | ![](docs/shot-preview-dark.png) |
+<table>
+  <tr>
+    <th width="50%">即显模式 · 亮色</th>
+    <th width="50%">双栏模式 · 亮色（源码 ⇄ 预览同步）</th>
+  </tr>
+  <tr>
+    <td align="center"><img src="./docs/shot-wysiwyg-light.png" width="100%" alt="即显模式 · 亮色" /></td>
+    <td align="center"><img src="./docs/shot-split-light.png" width="100%" alt="双栏模式 · 亮色" /></td>
+  </tr>
+  <tr>
+    <th width="50%">即显模式 · 暗色</th>
+    <th width="50%">预览模式 · 暗色</th>
+  </tr>
+  <tr>
+    <td align="center"><img src="./docs/shot-wysiwyg-dark.png" width="100%" alt="即显模式 · 暗色" /></td>
+    <td align="center"><img src="./docs/shot-preview-dark.png" width="100%" alt="预览模式 · 暗色" /></td>
+  </tr>
+</table>
+
+## 兼容 Typora 主题
+
+墨匣兼容主流 Typora 主题：将下载的主题放入主题目录（应用内 **设置 → 主题 → 打开主题目录**）即可在设置中切换，支持明暗变体跟随与多配色族。
+
+| 主题              | 变体           | 官方地址                                                                                              | 下载                                                                                        |
+| --------------- | ------------ | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| phycat          | 11 种配色       | [sumruler/typora-theme-phycat](https://github.com/sumruler/typora-theme-phycat)                   | [前往下载](https://github.com/sumruler/typora-theme-phycat/releases)                          |
+| esther-inspired | 浅色 / 深色      | [lisitan/esther-obsidian-typora-themes](https://github.com/lisitan/esther-obsidian-typora-themes) | [前往下载](https://github.com/lisitan/esther-obsidian-typora-themes/releases)                 |
+| eyes-green      | 浅色 / 深色      | [aqimake/typora-eyes-green-theme](https://github.com/aqimake/typora-eyes-green-theme)             | [前往下载](https://github.com/aqimake/typora-eyes-green-theme/releases)                       |
+| vue             | 浅色 / 深色      | [blinkfox/typora-vue-theme](https://github.com/blinkfox/typora-vue-theme)                         | [直接下载](https://codeload.github.com/blinkfox/typora-vue-theme/zip/master)                  |
+| morandigarden   | 浅色           | [Kitsunee-CN/MorandiGarden](https://github.com/Kitsunee-CN/MorandiGarden)                         | [前往下载](https://github.com/Kitsunee-CN/MorandiGarden/releases)                             |
+| orangeheart     | 浅色           | [evgo2017/typora-theme-orange-heart](https://github.com/evgo2017/typora-theme-orange-heart)       | [前往下载](https://github.com/evgo2017/typora-theme-orange-heart/blob/master/orangeheart.css) |
+| kiro            | 深色           | [mooonu/typora-kiro-theme](https://github.com/mooonu/typora-kiro-theme)                           | [前往下载](https://github.com/mooonu/typora-kiro-theme/releases)                              |
+| sonnet          | 浅色 / 深色      | —                                                                                                 | [直接下载](https://codeload.github.com/bexino/sonnet/zip/refs/heads/main)                     |
+| claude-like     | 浅色 / 深色 / 灰色 | [Muyiiiii/Typora_Claude-Like_Theme](https://github.com/Muyiiiii/Typora_Claude-Like_Theme)         | [前往下载](https://github.com/Muyiiiii/Typora_Claude-Like_Theme/releases)                     |
+| lightmind       | 浅色 / 深色      | [SunMoonTrain/LightMindTheme](https://github.com/SunMoonTrain/LightMindTheme)                     | [前往下载](https://github.com/SunMoonTrain/LightMindTheme/releases)                           |
+
+以下主题截图均以内置的 [展示样张](./samples/展示样张.md) 实拍（即显模式 + 大纲侧栏）：
+
+<table>
+  <tr>
+    <td width="50%" align="center"><strong>phycat</strong> · caramel（亮）<br /><img src="./docs/themes/phycat-caramel.png" width="100%" alt="phycat · caramel" /></td>
+    <td width="50%" align="center"><strong>phycat</strong> · vampire（暗）<br /><img src="./docs/themes/phycat-vampire.png" width="100%" alt="phycat · vampire" /></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><strong>esther-inspired</strong> · 浅色<br /><img src="./docs/themes/esther-inspired-light.png" width="100%" alt="esther-inspired 浅色" /></td>
+    <td width="50%" align="center"><strong>esther-inspired</strong> · 深色<br /><img src="./docs/themes/esther-inspired-dark.png" width="100%" alt="esther-inspired 深色" /></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><strong>eyes-green</strong> · 浅色<br /><img src="./docs/themes/eyes-green-light.png" width="100%" alt="eyes-green 浅色" /></td>
+    <td width="50%" align="center"><strong>eyes-green</strong> · 深色<br /><img src="./docs/themes/eyes-green-dark.png" width="100%" alt="eyes-green 深色" /></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><strong>vue</strong> · 浅色<br /><img src="./docs/themes/vue-light.png" width="100%" alt="vue 浅色" /></td>
+    <td width="50%" align="center"><strong>vue</strong> · 深色<br /><img src="./docs/themes/vue-dark.png" width="100%" alt="vue 深色" /></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><strong>sonnet</strong> · 浅色<br /><img src="./docs/themes/sonnet-light.png" width="100%" alt="sonnet 浅色" /></td>
+    <td width="50%" align="center"><strong>sonnet</strong> · 深色<br /><img src="./docs/themes/sonnet-dark.png" width="100%" alt="sonnet 深色" /></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><strong>claude-like</strong> · 浅色<br /><img src="./docs/themes/claude-like-light.png" width="100%" alt="claude-like 浅色" /></td>
+    <td width="50%" align="center"><strong>claude-like</strong> · 深色<br /><img src="./docs/themes/claude-like-dark.png" width="100%" alt="claude-like 深色" /></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><strong>lightmind</strong> · 浅色<br /><img src="./docs/themes/lightmind-light.png" width="100%" alt="lightmind 浅色" /></td>
+    <td width="50%" align="center"><strong>lightmind</strong> · 深色<br /><img src="./docs/themes/lightmind-dark.png" width="100%" alt="lightmind 深色" /></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td width="33.3%" align="center"><strong>morandigarden</strong><br /><img src="./docs/themes/morandigarden-light.png" width="100%" alt="morandigarden" /></td>
+    <td width="33.3%" align="center"><strong>orangeheart</strong><br /><img src="./docs/themes/orangeheart-light.png" width="100%" alt="orangeheart" /></td>
+    <td width="33.4%" align="center"><strong>kiro</strong><br /><img src="./docs/themes/kiro-dark.png" width="100%" alt="kiro" /></td>
+  </tr>
+</table>
 
 ## 功能特性
 
@@ -69,25 +140,25 @@
 
 前往 [Releases](https://github.com/luciferoho/inkbox/releases/latest) 下载：
 
-| 文件 | 说明 |
-|------|------|
-| `Inkbox-<版本>-setup.exe` | 安装版（推荐，可选安装目录，支持自动更新） |
-| `Inkbox-<版本>-portable.exe` | 便携版（免安装单文件） |
+| 文件                         | 说明                    |
+| -------------------------- | --------------------- |
+| `Inkbox-<版本>-setup.exe`    | 安装版（推荐，可选安装目录，支持自动更新） |
+| `Inkbox-<版本>-portable.exe` | 便携版（免安装单文件）           |
 
 - 系统要求：Windows 10 及以上（x64）
 - 安装包未做代码签名，首次运行如遇 SmartScreen 提示，选择「更多信息 → 仍要运行」即可
 
 ## 快捷键（节选）
 
-| 快捷键 | 功能 |
-|--------|------|
-| `Ctrl+N` / `Ctrl+S` | 新建 / 保存 |
-| `Ctrl+F` / `Ctrl+H` | 查找 / 替换 |
-| `Ctrl+E` | 导出 |
-| `Ctrl+,` | 偏好设置 |
-| `Ctrl+Tab` / `Ctrl+Shift+Tab` | 切换标签 |
-| `F8` / `F9` | 专注模式 / 打字机模式 |
-| `Ctrl+\` | 切换编辑模式 |
+| 快捷键                           | 功能           |
+| ----------------------------- | ------------ |
+| `Ctrl+N` / `Ctrl+S`           | 新建 / 保存      |
+| `Ctrl+F` / `Ctrl+H`           | 查找 / 替换      |
+| `Ctrl+E`                      | 导出           |
+| `Ctrl+,`                      | 偏好设置         |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | 切换标签         |
+| `F8` / `F9`                   | 专注模式 / 打字机模式 |
+| `Ctrl+\`                      | 切换编辑模式       |
 
 完整列表见应用内 **快捷键** 面板（支持自定义改键）。
 
