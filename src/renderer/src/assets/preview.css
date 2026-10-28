@@ -274,6 +274,25 @@ html[data-theme-css] .md-preview .md-front-matter {
   font-weight: 600;
 }
 
+/* 块级 HTML 表格（白名单，带 luci-html-table 标记类）：与 markdown 表格的
+   max-content 策略不同——它的用途是图片版式，内容（2560px 大图）会把
+   max-content 撑出内容列。这里固定吃满内容宽 + 固定布局：列宽按 width
+   属性分配（50% 即各半），图片按列收缩，长文本强制断行 */
+.md-preview table.luci-html-table {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 0;
+}
+.md-preview table.luci-html-table th,
+.md-preview table.luci-html-table td {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.md-preview table.luci-html-table img {
+  max-width: 100%;
+  height: auto;
+}
+
 /* 其他 */
 .md-preview hr {
   border: none;

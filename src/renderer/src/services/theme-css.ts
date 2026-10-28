@@ -1055,6 +1055,23 @@ ${SCOPE} {
   font-size: var(--preview-font-size, 16px);
   line-height: var(--preview-line-height, 1.7);
 }
+/* 块级 HTML 表格（图片版式）：固定吃满内容宽 + 固定布局，列宽按 width 属性
+   分配、图片按列收缩。必须放在主题 CSS 之后并带 !important——THEME_RESET 的
+   table:not(:has([data-colwidth])) 规则是 auto 布局，会让 2560px 大图的
+   min-content 把表格撑出内容列（内置主题下实测只能横向滚动查看） */
+${SCOPE} table.luci-html-table {
+  table-layout: fixed !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+${SCOPE} table.luci-html-table th,
+${SCOPE} table.luci-html-table td {
+  min-width: 0 !important;
+}
+${SCOPE} table.luci-html-table img {
+  max-width: 100% !important;
+  height: auto !important;
+}
 /* 围栏底色回收到令牌：主题的 .md-fences 直涂底色（特异性 (0,3,1) 压过内置
    pre 规则）盖掉了 --code-bg——而 Typora 里实际可见的是 CodeMirror 包装层
    底色（blubook 藏青 !important 压浅灰），令牌提取时已按可见值取

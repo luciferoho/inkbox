@@ -506,10 +506,12 @@ export function preprocessCenter(src: string): string {
  * 块级 HTML 表格白名单（GitHub README 常见的 <table> 图片布局写法）：
  * 首行 <table…>、末行 </table> 的整块放行为原始 HTML——与 GitHub 的 html block
  * 语义一致，块内不再走 markdown 解析；但逐标签过滤：只放行表格骨架 + 行内
- * 格式标签，属性仅 align/width/height/colspan/rowspan/valign/src/alt（src 仅
- * http(s)/相对路径），其余标签与属性一律转义，安全面与 html:false 相同。
+ * 格式标签 + 链接（a[href]，href 仅 http(s)/mailto/相对路径/锚点），属性仅
+ * align/width/height/colspan/rowspan/valign/src/alt/title（src 仅 http(s)/相对
+ * 路径），其余标签与属性一律转义，安全面与 html:false 相同。
  * 未闭合的表格块不命中，照旧按转义文本渲染。html_block token 自带 map，
- * 双栏同步滚动沿用既有源码行号链路。即显侧不在本白名单内（仍显示字面）。
+ * 双栏同步滚动沿用既有源码行号链路。即显侧由 wysiwyg-extensions 的
+ * htmlTableBlock 复用同一套净化规则投影（原始 HTML 存节点属性）。
  */
 const TABLE_ALLOWED_TAGS: Record<string, ReadonlySet<string>> = {
   table: new Set(['align', 'width']),
@@ -534,12 +536,20 @@ const TABLE_ALLOWED_TAGS: Record<string, ReadonlySet<string>> = {
   u: new Set([]),
   kbd: new Set([]),
   br: new Set([]),
+  a: new Set(['href', 'title']),
   img: new Set(['src', 'alt', 'width', 'height'])
 }
 
 const TABLE_TAG_RE = /^<(\/?)([a-z][a-z0-9-]*)((?:\s[^<>]*?)?)(\/?)>$/i
 const TABLE_ATTR_RE = /([a-zA-Z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g
 const TABLE_SAFE_SRC_RE = /^(https?:\/\/|\.?\/|#)/i
+/** href 只放行 http(s)/mailto 与相对路径、锚点（挡 javascript:/data: 等协议） */
+function isSafeHtmlHref(value: string): boolean {
+  const t = value.trim()
+  if (!t) return true
+  if (/^(?:https?:\/\/|mailto:)/i.test(t)) return true
+  return !/^[a-z][a-z0-9+.-]*:/i.test(t)
+}
 
 export function sanitizeHtmlTableBlock(raw: string): string {
   return raw.replace(/<[^>]*>/g, (whole) => {
@@ -559,11 +569,14 @@ export function sanitizeHtmlTableBlock(raw: string): string {
         const value = am[2] ?? am[3] ?? am[4] ?? ''
         if (!allowed.has(name)) continue
         if (name === 'src' && !TABLE_SAFE_SRC_RE.test(value.trim())) continue
+        if (name === 'href' && !isSafeHtmlHref(value)) continue
         attrs.push(`${name}="${escapeHtml(value)}"`)
       }
     }
     const voidSuffix = selfClose || tag === 'br' || tag === 'img' ? ' /' : ''
-    return `<${tag}${attrs.length ? ' ' + attrs.join(' ') : ''}${voidSuffix}>`
+    // 自带标记类（不让用户 class 过白名单）：样式层据此把 HTML 表格钉在内容宽内
+    const ownClass = tag === 'table' ? ' class="luci-html-table"' : ''
+    return `<${tag}${ownClass}${attrs.length ? ' ' + attrs.join(' ') : ''}${voidSuffix}>`
   })
 }
 

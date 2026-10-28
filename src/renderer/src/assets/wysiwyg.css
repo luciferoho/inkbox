@@ -774,34 +774,102 @@ html[data-theme-css] .wysiwyg-host .luci-prose pre {
   visibility: hidden;
 }
 
-/* 块级 HTML 表格白名单（原子渲染节点）：与预览表格同一观感 */
-.wysiwyg-host .luci-html-table {
-  max-width: 100%;
+/* 块级 HTML 块（Typora 语义）：默认渲染白名单结果；光标进入后切换成
+   带 HTML 标签的源码块（.is-editing），离开再恢复渲染 */
+.wysiwyg-host .luci-html-block {
+  position: relative;
   margin: 1em 0;
-  overflow-x: auto;
-  overflow-y: hidden;
 }
-.wysiwyg-host .luci-html-table table {
-  border-collapse: collapse;
+
+.wysiwyg-host .luci-html-block .luci-html-render {
+  cursor: text;
+}
+
+/* 渲染层里的表格：与预览同一观感（固定布局、图片收敛到列内） */
+.wysiwyg-host .luci-html-block .luci-html-render table.luci-html-table {
+  table-layout: fixed;
+  width: 100%;
   margin: 0;
-  width: max-content;
-  min-width: 100%;
+  border-collapse: collapse;
   font-size: 0.94em;
 }
-.wysiwyg-host .luci-html-table th,
-.wysiwyg-host .luci-html-table td {
+.wysiwyg-host .luci-html-block .luci-html-render table.luci-html-table th,
+.wysiwyg-host .luci-html-block .luci-html-render table.luci-html-table td {
   border: 1px solid var(--border);
   padding: 6px 12px;
   text-align: left;
   word-break: break-word;
   overflow-wrap: anywhere;
 }
-.wysiwyg-host .luci-html-table th {
+.wysiwyg-host .luci-html-block .luci-html-render table.luci-html-table th {
   background: var(--surface-2);
-  font-family: var(--font-body);
   font-weight: 600;
 }
-.wysiwyg-host .luci-html-table img {
+.wysiwyg-host .luci-html-block .luci-html-render img {
   max-width: 100%;
+  height: auto;
   border-radius: 8px;
+}
+
+/* 源码层：底色/圆角沿用代码块样式，只补语言标签与可编辑光标 */
+.wysiwyg-host .luci-prose pre.luci-html-src {
+  display: none;
+  position: relative;
+  cursor: text;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.wysiwyg-host .luci-html-block.is-editing .luci-html-src {
+  display: block;
+}
+
+.wysiwyg-host .luci-html-block.is-editing .luci-html-render {
+  display: none;
+}
+
+.wysiwyg-host .luci-prose pre.luci-html-src::before {
+  content: 'HTML';
+  position: absolute;
+  top: 4px;
+  right: 10px;
+  font-family: var(--font-body);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+  opacity: 0.65;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 链接内联源码（Typora）：光标进入链接时展开 [文字](地址) */
+.wysiwyg-host .luci-prose .luci-link-src-bracket,
+.wysiwyg-host .luci-prose .luci-link-src-tail {
+  font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace;
+  font-size: 0.86em;
+  color: var(--text-2);
+}
+
+.wysiwyg-host .luci-prose .luci-link-src-text {
+  color: inherit;
+  text-decoration: none;
+}
+
+.wysiwyg-host .luci-prose .luci-link-src-url {
+  min-width: 8ch;
+  max-width: 60ch;
+  padding: 0 2px;
+  border: none;
+  border-bottom: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-2);
+  font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace;
+  font-size: 0.86em;
+  line-height: 1.4;
+  outline: none;
+}
+
+.wysiwyg-host .luci-prose .luci-link-src-url:focus {
+  border-bottom-color: var(--accent);
+  background: var(--surface-2);
 }
