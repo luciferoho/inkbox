@@ -34,6 +34,14 @@ const REG_GROUPS = computed(() => {
         label: t(c.labelKey as MsgKey),
         keys: keysOf(c.id)
       }))
+    },
+    {
+      title: t('sc.gHelp'),
+      items: SHORTCUT_COMMANDS.filter((c) => c.group === 'help').map((c) => ({
+        id: c.id,
+        label: t(c.labelKey as MsgKey),
+        keys: keysOf(c.id)
+      }))
     }
   ]
 })

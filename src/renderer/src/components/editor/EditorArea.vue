@@ -5,6 +5,7 @@ import { useDocumentsStore } from '@/stores/documents'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUiStore, type EditorMode } from '@/stores/ui'
 import { t } from '@/i18n'
+import { accelKeys, effectiveShortcuts } from '@shared/shortcuts'
 import SourceEditor from './SourceEditor.vue'
 import Preview from './Preview.vue'
 // 即显引擎（Milkdown 全家桶）按需加载：默认双栏模式启动用不到，
@@ -54,6 +55,9 @@ async function removeRecent(path: string): Promise<void> {
 
 /** 主页（= 欢迎页）：无活动文档或活动的是主页标签 */
 const isHome = computed(() => !docs.active || !!docs.active.isHome)
+
+/** 手册按钮键帽跟随改键表（未配键不显示），与快捷键面板同一数据源 */
+const markdownHelpKeys = computed(() => accelKeys(effectiveShortcuts(ui.shortcuts)['help:markdown']).join('+'))
 
 function recentName(path: string): string {
   return path.split(/[\\/]/).pop() || path
@@ -139,6 +143,9 @@ watch(
         <button class="btn-primary" @click="docs.newDoc()">{{ $t('welcome.newDoc') }} <kbd>Ctrl+N</kbd></button>
         <button class="btn-ghost" @click="docs.openFile()">{{ $t('welcome.openFile') }} <kbd>Ctrl+O</kbd></button>
         <button class="btn-ghost" @click="ws.openFolder()">{{ $t('welcome.openFolder') }}</button>
+        <button class="btn-ghost" @click="docs.openMarkdownHelp()">
+          {{ $t('welcome.markdownHelp') }} <kbd v-if="markdownHelpKeys">{{ markdownHelpKeys }}</kbd>
+        </button>
         <button class="btn-ghost" @click="docs.openSample()">{{ $t('welcome.sample') }}</button>
       </div>
 
