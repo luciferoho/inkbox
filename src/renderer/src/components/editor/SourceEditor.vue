@@ -541,6 +541,9 @@ onMounted(() => {
     state: makeState(docs.active?.content ?? ''),
     parent: host.value
   })
+  // 挂载即聚焦：新文档/空文档下格式化快捷键（Ctrl+1..6 等）直达编辑器，
+  // 不必先点一下编辑区（与即显侧挂载聚焦同款语义）
+  view.focus()
   unregisterCm = registerCmView(view)
   tabId = docs.activeId
   pullFind(docs.activeId, true) // 恢复本标签共享的查找条状态（视图刚建，无条件重亮）

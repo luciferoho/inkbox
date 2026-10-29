@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow, screen, webContents, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
-import { consumeInitialDoc, createAppWindow, showSettingsWindow } from '../window'
+import { consumeInitialDoc, createAppWindow, showSettingsWindow, isSettingsWindow } from '../window'
 import { markQuitting } from '../tray'
 import type { DetachDoc } from '@shared/types'
 
@@ -96,11 +96,22 @@ export function registerWinIpc(): void {
    * 渲染层未保存检查完成后的确认关闭：关最后一个窗口时置位退出标志
    * （closed 触发早于 before-quit，必须在这里置位才能保留会话文件）。
    * destroy 不触发 close 拦截，直接销毁。
+   *
+   * 设置窗口是独立 BrowserWindow 且无未保存流程：最后编辑窗口确认关闭
+   * 即应用退出，必须连带销毁，否则 window-all-closed 不触发，进程滞留
+   * 只剩一个设置窗挂在桌面上。
    */
   ipcMain.handle('win:closeConfirmed', (e: IpcMainInvokeEvent) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     if (!win || win.isDestroyed()) return
-    if (BrowserWindow.getAllWindows().length === 1) markQuitting()
+    const all = BrowserWindow.getAllWindows()
+    const remainingAppWins = all.filter((w) => w !== win && !w.isDestroyed() && !isSettingsWindow(w))
+    if (remainingAppWins.length === 0) {
+      markQuitting()
+      for (const w of all) {
+        if (w !== win && !w.isDestroyed() && isSettingsWindow(w)) w.destroy()
+      }
+    }
     win.destroy()
   })
 
