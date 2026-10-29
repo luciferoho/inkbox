@@ -353,6 +353,10 @@ body { background: #fff; padding: 0; }
 /* 超宽表格：打印页宽固定，强制自适应换行（导出不应出现横向裁切） */
 .md-preview .md-table-wrap { overflow: visible; max-width: 100%; }
 .md-preview table { width: 100% !important; table-layout: auto !important; font-size: 10.5px; }
+/* 块级 HTML 表格（图片版式）：固定布局让列宽均分，图片收敛到列内——
+   auto 布局会按 2560px 大图的固有宽度分列，导出页宽装不下 */
+.md-preview table.luci-html-table { table-layout: fixed !important; }
+.md-preview table.luci-html-table img { max-width: 100% !important; height: auto; }
 .md-preview th, .md-preview td {
   width: auto !important; white-space: normal !important;
   word-break: break-word; overflow-wrap: anywhere; padding: 4px 6px;
@@ -380,6 +384,9 @@ body { background: var(--bg); padding: 40px 20px 64px; }
 /* 超宽表格：导出页宽固定，去掉预览的横向滚动与拖拽宽度，自适应换行 */
 .md-preview .md-table-wrap { overflow: visible; max-width: 100%; }
 .md-preview table { width: 100% !important; table-layout: auto !important; }
+/* 块级 HTML 表格：固定布局均分列宽 + 图片收敛到列内（同打印分支） */
+.md-preview table.luci-html-table { table-layout: fixed !important; }
+.md-preview table.luci-html-table img { max-width: 100% !important; height: auto; }
 .md-preview th, .md-preview td {
   width: auto !important; white-space: normal !important;
   word-break: break-word; overflow-wrap: anywhere;

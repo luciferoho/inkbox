@@ -118,7 +118,11 @@ import {
   htmlSpanSchema,
   htmlTableSchema,
   htmlTableView,
-  setHtmlTableDocDir
+  htmlBlockSyncPlugin,
+  createHtmlBlockKeyPlugin,
+  setHtmlTableDocDir,
+  createLinkClickPlugin,
+  createLinkSourcePlugin
 } from '@/editor/wysiwyg-extensions'
 // remark 解析插件序列（单一来源；等价比较共用同一序列）
 import { wysiwygRemarkPlugins } from '@/editor/wysiwyg-remark-pipeline'
@@ -374,18 +378,40 @@ function docDirOf(): string | null {
   return sepIdx > 0 ? p.slice(0, sepIdx).replace(/\\/g, '/') : null
 }
 
+/** Ctrl+点击相对链接：.md 在应用内新标签打开，其他文件交系统默认应用 */
+function onOpenRelativeLink(e: Event): void {
+  const href = (e as CustomEvent<{ href?: string }>).detail?.href ?? ''
+  const dir = docDirOf()
+  if (!href || !dir) return
+  const clean = href.split(/[?#]/)[0].replace(/^\.\//, '')
+  let rel = clean
+  try {
+    rel = decodeURIComponent(clean)
+  } catch {
+    /* 游离 % 序列按原样 */
+  }
+  const abs = `${dir}/${rel}`
+  if (/\.md$/i.test(rel)) {
+    void docs.openPath(abs)
+    return
+  }
+  window.open(`file:///${encodeURI(abs)}`, '_blank', 'noopener')
+}
+
 /** 相对路径图片 → luci-img://（跳过协议/绝对/锚点与代码围栏）；
  *  同时做相邻有序列表分隔（与 markdown-it 预览管线同一预处理，两模式渲染一致）：
  *  注入的空标题哨兵由 remark transformer dropSplitHeadings 在解析后移除 */
 function toWysiwygSource(md: string): string {
   const docDir = docDirOf()
-  setHtmlTableDocDir(docDir) // HTML 表格视图的图片相对路径基准
+  setHtmlTableDocDir(docDir) // HTML 块渲染层的图片相对路径基准
   let src = splitAdjacentOrderedLists(md)
-  // file:/// 与盘符绝对路径（](E:/x/y.png)）→ luci-img：不依赖 docDir。
+  // file:/// 与盘符绝对路径（![x](E:/x/y.png)）→ luci-img：不依赖 docDir。
   // dev 下渲染层是 http 源，file: 子资源被 webSecurity 拦截（CSP 放行也不够），
-  // 统一走 luci 协议使 dev/prod 渲染一致；序列化还原见 fromWysiwygSource
+  // 统一走 luci 协议使 dev/prod 渲染一致；序列化还原见 fromWysiwygSource。
+  // 只改图片语法：链接的 href 必须保持原样（相对链接被改成 luci-img 后会被
+  // Milkdown 的 URL 白名单清空 → 链接变纯文本）
   src = src.replace(
-    /(\]\()((?:file:\/\/\/)?[a-zA-Z]:[\/\\][^)\s]*)(\))/g,
+    /(!\[[^\]]*\]\()((?:file:\/\/\/)?[a-zA-Z]:[\/\\][^)\s]*)(\))/g,
     (_whole, open: string, p: string, close: string) => {
       let abs = p.replace(/^file:\/\/\//i, '').replace(/\\/g, '/')
       try {
@@ -408,7 +434,7 @@ function toWysiwygSource(md: string): string {
     }
     if (fence !== null) continue
     lines[i] = lines[i].replace(
-      /(\]\()([^)\s]+)(\))/g,
+      /(!\[[^\]]*\]\()([^)\s]+)(\))/g,
       (whole, open: string, src: string, close: string) => {
         if (/^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|\/|#)/.test(src)) return whole
         let rel = src.replace(/^\.\//, '')
@@ -909,6 +935,10 @@ const taskTogglePlugin = $prose(() => createTaskTogglePlugin())
 // 专注/打字机（F8/F9 与状态栏按钮，开关经 watch 派发空事务驱动重算）
 const wysiwygFocusPlugin = $prose(() => createWysiwygFocusPlugin())
 const wysiwygTypewriterPlugin = $prose(() => createWysiwygTypewriterPlugin())
+// 链接交互：普通点击落光标、Ctrl/Cmd+点击系统浏览器打开（阻断 Electron 页内导航）
+const linkClickPlugin = $prose(() => createLinkClickPlugin())
+// 链接源码：光标进入链接时就地展开 [文字](地址)（Typora 行内编辑）
+const linkSourcePlugin = $prose(() => createLinkSourcePlugin())
 
 /* ---------- 元素工具条:图片/表格操作 ---------- */
 
@@ -1451,6 +1481,8 @@ onMounted(() => {
   window.addEventListener('inkbox:theme-applied', onThemeApplied)
   // 拼写检查开关（4.2）：设置切换/重挂载后同步宿主属性
   window.addEventListener('inkbox:spellcheck', onSpellcheckBroadcast)
+  // Ctrl+点击相对链接（扩展层只做协议判断，打开动作留在渲染层）
+  window.addEventListener('luci:open-relative-link', onOpenRelativeLink)
   // 预览侧拖列宽（广播）→ 本侧装饰器重算
   offTableWidths = onColWidthsChanged(() => {
     const v = getView()
@@ -1539,9 +1571,15 @@ onMounted(() => {
     .use(tocSchema)
     .use(tocView)
     .use(tocUpdatePlugin)
-    // 块级 HTML 表格白名单（原子渲染节点，序列化原样还原）
+    // 块级 HTML 表格：Typora 语义——默认渲染，光标进入才显示源码
     .use(htmlTableSchema)
     .use(htmlTableView)
+    .use(htmlBlockSyncPlugin)
+    .use($prose(() => createHtmlBlockKeyPlugin()))
+    // 链接：普通点击落光标（便于就地改），Ctrl/Cmd+点击走系统浏览器
+    .use(linkClickPlugin)
+    // 链接：光标进入就地展开 [文字](地址)（Typora 行内源码）
+    .use(linkSourcePlugin)
     // 行内 HTML 白名单 mark
     .use(htmlSpanSchema)
     .use(listener)
@@ -1644,6 +1682,7 @@ onBeforeUnmount(() => {
   offTableWidths?.()
   window.removeEventListener('inkbox:theme-applied', onThemeApplied)
   window.removeEventListener('inkbox:spellcheck', onSpellcheckBroadcast)
+  window.removeEventListener('luci:open-relative-link', onOpenRelativeLink)
   // 滚动锚落袋必须在这里：模式切换/跨模式切签都会 v-if 卸载本组件，
   // 卸载会跳过排队的 pre-watcher（切签的保存已由 activeId watch 完成，
   // 这里 tabId 与视图内容恒一致，重复保存无害）

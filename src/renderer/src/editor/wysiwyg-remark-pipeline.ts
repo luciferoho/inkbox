@@ -72,6 +72,7 @@ export const wysiwygRemarkPlugins: { plugin: any; options: any }[] = [
   { plugin: tocBlock, options: {} },
   // 行内 HTML 白名单：<u>/<mark>/<kbd> 等配对标签 → htmlSpan mark
   { plugin: mergeHtmlSpans, options: {} },
-  // 块级 HTML 表格白名单：完整 <table>…</table> 块 → htmlTable 原子节点（序列化原样）
+  // 块级 HTML 表格白名单：完整 <table>…</table> 块 → htmlTable 节点（Typora
+  // 语义：默认渲染，光标进入才显示源码；序列化原样回写）
   { plugin: htmlTableBlock, options: {} }
 ]

@@ -99,6 +99,12 @@ export function createAppWindow(doc?: DetachDoc): BrowserWindow {
     if (getConfig().closeAction === 'tray') {
       e.preventDefault()
       win.hide()
+      // 编辑窗口全部收进托盘后应用主体对用户已不可见：连带关闭设置窗，
+      // 否则桌面残留设置窗，托盘唤起的也是它而不是编辑窗口
+      const editorStillVisible = BrowserWindow.getAllWindows().some(
+        (w) => w !== win && !w.isDestroyed() && !isSettingsWindow(w) && w.isVisible()
+      )
+      if (!editorStillVisible && settingsWin && !settingsWin.isDestroyed()) settingsWin.destroy()
       return
     }
     // 手动关闭：交给渲染层做未保存检查（WPS 式弹窗），
@@ -159,7 +165,11 @@ export function createMainWindow(): BrowserWindow {
 let settingsWin: BrowserWindow | null = null
 
 /** 设置窗口：无边框小工具窗，内容是独立渲染入口 settings.html（不含编辑器）。
- *  关闭不走托盘隐藏/未保存检查，直接关；不参与会话/草稿/文件登记。 */
+ *  关闭不走托盘隐藏/未保存检查，直接关；不参与会话/草稿/文件登记。
+ *  退出编排（托盘 requestClose 过滤、最后窗口确认关闭时连带销毁）靠此识别。 */
+export function isSettingsWindow(win: BrowserWindow): boolean {
+  return win === settingsWin
+}
 export function showSettingsWindow(origin?: BrowserWindow | null): void {
   if (settingsWin && !settingsWin.isDestroyed()) {
     if (settingsWin.isMinimized()) settingsWin.restore()
