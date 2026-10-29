@@ -10,7 +10,7 @@ import { registerImageContextMenu } from './ipc/contextMenu'
 import { createTray, markQuitting, resetQuitting, showMainWindow } from './tray'
 import { initUpdateController } from './updater'
 import { applyLocaleFromConfig } from './i18n'
-import { getConfig } from './ipc/config'
+import { getConfig, syncNativeTheme } from './ipc/config'
 import { detectAbnormalExitAndMark, markCleanExit } from './session'
 
 // 单实例：再次点击桌面图标/启动应用时，聚焦现有窗口而不是开新窗口
@@ -89,6 +89,8 @@ if (!gotLock) {
     detectAbnormalExitAndMark()
     // 语言偏好要在创建菜单/托盘之前生效
     applyLocaleFromConfig(() => getConfig().locale ?? 'system')
+    // 明暗偏好同步 nativeTheme：窗口边框/DWM 明暗随应用主题（暗色主题不露浅色边框）
+    syncNativeTheme(getConfig().theme)
     registerIpcHandlers()
     // 图片右键菜单（复制图像 / 打开目录 / 转 PicGo 上传）
     registerImageContextMenu()

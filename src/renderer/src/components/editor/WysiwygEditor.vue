@@ -13,7 +13,13 @@ import {
 } from '@milkdown/kit/core'
 import {
   commonmark,
-  imageSchema
+  imageSchema,
+  wrapInHeadingCommand,
+  turnIntoTextCommand,
+  createCodeBlockCommand,
+  wrapInBlockquoteCommand,
+  wrapInBulletListCommand,
+  wrapInOrderedListCommand
 } from '@milkdown/kit/preset/commonmark'
 import {
   gfm,
@@ -32,7 +38,7 @@ import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { history } from '@milkdown/kit/plugin/history'
 import { replaceAll, $prose, callCommand } from '@milkdown/kit/utils'
 import { NodeSelection, TextSelection, type EditorState } from '@milkdown/kit/prose/state'
-import { Fragment, type Node as PMNode } from '@milkdown/kit/prose/model'
+import { Fragment, type Node as PMNode, type NodeType } from '@milkdown/kit/prose/model'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { lift } from '@milkdown/kit/prose/commands'
 import { liftListItem, sinkListItem } from '@milkdown/kit/prose/schema-list'
@@ -235,8 +241,247 @@ function afterHardbreak(state: EditorState): boolean {
   return found === 'hardbreak'
 }
 
+/* ---------- 结构类格式化快捷键的数据层 ----------
+   与源码/双栏的 formattingKeymap（cm-commands.ts）同一套键位语义。Milkdown
+   预设自带的是 Mod-Alt-N 体系，与应用统一键位（Mod-1..6 / Ctrl+Shift+K /
+   Ctrl+T…）不一致，即显此前全部无反应——这里补齐。 */
+
+function milkCmd(action: Parameters<Editor['action']>[0]): boolean {
+  if (!editor) return false
+  try {
+    return editor.action(action) === true
+  } catch {
+    return false
+  }
+}
+
+/** 光标当前所在标题级别（不在标题内为 null） */
+function curHeadingLevel(state: EditorState): number | null {
+  const { $from } = state.selection
+  for (let d = $from.depth; d >= 1; d--) {
+    if ($from.node(d).type.name === 'heading') return Number($from.node(d).attrs.level ?? 1)
+  }
+  return null
+}
+
+/** 多软行块（段落/标题内含硬换行）按行拆成独立段落，返回是否拆过。
+ *  markdown 标题是行级块，整块转标题会把软行全部卷进去（下面的文字样式
+ *  跟着变，序列化还会吞行）；源码侧 Ctrl+N 是按行改写——拆齐语义 */
+function splitHardbreakLines(view: EditorView): boolean {
+  const { state } = view
+  const { $from } = state.selection
+  const parent = $from.parent
+  if (parent.type.name !== 'paragraph' && parent.type.name !== 'heading') return false
+  const start = $from.start()
+  const hbs: number[] = []
+  parent.forEach((child, offset) => {
+    if (child.type.name === 'hardbreak') hbs.push(start + offset)
+  })
+  if (hbs.length === 0) return false
+  const tr = state.tr
+  // 从后往前：在硬换行处拆块，再删掉后块开头的硬换行（位置不受前序操作影响）
+  for (let i = hbs.length - 1; i >= 0; i--) {
+    const p = hbs[i]
+    tr.split(p)
+    tr.delete(p, p + 1)
+  }
+  view.dispatch(tr.scrollIntoView())
+  return true
+}
+
+/** 块内是否含硬换行（软行） */
+function hasHardbreaks(node: PMNode): boolean {
+  let found = false
+  node.forEach((child) => {
+    if (child.type.name === 'hardbreak') found = true
+  })
+  return found
+}
+
+/** 设标题级别；同级再按退回正文（与源码 setHeading 的 toggle 语义一致） */
+function pmSetHeading(view: EditorView, level: number): boolean {
+  const { state } = view
+  const { from, to, $from } = state.selection
+  const parent = $from.parent
+  const headingT = state.schema.nodes.heading
+  const paraT = state.schema.nodes.paragraph
+  if (!headingT || !paraT) return false
+  if (parent.type.name !== 'paragraph' && parent.type.name !== 'heading') {
+    // 列表项/引用内等场景：维持 milkdown 命令路径
+    if (curHeadingLevel(state) === level) return milkCmd(callCommand(turnIntoTextCommand.key))
+    return milkCmd(callCommand(wrapInHeadingCommand.key, level))
+  }
+  if (!hasHardbreaks(parent)) {
+    // 单行块：toggle（同级 → 正文）
+    if (parent.type.name === 'heading' && Number(parent.attrs.level ?? 1) === level) {
+      return milkCmd(callCommand(turnIntoTextCommand.key))
+    }
+    return milkCmd(callCommand(wrapInHeadingCommand.key, level))
+  }
+  // 多软行块：拆行 + 与选区相交的行设级、其余行退回正文（一次事务）
+  const start = $from.start()
+  const hbs: number[] = []
+  parent.forEach((child, offset) => {
+    if (child.type.name === 'hardbreak') hbs.push(start + offset)
+  })
+  const tr = state.tr
+  for (let i = hbs.length - 1; i >= 0; i--) {
+    const p = hbs[i]
+    tr.split(p)
+    // split 在 p 处插入闭合/开启 token，硬换行随映射移到 p+2：按 mapping 取真实位置删除
+    const hp = tr.mapping.map(p, 1)
+    tr.delete(hp, hp + 1)
+  }
+  const mappedFrom = tr.mapping.map(from)
+  const mappedTo = tr.mapping.map(to)
+  const lineCount = hbs.length + 1
+  const lines: { pos: number; node: PMNode }[] = []
+  let pos = tr.mapping.map($from.before())
+  for (let i = 0; i < lineCount; i++) {
+    const node = tr.doc.nodeAt(pos)
+    if (!node) break
+    lines.push({ pos, node })
+    pos += node.nodeSize
+  }
+  // 光标所在行：行尾归属当前行（首个「行尾 ≥ 光标」的行）
+  const caretIdx = Math.max(
+    0,
+    lines.findIndex((l) => mappedFrom <= l.pos + l.node.nodeSize)
+  )
+  let touched = false
+  lines.forEach((l, i) => {
+    const lineTo = l.pos + l.node.nodeSize
+    // 范围选区：与选区相交的行都设级；纯光标：只设所在行
+    const hit = from !== to ? mappedTo > l.pos && mappedFrom < lineTo : i === caretIdx
+    if (hit) {
+      tr.setNodeMarkup(l.pos, headingT, { level })
+      touched = true
+    } else if (l.node.type.name !== 'paragraph') {
+      tr.setNodeMarkup(l.pos, paraT)
+    }
+  })
+  if (!touched && lines[caretIdx]) {
+    tr.setNodeMarkup(lines[caretIdx].pos, headingT, { level })
+  }
+  view.dispatch(tr.scrollIntoView())
+  return true
+}
+
+/** 标题升级/降级（与源码 shiftHeading 一致）：无标题按方向落到 h1/h2，封顶 h1/h6 */
+function pmShiftHeading(view: EditorView, delta: number): boolean {
+  const cur = curHeadingLevel(view.state)
+  const level = cur === null ? (delta > 0 ? 2 : 1) : Math.min(6, Math.max(1, cur + delta))
+  if (cur === level) return true // 已到边界：吞掉按键（拦住浏览器缩放），内容不动
+  return pmSetHeading(view, level)
+}
+
+/** 切换引用块：在引用内 → 当前提出；不在 → 包一层 */
+function pmToggleQuote(view: EditorView): boolean {
+  const { $from } = view.state.selection
+  for (let d = $from.depth; d >= 1; d--) {
+    if ($from.node(d).type.name === 'blockquote') return lift(view.state, view.dispatch)
+  }
+  return milkCmd(callCommand(wrapInBlockquoteCommand.key))
+}
+
+/** 切换有序/无序列表：无列表 → 包一层；同类 → 当项退出；异类 → 整表转换 */
+function pmToggleList(view: EditorView, ordered: boolean): boolean {
+  const { state } = view
+  const { $from } = state.selection
+  let listDepth = -1
+  for (let d = $from.depth; d >= 1; d--) {
+    const name = $from.node(d).type.name
+    if (name === 'bullet_list' || name === 'ordered_list') {
+      listDepth = d
+      break
+    }
+  }
+  if (listDepth === -1) {
+    return milkCmd(
+      callCommand((ordered ? wrapInOrderedListCommand : wrapInBulletListCommand).key)
+    )
+  }
+  const sameKind = ($from.node(listDepth).type.name === 'ordered_list') === ordered
+  if (sameKind) {
+    const itemType = state.schema.nodes.list_item
+    return itemType ? liftListItem(itemType)(state, view.dispatch) : false
+  }
+  const otherType = state.schema.nodes[ordered ? 'ordered_list' : 'bullet_list']
+  if (!otherType) return false
+  view.dispatch(
+    state.tr.setNodeMarkup($from.before(listDepth), undefined, ordered ? { order: 1 } : {})
+  )
+  return true
+}
+
+/** 插入两列表格骨架（列1/列2 表头 + 空数据行），光标落首个表头单元格。
+ *  与源码 cmdInsertTable 的骨架一致；插在当前顶层块之后 */
+function pmInsertTable(view: EditorView): boolean {
+  const { state } = view
+  const tableT = state.schema.nodes.table
+  const rowT = state.schema.nodes.table_row
+  const headerT = state.schema.nodes.table_header
+  const cellT = state.schema.nodes.table_cell
+  const paraT = state.schema.nodes.paragraph
+  if (!tableT || !rowT || !headerT || !cellT || !paraT) return false
+  const { $from } = state.selection
+  const at = $from.after(1)
+  const cell = (type: NodeType, text: string): PMNode =>
+    type.create(null, paraT.create(null, text ? state.schema.text(text) : null))
+  const table = tableT.create(null, [
+    rowT.create(null, [cell(headerT, '列1'), cell(headerT, '列2')]),
+    rowT.create(null, [cell(cellT, ''), cell(cellT, '')])
+  ])
+  const tr = state.tr.insert(at, table)
+  tr.setSelection(TextSelection.near(tr.doc.resolve(at + 4)))
+  view.dispatch(tr)
+  return true
+}
+
+
 function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   const { state } = view
+
+  /* 结构类格式化快捷键（键位与源码/双栏 formattingKeymap 完全一致，Typora 习惯）：
+     Mod-1..6 标题（同级再按退回正文）/ Mod-0 正文 / Ctrl+= Ctrl+- 标题升降级 /
+     Ctrl+Shift+K 代码块 / Ctrl+T 表格 / Ctrl+Shift+Q 引用 /
+     Ctrl+Shift+{ } 有序/无序列表。处理到的一律 preventDefault。 */
+  const ctrl = event.ctrlKey || event.metaKey
+  if (ctrl && !event.altKey && event.key !== 'Tab') {
+    const key = event.key
+    if (!event.shiftKey && /^[0-6]$/.test(key)) {
+      event.preventDefault()
+      const level = Number(key)
+      return level === 0
+        ? milkCmd(callCommand(turnIntoTextCommand.key))
+        : pmSetHeading(view, level)
+    }
+    if (!event.shiftKey && (key === '=' || key === '+')) {
+      event.preventDefault()
+      return pmShiftHeading(view, 1)
+    }
+    if (!event.shiftKey && key === '-') {
+      event.preventDefault()
+      return pmShiftHeading(view, -1)
+    }
+    if (event.shiftKey && key === 'K') {
+      event.preventDefault()
+      return milkCmd(callCommand(createCodeBlockCommand.key))
+    }
+    if (!event.shiftKey && key.toLowerCase() === 't') {
+      event.preventDefault()
+      return pmInsertTable(view)
+    }
+    if (event.shiftKey && key === 'Q') {
+      event.preventDefault()
+      return pmToggleQuote(view)
+    }
+    if (event.shiftKey && (key === '{' || key === '}')) {
+      event.preventDefault()
+      return pmToggleList(view, key === '{')
+    }
+  }
+
   if (event.key === 'Tab') {
     // 始终拦截:普通段落放行 Tab 会被浏览器抢走焦点(跳到状态栏按钮)
     event.preventDefault()
@@ -285,6 +530,35 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   if (event.key === 'Escape' && inCodeBlock(state)) {
     exitCodeBlock(view, false)
     return true
+  }
+  // 表格单元格 Ctrl/Cmd+A → 只选当前单元格内容；已全选单元格则放行默认
+  // （再按一次升级为整档全选，与代码块内同款两段式语义）
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key.toLowerCase() === 'a' &&
+    inTable(state)
+  ) {
+    const { $from } = state.selection
+    for (let d = $from.depth; d >= 1; d--) {
+      const cellNode = $from.node(d)
+      if (cellNode.type.name === 'table_cell' || cellNode.type.name === 'table_header') {
+        // 单元格内容 = 内层段落文本（去掉段落节点自身的开闭位置）
+        const innerFrom = $from.start(d) + 1
+        const innerTo = $from.start(d) + cellNode.content.size - 1
+        if (innerTo > innerFrom && state.selection.from <= innerFrom && state.selection.to >= innerTo) {
+          return false
+        }
+        view.dispatch(
+          state.tr.setSelection(
+            TextSelection.create(state.doc, innerFrom, Math.max(innerFrom, innerTo))
+          )
+        )
+        return true
+      }
+    }
+    return false
   }
   // 代码块内 Ctrl/Cmd+A → 只选块内内容（VS Code 语义）；已全选块时放行给
   // 默认行为（再按一次升级为全选整档）
@@ -463,8 +737,10 @@ function fromWysiwygSource(md: string): string {
     .map((l) =>
       /^[ \t]*<br\s*\/?>[ \t]*$/i.test(l)
         ? ''
-        : l.replace(/^([ \t]*\d+[.)][ \t]*)<br\s*\/?>[ \t]*$/i, '$1') // 列表项内空段落：`2. <br />` → `2. `
-        )
+        : // 列表项内空段落：`2. <br />` / `- <br />` / `- [ ] <br />` → 干净的空列表项
+          // （只归一化有序项曾漏掉任务项，源码里留下字面 <br /> 标签占位）
+          l.replace(/^([ \t]*(?:\d+[.)]|[-*+])[ \t]+(?:\[[ xX]\][ \t]+)?)<br\s*\/?>[ \t]*$/i, '$1')
+    )
     .join('\n')
     .replace(/^(\s*\d+)\)/gm, '$1.')
     .replace(/^([ \t]*)\*([ \t])/gm, '$1-$2')
@@ -1608,6 +1884,16 @@ onMounted(() => {
     .use(wysiwygTypewriterPlugin)
   void instance.create().then((e) => {
     editor = e
+
+    // 挂载即聚焦（源码侧点击/快捷键路径同款语义）：新文档、空文档下
+    // 格式化快捷键直达编辑器，不必先点一下编辑区
+    void nextTick(() => {
+      try {
+        e.action((ctx) => ctx.get(editorViewCtx)).focus()
+      } catch {
+        /* 视图未就绪（极端竞态）忽略 */
+      }
+    })
 
     // 开发期调试钩子：CDP 查 PM 文档 JSON / 序列化输出 / 内部 remark mdast
     // （定位解析/序列化丢失层）

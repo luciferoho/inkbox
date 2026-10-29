@@ -231,7 +231,7 @@ export const useDocumentsStore = defineStore('documents', {
         const cfg = await window.api.app.getConfig()
         const recent = [
           { path, ts: Date.now() },
-          ...cfg.recent.filter((r) => r.path !== path)
+          ...cfg.recent.filter((r) => !samePath(r.path, path))
         ].slice(0, 10)
         await window.api.app.setConfig({ recent })
         this.persistSession()
@@ -309,7 +309,7 @@ export const useDocumentsStore = defineStore('documents', {
         const cfg = await window.api.app.getConfig()
         const recent = [
           { path, ts: Date.now() },
-          ...cfg.recent.filter((r) => r.path !== path)
+          ...cfg.recent.filter((r) => !samePath(r.path, path))
         ].slice(0, 10)
         await window.api.app.setConfig({ recent })
         this.persistSession()
