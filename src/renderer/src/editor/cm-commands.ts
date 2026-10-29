@@ -149,13 +149,43 @@ function rewriteLines(
 
 const HEADING_RE = /^(#{1,6})([ \t]+|$)(.*)$/
 
-/** 设标题为 level 级；已是该级 → 退回正文（toggle）。已有其他级标题时取其文字重建，旧 # 不残留 */
-export const setHeading = (level: number): Command => (view) =>
-  rewriteLines(view, (text) => {
-    const m = HEADING_RE.exec(text)
-    if (m && m[1].length === level) return m[3]
-    return `${'#'.repeat(level)} ${m ? m[3] : text}`
+/** 设标题为 level 级；已是该级 → 退回正文（toggle）。已有其他级标题时取其文字重建，旧 # 不残留。
+ *  空行也生效：插入「#### 」并落光标行尾（Typora 语义）——空行此前被跳过，空文档下快捷键像失灵 */
+export const setHeading = (level: number): Command => (view) => {
+  const { state } = view
+  const changes: { from: number; to: number; insert: string }[] = []
+  const emptyLineEnds: number[] = []
+  const seen = new Set<number>()
+  for (const range of state.selection.ranges) {
+    const first = state.doc.lineAt(range.from).number
+    const last = state.doc.lineAt(range.to).number
+    for (let n = first; n <= last; n++) {
+      if (seen.has(n)) continue
+      seen.add(n)
+      const line = state.doc.line(n)
+      if (inBlockNode(state, line.from)) continue
+      const m = HEADING_RE.exec(line.text)
+      const next = line.text.trim()
+        ? m && m[1].length === level
+          ? m[3]
+          : `${'#'.repeat(level)} ${m ? m[3] : line.text}`
+        : `${'#'.repeat(level)} `
+      if (next !== line.text) {
+        changes.push({ from: line.from, to: line.to, insert: next })
+        if (!line.text.trim()) emptyLineEnds.push(line.from + next.length)
+      }
+    }
+  }
+  if (changes.length === 0) return false
+  // 空行插入的「# 」：光标落到行尾（继续输入即标题内容）
+  const anchor = emptyLineEnds.length ? emptyLineEnds[emptyLineEnds.length - 1] : undefined
+  view.dispatch({
+    changes,
+    ...(anchor !== undefined ? { selection: { anchor } } : {}),
+    scrollIntoView: false
   })
+  return true
+}
 
 /** 转正文：去掉标题前缀（无前缀的行不动） */
 export const cmdBodyText: Command = (view) =>
