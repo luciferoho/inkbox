@@ -378,7 +378,9 @@ md.core.ruler.push('luci_task_lists', (state: StateCore) => {
     }
     const first = toks[i].children?.[0]
     if (!first || first.type !== 'text') continue
-    const m = /^\[([ xX])\]\s+/.exec(first.content)
+    // 空任务项「- [ ]」复选框后无内容：也按任务项渲染（GFM 语义），
+    // 否则预览里显示成字面 [ ] 的普通列表项
+    const m = /^\[([ xX])\](\s+|$)/.exec(first.content)
     if (!m) continue
     const checked = m[1] !== ' '
     first.content = first.content.slice(m[0].length)

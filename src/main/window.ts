@@ -93,10 +93,20 @@ export function createAppWindow(doc?: DetachDoc): BrowserWindow {
     }
   })
 
-  // 「最小化到托盘」：点关闭仅隐藏窗口（正在退出时放行），配置即时生效
+  // 「最小化到托盘」：仅最后一个编辑窗口的点关闭隐藏到托盘（正在退出时放行），
+  // 配置即时生效。还有其他编辑窗口时走正常关闭流程（未保存检查 → 销毁），
+  // 否则被隐藏的窗口残留在 docRegistry/会话里，跨窗口打开文档会错误激活它
   win.on('close', (e) => {
     if (isQuitting()) return
     if (getConfig().closeAction === 'tray') {
+      const otherEditors = BrowserWindow.getAllWindows().some(
+        (w) => w !== win && !w.isDestroyed() && !isSettingsWindow(w)
+      )
+      if (otherEditors) {
+        e.preventDefault()
+        win.webContents.send('app:requestClose')
+        return
+      }
       e.preventDefault()
       win.hide()
       // 编辑窗口全部收进托盘后应用主体对用户已不可见：连带关闭设置窗，

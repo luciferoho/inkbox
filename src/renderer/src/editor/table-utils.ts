@@ -114,10 +114,12 @@ export function applyTableOp(
   const emptyRow = (): string => joinCells(new Array(colCount).fill(''))
 
   // 每行在第 at 个位置插入/删除一个单元格
+  // 补齐只到 colCount：最右列「右侧插入」时 at === colCount，若补到 at+1 会
+  // 先垫出一个多余空列、再插入一列 → 一次操作冒出两列
   const mapCells = (at: number, del: boolean, filler: string): void => {
     for (let i = 0; i < lines.length; i++) {
       const cells = splitCells(lines[i])
-      while (cells.length < Math.max(colCount, at + 1)) cells.push(i === 1 ? '---' : '')
+      while (cells.length < colCount) cells.push(i === 1 ? '---' : '')
       if (del) cells.splice(at, 1)
       else cells.splice(at, 0, i === 1 ? '---' : filler)
       lines[i] = joinCells(cells)
