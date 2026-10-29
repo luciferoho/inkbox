@@ -32,12 +32,21 @@ function configPath(): string {
 /** 兼容旧版 recent: string[] 格式 */
 function normalizeRecent(raw: unknown): RecentFile[] {
   if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
   return raw
     .slice(0, 10)
     .map((r): RecentFile =>
       typeof r === 'string' ? { path: r, ts: 0 } : { path: String(r?.path ?? ''), ts: Number(r?.ts) || 0 }
     )
-    .filter((r) => r.path !== '')
+    .filter((r) => {
+      if (r.path === '') return false
+      // Windows 路径同一性：分隔符与大小写不敏感——「打开文件」对话框给反斜杠、
+      // 应用内链接/脚本给正斜杠，字面去重会把同一文件记成两条
+      const key = r.path.replace(/[\\/]+/g, '\\').toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
 }
 
 /** 快捷键覆盖表：只收字符串键值（命令 id → 加速键，'' = 禁用） */
@@ -142,6 +151,13 @@ export function themeBackgroundColor(): string {
   return dark ? '#1D1814' : '#F6F2EC'
 }
 
+/** 把明暗偏好同步给 nativeTheme：Windows 无边框窗口的 1px 系统边框（DWM）
+ *  跟随系统明暗——应用暗色而系统浅色时窗口边缘会出现浅色描边。
+ *  themeSource 同时锁定 shouldUseDarkColors，themeBackgroundColor 判定随之一致 */
+export function syncNativeTheme(pref: string | undefined): void {
+  nativeTheme.themeSource = pref === 'dark' ? 'dark' : pref === 'light' ? 'light' : 'system'
+}
+
 export function applyWindowBackground(color: string): void {
   for (const w of BrowserWindow.getAllWindows()) {
     if (!w.isDestroyed()) w.setBackgroundColor(color)
@@ -238,6 +254,8 @@ export function registerConfigIpc(): void {
     }
     persist()
     if (patch.openAtLogin !== undefined && patch.openAtLogin !== prev.openAtLogin) applyLoginItem()
+    // 明暗偏好变化：同步 nativeTheme（窗口边框/DWM 明暗跟随，见 syncNativeTheme 注释）
+    if (patch.theme !== undefined) syncNativeTheme(patch.theme)
     // 快捷键覆盖变化：注入菜单层并重建（渲染层经 broadcastConfig 拿到同一份表）
     if (patch.shortcuts !== undefined) {
       setShortcutOverrides(cache.shortcuts)
