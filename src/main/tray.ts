@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, nativeImage, Tray } from 'electron'
 import { join } from 'node:path'
 import { m } from './i18n'
+import { isSettingsWindow } from './window'
 
 /**
  * 托盘：常驻图标（打开墨匣 / 退出）+ 应用退出生命周期标志。
@@ -24,11 +25,12 @@ export function resetQuitting(): void {
   quitting = false
 }
 
-/** 显示并聚焦主窗口（托盘点击 / 二次启动 second-instance 共用） */
+/** 显示并聚焦主窗口（托盘点击 / 二次启动 second-instance 共用）。
+ *  只认编辑窗口：设置窗还开着时点托盘也要唤起编辑窗口，而不是聚焦设置窗 */
 export function showMainWindow(): void {
-  const win =
-    BrowserWindow.getAllWindows().find((w) => w.isVisible()) ??
-    BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+  const wins = BrowserWindow.getAllWindows()
+  const editors = wins.filter((w) => !isSettingsWindow(w))
+  const win = editors.find((w) => w.isVisible()) ?? editors[0] ?? wins[0]
   if (!win) return
   if (win.isMinimized()) win.restore()
   win.show()
@@ -81,6 +83,7 @@ function quitFromTray(): void {
     return
   }
   for (const w of wins) {
+    if (isSettingsWindow(w)) continue // 设置窗无未保存流程，随最后一个编辑窗口确认关闭时销毁
     if (w.isMinimized()) w.restore()
     w.show() // 隐藏在托盘里的窗口也要弹出来，否则看不到未保存提示
     w.webContents.send('app:requestClose')
