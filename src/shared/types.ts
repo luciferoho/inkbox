@@ -187,6 +187,7 @@ export type MenuCommand =
   | 'file:insertImage'
   | 'file:uploadImages'
   | 'file:quickOpen'
+  | 'file:insertPanel'
   | 'view:toggleSidebar'
   | 'view:toggleTheme'
   | 'view:toggleFocus'

@@ -25,6 +25,7 @@ export const SHORTCUT_COMMANDS: ShortcutCommand[] = [
   { id: 'file:insertImage', labelKey: 'sc.insertImage', group: 'file', accel: 'CmdOrCtrl+Alt+I' },
   { id: 'file:uploadImages', labelKey: 'sc.uploadImages', group: 'file', accel: '' },
   { id: 'file:quickOpen', labelKey: 'sc.quickOpen', group: 'file', accel: 'CmdOrCtrl+P' },
+  { id: 'file:insertPanel', labelKey: 'sc.insertPanel', group: 'file', accel: 'CmdOrCtrl+Shift+P' },
   { id: 'file:closeTab', labelKey: 'sc.closeTab', group: 'file', accel: 'CmdOrCtrl+W' },
   { id: 'file:nextTab', labelKey: 'sc.nextTab', group: 'file', accel: 'CmdOrCtrl+Tab' },
   { id: 'file:prevTab', labelKey: 'sc.prevTab', group: 'file', accel: 'CmdOrCtrl+Shift+Tab' },

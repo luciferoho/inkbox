@@ -19,10 +19,12 @@ import {
   createCodeBlockCommand,
   wrapInBlockquoteCommand,
   wrapInBulletListCommand,
-  wrapInOrderedListCommand
+  wrapInOrderedListCommand,
+  toggleInlineCodeCommand
 } from '@milkdown/kit/preset/commonmark'
 import {
   gfm,
+  toggleStrikethroughCommand,
   addRowBeforeCommand,
   addRowAfterCommand,
   addColBeforeCommand,
@@ -79,7 +81,7 @@ import {
 import { registerPmTableExecutor, type TableMenuAction } from '@/editor/table-context-menu'
 import { writeClipboard } from '@/editor/code-copy'
 import { createElementToolbar, findTableSelection, type ElToolbarState } from '@/editor/pm-element-toolbar'
-import { createCodeblockChromePlugin } from '@/editor/pm-codeblock-chrome'
+import { createCodeblockChromePlugin, openLangEditorFor } from '@/editor/pm-codeblock-chrome'
 import { createSpellcheckPlugin } from '@/editor/pm-spellcheck'
 import { createCodeHighlightPlugin } from '@/editor/pm-code-highlight'
 import { createQuoteEscapePlugin } from '@/editor/pm-quote-escape'
@@ -128,7 +130,8 @@ import {
   createHtmlBlockKeyPlugin,
   setHtmlTableDocDir,
   createLinkClickPlugin,
-  createLinkSourcePlugin
+  createLinkSourcePlugin,
+  requestLinkSourceFocus
 } from '@/editor/wysiwyg-extensions'
 // remark 解析插件序列（单一来源；等价比较共用同一序列）
 import { wysiwygRemarkPlugins } from '@/editor/wysiwyg-remark-pipeline'
@@ -312,11 +315,35 @@ function pmSetHeading(view: EditorView, level: number): boolean {
     return milkCmd(callCommand(wrapInHeadingCommand.key, level))
   }
   if (!hasHardbreaks(parent)) {
-    // 单行块：toggle（同级 → 正文）
-    if (parent.type.name === 'heading' && Number(parent.attrs.level ?? 1) === level) {
-      return milkCmd(callCommand(turnIntoTextCommand.key))
+    const same = parent.type.name === 'heading' && Number(parent.attrs.level ?? 1) === level
+    // 列表项内转标题：先整项提升出列表再设级别（Typora 语义；列表内直接改
+    // paragraph → heading 会被列表结构吞掉，表现为按键无反应）
+    let listDepth = -1
+    for (let d = $from.depth; d >= 1; d--) {
+      const nm = $from.node(d).type.name
+      if (nm === 'bullet_list' || nm === 'ordered_list') {
+        listDepth = d
+        break
+      }
     }
-    return milkCmd(callCommand(wrapInHeadingCommand.key, level))
+    if (listDepth >= 0) {
+      const itemType = state.schema.nodes.list_item
+      if (!itemType || !liftListItem(itemType)(state, view.dispatch)) return false
+      const st2 = view.state
+      if (!(st2.selection instanceof TextSelection)) return false
+      const at2 = st2.selection.$from.before()
+      const tr2 = st2.tr.setNodeMarkup(at2, same ? paraT : headingT, same ? undefined : { level })
+      view.dispatch(tr2.scrollIntoView())
+      return true
+    }
+    // 单行块：toggle（同级 → 正文）。直接 setNodeMarkup——milkdown 的
+    // wrapInHeadingCommand 在「光标在段落末尾」等边界会误伤相邻块（实测把
+    // 下一行设为标题），与右键「段落转换」共用同一语义
+    const at = $from.before()
+    const tr = state.tr
+    tr.setNodeMarkup(at, same ? paraT : headingT, same ? undefined : { level })
+    view.dispatch(tr.scrollIntoView())
+    return true
   }
   // 多软行块：拆行 + 与选区相交的行设级、其余行退回正文（一次事务）
   const start = $from.start()
@@ -438,6 +465,56 @@ function pmInsertTable(view: EditorView): boolean {
   return true
 }
 
+/** 插入块级公式：空段落原地替换、否则插到当前文本块之后；落 NodeSelection
+ *  让 MathNodeView 进入嵌套源码编辑态（与 $$ 输入规则同款行为，Ctrl+Shift+M） */
+function pmInsertMathBlock(view: EditorView): boolean {
+  const { state } = view
+  const mathT = state.schema.nodes.math_block
+  if (!mathT || !(state.selection instanceof TextSelection)) return false
+  const { $from } = state.selection
+  const tr = state.tr
+  let at: number
+  if ($from.parent.type.name === 'paragraph' && $from.parent.content.size === 0) {
+    at = $from.before()
+    tr.replaceWith(at, $from.after(), mathT.create())
+  } else {
+    at = $from.after($from.depth)
+    tr.insert(at, mathT.create())
+  }
+  tr.setSelection(NodeSelection.create(tr.doc, at))
+  view.dispatch(tr.scrollIntoView())
+  return true
+}
+
+/** 切换链接（Ctrl+K）：已有链接 → 去链；无选区 → 插入占位文字建链；
+ *  有选区 → 选区转链接。两种创建路径都把 href 置空并就地展开地址输入框
+ *  （复用 linkSource 装饰，autofocus 聚焦；空地址离开时自动去链兜底） */
+function pmToggleLink(view: EditorView): boolean {
+  const { state } = view
+  const linkT = state.schema.marks.link
+  if (!linkT || !(state.selection instanceof TextSelection)) return false
+  const { from, to, empty } = state.selection
+  const tr = state.tr
+  if (state.doc.rangeHasMark(from, to, linkT)) {
+    tr.removeMark(from, to, linkT)
+    view.dispatch(tr.scrollIntoView())
+    return true
+  }
+  if (empty) {
+    const text = '链接'
+    tr.insertText(text, from, to)
+    tr.addMark(from, from + text.length, linkT.create({ href: '' }))
+    // 光标落链接内最后一个字符后（to-1）：末尾边界 to 已归属「离开」不再展开
+    tr.setSelection(TextSelection.create(tr.doc, Math.max(from, to - 1)))
+  } else {
+    tr.addMark(from, to, linkT.create({ href: '' }))
+    tr.setSelection(TextSelection.create(tr.doc, Math.max(from, to - 1)))
+  }
+  requestLinkSourceFocus()
+  view.dispatch(tr.scrollIntoView())
+  return true
+}
+
 
 function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   const { state } = view
@@ -445,10 +522,15 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   /* 结构类格式化快捷键（键位与源码/双栏 formattingKeymap 完全一致，Typora 习惯）：
      Mod-1..6 标题（同级再按退回正文）/ Mod-0 正文 / Ctrl+= Ctrl+- 标题升降级 /
      Ctrl+Shift+K 代码块 / Ctrl+T 表格 / Ctrl+Shift+Q 引用 /
-     Ctrl+Shift+{ } 有序/无序列表。处理到的一律 preventDefault。 */
+     Ctrl+Shift+{ } 有序/无序列表 / Ctrl+Shift+X 删除线 / Ctrl+Shift+C 行内码 /
+     Ctrl+Shift+M 公式块 / Ctrl+K 链接。处理到的一律 preventDefault。 */
   const ctrl = event.ctrlKey || event.metaKey
   if (ctrl && !event.altKey && event.key !== 'Tab') {
     const key = event.key
+    if (!event.shiftKey && key.toLowerCase() === 'k') {
+      event.preventDefault()
+      return pmToggleLink(view)
+    }
     if (!event.shiftKey && /^[0-6]$/.test(key)) {
       event.preventDefault()
       const level = Number(key)
@@ -466,7 +548,19 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     }
     if (event.shiftKey && key === 'K') {
       event.preventDefault()
-      return milkCmd(callCommand(createCodeBlockCommand.key))
+      const ok = milkCmd(callCommand(createCodeBlockCommand.key))
+      if (ok) {
+        // 与插入面板同款：新代码块光标落块内后先选语言
+        const { $from } = view.state.selection
+        for (let d = $from.depth; d >= 0; d--) {
+          const n = $from.node(d)
+          if (n.type.name === 'code_block') {
+            if (!String(n.attrs.language ?? '')) openLangEditorFor(view, $from.before(d))
+            break
+          }
+        }
+      }
+      return ok
     }
     if (!event.shiftKey && key.toLowerCase() === 't') {
       event.preventDefault()
@@ -479,6 +573,18 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     if (event.shiftKey && (key === '{' || key === '}')) {
       event.preventDefault()
       return pmToggleList(view, key === '{')
+    }
+    if (event.shiftKey && key === 'X') {
+      event.preventDefault()
+      return milkCmd(callCommand(toggleStrikethroughCommand.key))
+    }
+    if (event.shiftKey && key === 'C') {
+      event.preventDefault()
+      return milkCmd(callCommand(toggleInlineCodeCommand.key))
+    }
+    if (event.shiftKey && key === 'M') {
+      event.preventDefault()
+      return pmInsertMathBlock(view)
     }
   }
 
