@@ -109,27 +109,9 @@ html[data-theme-css] .md-preview pre.luci-code {
   padding: 0;
   font-size: 13px;
   color: inherit;
-}
-
-/* 行号（七.2）：fence 渲染把高亮 HTML 逐行包 <span class="md-cl">（行间以
-   换行文本分隔，pre 白空格保留换行语义），行号是每个行 span 的 ::before——
-   不改变 pre/code 的 display 与白空格，自定义主题的 pre/code 规则零冲突。
-   行号随内容横向滚动（GitHub 行为）；不参与选择/复制（::before 不进
-   textContent，复制与导出按 code 元素取文本天然干净） */
-.md-preview pre code {
-  counter-reset: mdline;
-}
-
-.md-preview pre code .md-cl::before {
-  counter-increment: mdline;
-  content: counter(mdline);
-  display: inline-block;
-  min-width: 2.1em;
-  margin-right: 1.2em;
-  text-align: right;
-  color: var(--code-comment);
-  user-select: none;
-  pointer-events: none;
+  /* 软换行替代横向滚动（与即显一致）；CJK 自然断行，超长英文 token 兜底断词 */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 /* 代码块 chrome：语言标签栏 + 复制按钮（fence 渲染包 .md-code 容器） */
@@ -345,6 +327,8 @@ html[data-theme-css] .md-preview .md-front-matter {
 }
 .md-preview .katex {
   font-size: 1.05em;
+  /* 公式渲染结果是展示层，不可选中（2026-10-31 反馈） */
+  user-select: none;
 }
 .md-preview .math-error {
   color: var(--danger);
@@ -369,6 +353,8 @@ html[data-theme-css] .md-preview .md-front-matter {
 .md-preview .mermaid svg {
   max-width: 100%;
   height: auto;
+  /* 图表/公式渲染结果是展示层，不可选中（源码错误兜底文本仍可复制） */
+  user-select: none;
 }
 .md-preview .mermaid-error {
   color: var(--danger);

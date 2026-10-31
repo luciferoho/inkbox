@@ -19,10 +19,12 @@ import {
   createCodeBlockCommand,
   wrapInBlockquoteCommand,
   wrapInBulletListCommand,
-  wrapInOrderedListCommand
+  wrapInOrderedListCommand,
+  toggleInlineCodeCommand
 } from '@milkdown/kit/preset/commonmark'
 import {
   gfm,
+  toggleStrikethroughCommand,
   addRowBeforeCommand,
   addRowAfterCommand,
   addColBeforeCommand,
@@ -55,6 +57,7 @@ import {
   findReplaceAll
 } from '@/editor/pm-find'
 import { createCenterPlugin } from '@/editor/pm-center'
+import { curHeadingLevel, pmSetHeading as pmSetHeadingLine } from '@/editor/pm-heading'
 import { createGhAlertsPlugin } from '@/editor/gh-alerts'
 import { findState, sameQuery } from '@/editor/find-state'
 import { saveViewProgress, loadView, clearViewAnchor } from '@/editor/tab-view-state'
@@ -79,7 +82,7 @@ import {
 import { registerPmTableExecutor, type TableMenuAction } from '@/editor/table-context-menu'
 import { writeClipboard } from '@/editor/code-copy'
 import { createElementToolbar, findTableSelection, type ElToolbarState } from '@/editor/pm-element-toolbar'
-import { createCodeblockChromePlugin } from '@/editor/pm-codeblock-chrome'
+import { createCodeblockChromePlugin, openLangEditorFor } from '@/editor/pm-codeblock-chrome'
 import { createSpellcheckPlugin } from '@/editor/pm-spellcheck'
 import { createCodeHighlightPlugin } from '@/editor/pm-code-highlight'
 import { createQuoteEscapePlugin } from '@/editor/pm-quote-escape'
@@ -128,8 +131,10 @@ import {
   createHtmlBlockKeyPlugin,
   setHtmlTableDocDir,
   createLinkClickPlugin,
-  createLinkSourcePlugin
+  createLinkSourcePlugin,
+  requestLinkSourceFocus
 } from '@/editor/wysiwyg-extensions'
+import { footnoteRefView, createFootnoteJumpPlugin } from '@/editor/pm-footnote'
 // remark 解析插件序列（单一来源；等价比较共用同一序列）
 import { wysiwygRemarkPlugins } from '@/editor/wysiwyg-remark-pipeline'
 // 专注/打字机（ROADMAP 1.8）：与源码侧共用 ui 开关
@@ -255,15 +260,6 @@ function milkCmd(action: Parameters<Editor['action']>[0]): boolean {
   }
 }
 
-/** 光标当前所在标题级别（不在标题内为 null） */
-function curHeadingLevel(state: EditorState): number | null {
-  const { $from } = state.selection
-  for (let d = $from.depth; d >= 1; d--) {
-    if ($from.node(d).type.name === 'heading') return Number($from.node(d).attrs.level ?? 1)
-  }
-  return null
-}
-
 /** 多软行块（段落/标题内含硬换行）按行拆成独立段落，返回是否拆过。
  *  markdown 标题是行级块，整块转标题会把软行全部卷进去（下面的文字样式
  *  跟着变，序列化还会吞行）；源码侧 Ctrl+N 是按行改写——拆齐语义 */
@@ -289,82 +285,15 @@ function splitHardbreakLines(view: EditorView): boolean {
   return true
 }
 
-/** 块内是否含硬换行（软行） */
-function hasHardbreaks(node: PMNode): boolean {
-  let found = false
-  node.forEach((child) => {
-    if (child.type.name === 'hardbreak') found = true
-  })
-  return found
-}
-
-/** 设标题级别；同级再按退回正文（与源码 setHeading 的 toggle 语义一致） */
+/** 设标题级别；同级再按退回正文（与源码 setHeading 的 toggle 语义一致）。
+ *  实现收口在 pm-heading（快捷键与右键菜单同一条路径），这里只传
+ *  milkdown 命令 fallback（列表项外等边界维持原行为） */
 function pmSetHeading(view: EditorView, level: number): boolean {
-  const { state } = view
-  const { from, to, $from } = state.selection
-  const parent = $from.parent
-  const headingT = state.schema.nodes.heading
-  const paraT = state.schema.nodes.paragraph
-  if (!headingT || !paraT) return false
-  if (parent.type.name !== 'paragraph' && parent.type.name !== 'heading') {
-    // 列表项/引用内等场景：维持 milkdown 命令路径
-    if (curHeadingLevel(state) === level) return milkCmd(callCommand(turnIntoTextCommand.key))
-    return milkCmd(callCommand(wrapInHeadingCommand.key, level))
-  }
-  if (!hasHardbreaks(parent)) {
-    // 单行块：toggle（同级 → 正文）
-    if (parent.type.name === 'heading' && Number(parent.attrs.level ?? 1) === level) {
-      return milkCmd(callCommand(turnIntoTextCommand.key))
-    }
-    return milkCmd(callCommand(wrapInHeadingCommand.key, level))
-  }
-  // 多软行块：拆行 + 与选区相交的行设级、其余行退回正文（一次事务）
-  const start = $from.start()
-  const hbs: number[] = []
-  parent.forEach((child, offset) => {
-    if (child.type.name === 'hardbreak') hbs.push(start + offset)
-  })
-  const tr = state.tr
-  for (let i = hbs.length - 1; i >= 0; i--) {
-    const p = hbs[i]
-    tr.split(p)
-    // split 在 p 处插入闭合/开启 token，硬换行随映射移到 p+2：按 mapping 取真实位置删除
-    const hp = tr.mapping.map(p, 1)
-    tr.delete(hp, hp + 1)
-  }
-  const mappedFrom = tr.mapping.map(from)
-  const mappedTo = tr.mapping.map(to)
-  const lineCount = hbs.length + 1
-  const lines: { pos: number; node: PMNode }[] = []
-  let pos = tr.mapping.map($from.before())
-  for (let i = 0; i < lineCount; i++) {
-    const node = tr.doc.nodeAt(pos)
-    if (!node) break
-    lines.push({ pos, node })
-    pos += node.nodeSize
-  }
-  // 光标所在行：行尾归属当前行（首个「行尾 ≥ 光标」的行）
-  const caretIdx = Math.max(
-    0,
-    lines.findIndex((l) => mappedFrom <= l.pos + l.node.nodeSize)
+  return pmSetHeadingLine(view, level, (st, lv) =>
+    curHeadingLevel(st) === lv
+      ? milkCmd(callCommand(turnIntoTextCommand.key))
+      : milkCmd(callCommand(wrapInHeadingCommand.key, lv))
   )
-  let touched = false
-  lines.forEach((l, i) => {
-    const lineTo = l.pos + l.node.nodeSize
-    // 范围选区：与选区相交的行都设级；纯光标：只设所在行
-    const hit = from !== to ? mappedTo > l.pos && mappedFrom < lineTo : i === caretIdx
-    if (hit) {
-      tr.setNodeMarkup(l.pos, headingT, { level })
-      touched = true
-    } else if (l.node.type.name !== 'paragraph') {
-      tr.setNodeMarkup(l.pos, paraT)
-    }
-  })
-  if (!touched && lines[caretIdx]) {
-    tr.setNodeMarkup(lines[caretIdx].pos, headingT, { level })
-  }
-  view.dispatch(tr.scrollIntoView())
-  return true
 }
 
 /** 标题升级/降级（与源码 shiftHeading 一致）：无标题按方向落到 h1/h2，封顶 h1/h6 */
@@ -438,6 +367,56 @@ function pmInsertTable(view: EditorView): boolean {
   return true
 }
 
+/** 插入块级公式：空段落原地替换、否则插到当前文本块之后；落 NodeSelection
+ *  让 MathNodeView 进入嵌套源码编辑态（与 $$ 输入规则同款行为，Ctrl+Shift+M） */
+function pmInsertMathBlock(view: EditorView): boolean {
+  const { state } = view
+  const mathT = state.schema.nodes.math_block
+  if (!mathT || !(state.selection instanceof TextSelection)) return false
+  const { $from } = state.selection
+  const tr = state.tr
+  let at: number
+  if ($from.parent.type.name === 'paragraph' && $from.parent.content.size === 0) {
+    at = $from.before()
+    tr.replaceWith(at, $from.after(), mathT.create())
+  } else {
+    at = $from.after($from.depth)
+    tr.insert(at, mathT.create())
+  }
+  tr.setSelection(NodeSelection.create(tr.doc, at))
+  view.dispatch(tr.scrollIntoView())
+  return true
+}
+
+/** 切换链接（Ctrl+K）：已有链接 → 去链；无选区 → 插入占位文字建链；
+ *  有选区 → 选区转链接。两种创建路径都把 href 置空并就地展开地址输入框
+ *  （复用 linkSource 装饰，autofocus 聚焦；空地址离开时自动去链兜底） */
+function pmToggleLink(view: EditorView): boolean {
+  const { state } = view
+  const linkT = state.schema.marks.link
+  if (!linkT || !(state.selection instanceof TextSelection)) return false
+  const { from, to, empty } = state.selection
+  const tr = state.tr
+  if (state.doc.rangeHasMark(from, to, linkT)) {
+    tr.removeMark(from, to, linkT)
+    view.dispatch(tr.scrollIntoView())
+    return true
+  }
+  if (empty) {
+    const text = '链接'
+    tr.insertText(text, from, to)
+    tr.addMark(from, from + text.length, linkT.create({ href: '' }))
+    // 光标落链接内最后一个字符后（to-1）：末尾边界 to 已归属「离开」不再展开
+    tr.setSelection(TextSelection.create(tr.doc, Math.max(from, to - 1)))
+  } else {
+    tr.addMark(from, to, linkT.create({ href: '' }))
+    tr.setSelection(TextSelection.create(tr.doc, Math.max(from, to - 1)))
+  }
+  requestLinkSourceFocus()
+  view.dispatch(tr.scrollIntoView())
+  return true
+}
+
 
 function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   const { state } = view
@@ -445,10 +424,15 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   /* 结构类格式化快捷键（键位与源码/双栏 formattingKeymap 完全一致，Typora 习惯）：
      Mod-1..6 标题（同级再按退回正文）/ Mod-0 正文 / Ctrl+= Ctrl+- 标题升降级 /
      Ctrl+Shift+K 代码块 / Ctrl+T 表格 / Ctrl+Shift+Q 引用 /
-     Ctrl+Shift+{ } 有序/无序列表。处理到的一律 preventDefault。 */
+     Ctrl+Shift+{ } 有序/无序列表 / Ctrl+Shift+X 删除线 / Ctrl+Shift+C 行内码 /
+     Ctrl+Shift+M 公式块 / Ctrl+K 链接。处理到的一律 preventDefault。 */
   const ctrl = event.ctrlKey || event.metaKey
   if (ctrl && !event.altKey && event.key !== 'Tab') {
     const key = event.key
+    if (!event.shiftKey && key.toLowerCase() === 'k') {
+      event.preventDefault()
+      return pmToggleLink(view)
+    }
     if (!event.shiftKey && /^[0-6]$/.test(key)) {
       event.preventDefault()
       const level = Number(key)
@@ -466,7 +450,19 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     }
     if (event.shiftKey && key === 'K') {
       event.preventDefault()
-      return milkCmd(callCommand(createCodeBlockCommand.key))
+      const ok = milkCmd(callCommand(createCodeBlockCommand.key))
+      if (ok) {
+        // 与插入面板同款：新代码块光标落块内后先选语言
+        const { $from } = view.state.selection
+        for (let d = $from.depth; d >= 0; d--) {
+          const n = $from.node(d)
+          if (n.type.name === 'code_block') {
+            if (!String(n.attrs.language ?? '')) openLangEditorFor(view, $from.before(d))
+            break
+          }
+        }
+      }
+      return ok
     }
     if (!event.shiftKey && key.toLowerCase() === 't') {
       event.preventDefault()
@@ -479,6 +475,18 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     if (event.shiftKey && (key === '{' || key === '}')) {
       event.preventDefault()
       return pmToggleList(view, key === '{')
+    }
+    if (event.shiftKey && key === 'X') {
+      event.preventDefault()
+      return milkCmd(callCommand(toggleStrikethroughCommand.key))
+    }
+    if (event.shiftKey && key === 'C') {
+      event.preventDefault()
+      return milkCmd(callCommand(toggleInlineCodeCommand.key))
+    }
+    if (event.shiftKey && key === 'M') {
+      event.preventDefault()
+      return pmInsertMathBlock(view)
     }
   }
 
@@ -1842,6 +1850,8 @@ onMounted(() => {
     .use(footnoteReferenceSchema)
     .use(footnoteDefinitionSchema)
     .use(footnoteReferenceInputRule)
+    .use(footnoteRefView)
+    .use(createFootnoteJumpPlugin)
     // front matter + [TOC]
     .use(yamlSchema)
     .use(tocSchema)
@@ -2004,7 +2014,48 @@ onBeforeUnmount(() => {
   editor = null
 })
 
-function onHostMousedown(): void {
+/** 文档尾部聚焦（Typora 语义，2026-10-31 反馈）：点击最后一块下方的空白
+ *  （luci-prose 40vh 底部 padding）也要能落下光标。尾部是代码块/图表/公式/
+ *  表格这类块时先补一个空段落再落进去——否则从图表编辑态点下方退不出去，
+ *  只有点图表上方才有效 */
+function focusDocEnd(view: EditorView, clientY: number): boolean {
+  let endBottom: number
+  try {
+    endBottom = view.coordsAtPos(view.state.doc.content.size).bottom
+  } catch {
+    return false
+  }
+  if (clientY <= endBottom) return false
+  const { state } = view
+  const tr = state.tr
+  const last = state.doc.lastChild
+  // 尾部非段落/标题块：没有可直接落光标的位置，补空段落（near() 只会落回块内）
+  if (last && last.type.name !== 'paragraph' && last.type.name !== 'heading') {
+    const paraT = state.schema.nodes.paragraph
+    if (!paraT) return false
+    tr.insert(state.doc.content.size, paraT.create())
+  }
+  tr.setSelection(TextSelection.near(tr.doc.resolve(tr.doc.content.size), -1))
+  view.dispatch(tr)
+  view.focus()
+  return true
+}
+
+function onHostMousedown(e: MouseEvent): void {
+  const target = e.target as HTMLElement | null
+  // 仅内容区下方空白（点击落在 .luci-prose/.wysiwyg-host 自身，不在任何子元素上）；
+  // 其余点击交给 PM 常规定位。顶部/两侧 padding 由 clientY 阈值排除
+  if (target && (target.classList.contains('luci-prose') || target === host.value)) {
+    try {
+      const view = editor?.action((ctx) => ctx.get(editorViewCtx))
+      if (view && focusDocEnd(view, e.clientY)) {
+        e.preventDefault()
+        return
+      }
+    } catch {
+      /* 编辑器未就绪时忽略 */
+    }
+  }
   try {
     const view = editor?.action((ctx) => ctx.get(editorViewCtx))
     if (view && !view.hasFocus) view.focus()

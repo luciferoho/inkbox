@@ -87,6 +87,8 @@ export function createAppWindow(doc?: DetachDoc): BrowserWindow {
     const map = effectiveShortcuts(getConfig().shortcuts)
     for (const [id, value] of Object.entries(map)) {
       if (!value || normalizeForCompare(value) !== norm) continue
+      // 快捷键面板键放行给渲染层：代码块内 Ctrl+/ 要变成注释切换，由渲染层按上下文分流
+      if (id === 'view:toggleShortcuts') return
       event.preventDefault()
       win.webContents.send('menu:command', id)
       return

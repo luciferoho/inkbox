@@ -871,15 +871,44 @@ function openLinkTarget(href: string): void {
  * Ctrl/Cmd+点击才打开；打开走 window.open → 主进程 setWindowOpenHandler
  * 转系统浏览器/默认应用（与预览模式链接同一条链路）
  */
+/** 链接末尾边界的展开压制：Enter/Esc 提交后光标恰落在末尾，压制展开防「退不出」；
+ *  点击文字尾区时清除以保持编辑。选区移出链接范围后自动失效 */
+let expandSuppress: { from: number; to: number } | null = null
+
 export function createLinkClickPlugin(): Plugin {
   return new Plugin({
     props: {
-      handleClick: (_view, _pos, event) => {
+      handleClick: (view, pos, event) => {
         const target = event.target as HTMLElement | null
         const a = target?.closest?.('a[href]')
-        if (!a) return false
+        if (!a) {
+          expandSuppress = null
+          return false
+        }
         event.preventDefault() // 阻止应用内导航
-        if (event.ctrlKey || event.metaKey) openLinkTarget(a.getAttribute('href') ?? '')
+        if (event.ctrlKey || event.metaKey) {
+          openLinkTarget(a.getAttribute('href') ?? '')
+          return false
+        }
+        // 展开态下：
+        // - 点击链接文字（含末字符右侧贴近处）→ 保持文字编辑（清除压制，末尾也展开）
+        // - 点击地址框/右括号/缝隙 → 聚焦地址框（编辑地址）；退出用 Esc 或点击链接外
+        const input = document.querySelector('.luci-link-src-url')
+        const tail = input?.closest('.luci-link-src-tail')
+        if (input && tail && linkCache) {
+          const clickedTail = !!(target as HTMLElement).closest?.('.luci-link-src-tail')
+          const ar = a.getBoundingClientRect()
+          const clickedTailZone = event.clientX >= ar.right - 6
+          if (clickedTail || clickedTailZone) {
+            const inp = input as HTMLInputElement
+            inp.focus()
+            inp.select()
+            return true
+          }
+          expandSuppress = null
+        } else {
+          expandSuppress = null
+        }
         return false // 光标照常落位（PM 默认行为）
       }
     }
@@ -916,6 +945,13 @@ function findLinkSource(state: EditorState): LinkSourceInfo | null {
   let active = idx
   if (!markAt(active) && $pos.pos === children[active].to && active + 1 < children.length && markAt(active + 1)) {
     active++
+  }
+  // 光标停在链接末尾（后侧不是同一个链接）→ 默认视为已离开，不展开；
+  // 但 settleToBody/handleClick 可用 expandSuppress 微调（提交后短暂压制，
+  // 点击文字尾区时清除以保持编辑）
+  if (markAt(active) && $pos.pos === children[active].to && !(active + 1 < children.length && markAt(active + 1))) {
+    const link = { from: children[active].from, to: children[active].to }
+    if (expandSuppress && expandSuppress.from === link.from && expandSuppress.to === link.to) return null
   }
   const mark = markAt(active)
   if (!mark) return null
@@ -955,6 +991,12 @@ function bracketEl(text: string): HTMLSpanElement {
   return span
 }
 
+/** Ctrl+K 创建链接后自动聚焦地址输入框（一次性信号，由 decorations 重建时消费） */
+let linkAutofocus = false
+export function requestLinkSourceFocus(): void {
+  linkAutofocus = true
+}
+
 function buildLinkTail(view: EditorView, info: LinkSourceInfo): HTMLElement {
   const wrap = document.createElement('span')
   wrap.className = 'luci-link-src-tail'
@@ -965,9 +1007,21 @@ function buildLinkTail(view: EditorView, info: LinkSourceInfo): HTMLElement {
   input.className = 'luci-link-src-url'
   input.spellcheck = false
   input.value = info.href
-  input.size = Math.max(8, Math.min(80, info.href.length))
+  // 按内容宽度贴紧（size 属性按字符数分配会比实际宽，`)` 前留白）
+  const fitWidth = (v: string): void => {
+    input.style.width = `${Math.max(6, Math.min(80, v.length))}ch`
+  }
+  fitWidth(info.href)
   input.setAttribute('aria-label', '链接地址')
   const close = bracketEl(')')
+
+  if (linkAutofocus) {
+    linkAutofocus = false
+    queueMicrotask(() => {
+      input.focus()
+      input.select()
+    })
+  }
 
   let settled = false
   const commit = (): void => {
@@ -976,23 +1030,47 @@ function buildLinkTail(view: EditorView, info: LinkSourceInfo): HTMLElement {
     commitLinkHref(view, info, input.value)
   }
 
+  /** 结束地址编辑（Enter 提交 / Esc 放弃共用）：光标落链接末尾边界
+   *  （该位置按 findLinkSource 末尾归属规则不再展开）并把焦点交回正文；
+   *  清 storedMarks——否则边界 marks 归属前文，接着打字会并进链接 */
+  const settleToBody = (): void => {
+    const { state } = view
+    const to = Math.min(info.to, state.doc.content.size)
+    if (state.selection instanceof TextSelection) {
+      const tr = state.tr.setSelection(TextSelection.create(state.doc, to, to))
+      tr.setStoredMarks([])
+      view.dispatch(tr)
+    }
+    // 压制末尾展开：提交/放弃后光标恰在边界，不弹回地址框
+    expandSuppress = { from: info.from, to: info.to }
+    view.focus()
+  }
+
   input.addEventListener('mousedown', (e) => e.stopPropagation())
   input.addEventListener('click', (e) => e.stopPropagation())
+  // 点击地址框两侧（`](` 与 `)` 之间、含输入框内外边距）一律聚焦地址框并全选，
+  // 不让事件穿透到 PM 把光标放到链接文字后面（用户实测的两个症状同源）
+  wrap.addEventListener('mousedown', (e) => {
+    if (e.target === input) return // 输入框自身：浏览器原生聚焦
+    e.preventDefault()
+    e.stopPropagation()
+    input.focus()
+    input.select()
+  })
   input.addEventListener('input', () => {
-    input.size = Math.max(8, Math.min(80, input.value.length))
+    fitWidth(input.value)
   })
   input.addEventListener('keydown', (e) => {
     e.stopPropagation()
     if (e.key === 'Enter') {
       e.preventDefault()
       commit()
-      input.blur()
+      settleToBody()
     } else if (e.key === 'Escape') {
       e.preventDefault()
       settled = true
-      input.value = info.href
       linkCache = null
-      input.blur()
+      settleToBody()
     }
   })
   input.addEventListener('blur', () => commit())
@@ -1007,10 +1085,48 @@ let linkCache: { info: LinkSourceInfo; decos: DecorationSet } | null = null
 /**
  * 光标进入链接时就地展开 `[文字](地址)`（Typora 行内源码）：
  * 方括号是 widget，地址是行内输入框；离开链接自动收回成普通链接。
+ * Ctrl+K 创建的空地址链接（href=''）在光标离开时整段去链——
+ * 用户 Esc/直接走人视为放弃，不留下 `[文字]()` 脏语法。
  */
 export function createLinkSourcePlugin(): Plugin {
+  let last: LinkSourceInfo | null = null
   return new Plugin({
+    view: () => ({
+      update: (view) => {
+        const info = findLinkSource(view.state)
+        const prev = last
+        last = info // 先记录再派发：嵌套 update 里 last 已空，不会递归
+        // 选区离开被压制的链接范围后，压制自动失效（再次点击/移入可重新编辑）
+        if (expandSuppress) {
+          const head = view.state.selection.head
+          if (head < expandSuppress.from || head > expandSuppress.to) expandSuppress = null
+        }
+        if (prev && !info && prev.href === '' && prev.to <= view.state.doc.content.size) {
+          const linkType = view.state.schema.marks.link
+          const to = Math.min(prev.to, view.state.doc.content.size)
+          if (linkType && to > prev.from && view.state.doc.rangeHasMark(prev.from, to, linkType)) {
+            view.dispatch(view.state.tr.removeMark(prev.from, to, linkType))
+          }
+        }
+      }
+    }),
     props: {
+      handleKeyDown: (view, event) => {
+        // 编辑中删除链接文字：删空会让 link mark 随内容消失、地址框直接关闭。
+        // 与 Typora 一致——至少保留 1 字符占位（继续输入仍在链接内）
+        if (event.key !== 'Backspace' && event.key !== 'Delete') return false
+        const info = findLinkSource(view.state)
+        if (!info) return false
+        const sel = view.state.selection
+        const coversAll = sel.from <= info.from && sel.to >= info.to
+        const len = info.to - info.from
+        const caretInText = sel.head >= info.from && sel.head <= info.to
+        if (coversAll || (len <= 1 && caretInText)) {
+          event.preventDefault()
+          return true
+        }
+        return false
+      },
       decorations(state) {
         const info = findLinkSource(state)
         if (!info) {

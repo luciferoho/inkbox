@@ -95,7 +95,34 @@ export const cmdItalic: Command = wrap('*')
 export const cmdStrike: Command = wrap('~~')
 export const cmdInlineCode: Command = wrap('`')
 export const cmdHighlight: Command = wrap('==')
-export const cmdLink: Command = wrap('[', '](https://)')
+
+/** 链接（Ctrl+K）：包成 `[文字](https://)` 后选区落到地址占位上，直接输入覆盖；
+ *  无选区插入 `[](https://)`，光标落文字位（先补文字再点地址区） */
+export const cmdLink: Command = (view) => {
+  const { state } = view
+  const changes: { from: number; to: number; insert: string }[] = []
+  const ranges: { anchor: number; head: number }[] = []
+  for (const range of state.selection.ranges) {
+    const text = state.sliceDoc(range.from, range.to)
+    if (range.empty) {
+      const insert = '[](https://)'
+      changes.push({ from: range.from, to: range.to, insert })
+      ranges.push({ anchor: range.from + 1, head: range.from + 1 })
+    } else {
+      changes.push({ from: range.from, to: range.to, insert: `[${text}](https://)` })
+      const urlStart = range.from + 1 + text.length + 2
+      ranges.push({ anchor: urlStart, head: urlStart + 'https://'.length })
+    }
+  }
+  view.dispatch({
+    changes,
+    selection: EditorSelection.create(
+      ranges.map((r) => EditorSelection.range(r.anchor, r.head)),
+      state.selection.mainIndex
+    )
+  })
+  return true
+}
 export const cmdHeadingUp: Command = (v) => shiftHeading(v, -1)
 export const cmdHeadingDown: Command = (v) => shiftHeading(v, 1)
 
@@ -224,14 +251,15 @@ export const cmdToggleOrdered: Command = (view) =>
     return `${m[1]}1. ${m[6]}` // 无序 → 有序
   })
 
-/** 插入代码块：在当前行之后插入空围栏，光标落首行（连续按可连续插入，Ctrl+Shift+K） */
+/** 插入代码块：在当前行之后插入空围栏，光标落 ``` 后——先输语言
+ *  （fence 补全弹候选），Enter/续写进入块内（连续按可连续插入，Ctrl+Shift+K） */
 export const cmdCodeBlock: Command = (view) => {
   const { state } = view
   const head = state.selection.main.head
   const line = state.doc.lineAt(head)
   const insert = '\n```\n\n```'
   view.dispatch(
-    state.update({ changes: { from: line.to, insert }, selection: { anchor: line.to + 5 } })
+    state.update({ changes: { from: line.to, insert }, selection: { anchor: line.to + 4 } })
   )
   return true
 }
@@ -244,6 +272,18 @@ export const cmdInsertTable: Command = (view) => {
   const insert = '\n| 列1 | 列2 |\n| --- | --- |\n|  |  |'
   view.dispatch(
     state.update({ changes: { from: line.to, insert }, selection: { anchor: line.to + 3 } })
+  )
+  return true
+}
+
+/** 插入公式块：在当前行之后插入 $$ 围栏，光标落中间空行（Ctrl+Shift+M，Typora 键位） */
+export const cmdInsertMathBlock: Command = (view) => {
+  const { state } = view
+  const head = state.selection.main.head
+  const line = state.doc.lineAt(head)
+  const insert = '\n$$\n\n$$'
+  view.dispatch(
+    state.update({ changes: { from: line.to, insert }, selection: { anchor: line.to + 4 } })
   )
   return true
 }
@@ -578,5 +618,6 @@ export const formattingKeymap: KeyBinding[] = [
   { key: 'Mod-}', run: cmdToggleUnordered },
   { key: 'Mod-Q', run: cmdToggleQuote },
   { key: 'Mod-K', run: cmdCodeBlock },
+  { key: 'Mod-M', run: cmdInsertMathBlock },
   { key: 'Mod-t', run: cmdInsertTable }
 ]

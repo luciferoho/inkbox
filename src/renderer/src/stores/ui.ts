@@ -86,6 +86,8 @@ export const useUiStore = defineStore('ui', {
     shortcutPanelOpen: false,
     /* Quick Open 快速打开（Ctrl+P，模糊搜索工作区文件名） */
     quickOpenOpen: false,
+    /* 插入面板（5.4，Ctrl+Shift+P / 右键插入子菜单） */
+    insertPanelOpen: false,
     /* 保存状态（状态栏实时展示，替代易过期的"已保存"文本提示） */
     saveState: 'clean' as 'clean' | 'dirty' | 'saved',
     savedAt: 0,
@@ -470,6 +472,10 @@ export const useUiStore = defineStore('ui', {
     /** Quick Open：Ctrl+P 呼出/关闭（Esc 由组件自行处理） */
     toggleQuickOpen(): void {
       this.quickOpenOpen = !this.quickOpenOpen
+    },
+    /** 插入面板：Ctrl+Shift+P / 右键「插入」子菜单呼出（Esc 由组件处理） */
+    toggleInsertPanel(): void {
+      this.insertPanelOpen = !this.insertPanelOpen
     },
     /** 轻提示：显示 3 秒后自动消失 */
     showToast(message: string): void {
