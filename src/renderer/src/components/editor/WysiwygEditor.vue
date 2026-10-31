@@ -134,6 +134,7 @@ import {
   createLinkSourcePlugin,
   requestLinkSourceFocus
 } from '@/editor/wysiwyg-extensions'
+import { footnoteRefView, createFootnoteJumpPlugin } from '@/editor/pm-footnote'
 // remark 解析插件序列（单一来源；等价比较共用同一序列）
 import { wysiwygRemarkPlugins } from '@/editor/wysiwyg-remark-pipeline'
 // 专注/打字机（ROADMAP 1.8）：与源码侧共用 ui 开关
@@ -1849,6 +1850,8 @@ onMounted(() => {
     .use(footnoteReferenceSchema)
     .use(footnoteDefinitionSchema)
     .use(footnoteReferenceInputRule)
+    .use(footnoteRefView)
+    .use(createFootnoteJumpPlugin)
     // front matter + [TOC]
     .use(yamlSchema)
     .use(tocSchema)
