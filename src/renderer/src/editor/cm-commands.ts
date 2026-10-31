@@ -2,6 +2,7 @@ import { type Command, type KeyBinding, type EditorView } from '@codemirror/view
 import { EditorSelection, type Line } from '@codemirror/state'
 import { syntaxTree } from '@codemirror/language'
 import type { SyntaxNode } from '@lezer/common'
+import { applyTableOp, cellStart, detectTable, type TableOp } from './table-utils'
 
 /** 选区包裹/解包标记：有选中且已包裹时解包；光标紧邻一对标记（含空对）时移除 */
 function wrapSelection(view: Parameters<Command>[0], open: string, close = open): boolean {
@@ -619,5 +620,59 @@ export const formattingKeymap: KeyBinding[] = [
   { key: 'Mod-Q', run: cmdToggleQuote },
   { key: 'Mod-K', run: cmdCodeBlock },
   { key: 'Mod-M', run: cmdInsertMathBlock },
-  { key: 'Mod-t', run: cmdInsertTable }
+  { key: 'Mod-t', run: cmdInsertTable },
+  /* 表格内 Alt+方向键：整行/整列移动；Ctrl+Enter：下方插入行
+     （Typora 同键位，与表格右键菜单同语义——右键菜单 accel 文案依赖这些绑定） */
+  { key: 'Alt-ArrowUp', run: cmTableStructural('row-move-up') },
+  { key: 'Alt-ArrowDown', run: cmTableStructural('row-move-down') },
+  { key: 'Alt-ArrowLeft', run: cmTableStructural('col-move-left') },
+  { key: 'Alt-ArrowRight', run: cmTableStructural('col-move-right') },
+  { key: 'Mod-Enter', run: cmTableStructural('row-below') },
+  { key: 'Mod-Shift-Backspace', run: cmTableStructural('row-delete') }
 ]
+
+/** 光标处表格结构操作（不在表格内返回 false 放行方向键/回车原有行为） */
+function cmTableStructural(
+  action: 'row-move-up' | 'row-move-down' | 'col-move-left' | 'col-move-right' | 'row-below' | 'row-delete'
+): Command {
+  return (view) => {
+    const pos = view.state.selection.main.head
+    const line = view.state.doc.lineAt(pos)
+    const info = detectTable(
+      view.state.doc.lines,
+      (n) => view.state.doc.line(n).text,
+      line.number,
+      pos - line.from
+    )
+    if (!info) return false
+    const lines: string[] = []
+    for (let n = info.startLine; n <= info.endLine; n++) lines.push(view.state.doc.line(n).text)
+    const op: TableOp =
+      action === 'row-move-up'
+        ? { kind: 'row-up' }
+        : action === 'row-move-down'
+          ? { kind: 'row-down' }
+          : action === 'col-move-left'
+            ? { kind: 'col-move-left' }
+            : action === 'col-move-right'
+              ? { kind: 'col-move-right' }
+              : action === 'row-delete'
+                ? { kind: 'row-delete' }
+                : { kind: 'row-below' }
+    const edit = applyTableOp(lines, info, op)
+    if (!edit) return true // 表格内：不可执行也吞掉按键（边界移动不落默认行为）
+    const blockFrom = view.state.doc.line(info.startLine).from
+    const anchor =
+      blockFrom +
+      edit.lines.slice(0, Math.min(edit.cursorLine, edit.lines.length - 1)).reduce(
+        (acc, text) => acc + text.length + 1,
+        0
+      ) +
+      cellStart(edit.lines[Math.min(edit.cursorLine, edit.lines.length - 1)], edit.cursorCol)
+    view.dispatch({
+      changes: { from: blockFrom, to: view.state.doc.line(info.endLine).to, insert: edit.lines.join('\n') },
+      selection: { anchor }
+    })
+    return true
+  }
+}

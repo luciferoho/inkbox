@@ -166,8 +166,19 @@ export const en: MsgSchema = {
   'side.filterNoHit': 'No matching files.',
 
   // Table toolbar
+  'table.groupFormat': 'Format',
+  'table.fmtBold': 'Bold',
+  'table.fmtItalic': 'Italic',
+  'table.fmtCode': 'Inline code',
+  'table.fmtStrike': 'Strikethrough',
+  'table.fmtLink': 'Link',
+  'table.groupRow': 'Rows',
+  'table.groupCol': 'Columns',
+  'table.groupTable': 'Table',
   'table.addRowAbove': 'Insert row above',
   'table.addRowBelow': 'Insert row below',
+  'table.moveRowUp': 'Move row up',
+  'table.moveRowDown': 'Move row down',
   'table.deleteRow': 'Delete current row',
   'table.addColLeft': 'Insert column left',
   'table.addColRight': 'Insert column right',
@@ -180,6 +191,7 @@ export const en: MsgSchema = {
   'table.alignNone': 'Default alignment',
   'table.deleteTable': 'Delete the whole table',
   'table.copyTable': 'Copy table',
+  'table.formatTable': 'Format table source',
   'table.toText': 'Convert to plain text',
   'table.autoWidth': 'Auto width (clear column widths)',
 

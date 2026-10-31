@@ -11,6 +11,7 @@ import { findTableSelection } from './pm-element-toolbar'
 import { writeClipboard } from './code-copy'
 import { parseImageLine } from './image-utils'
 import { applyTableOp, cellStart, detectTable, type TableInfo, type TableOp } from './table-utils'
+import { cmdBold, cmdInlineCode, cmdItalic, cmdLink, cmdStrike } from './cm-commands'
 import {
   clearColWidths,
   getColWidths,
@@ -32,9 +33,19 @@ import {
  */
 
 export type TableMenuAction =
+  | 'cut'
+  | 'copy'
+  | 'paste'
+  | 'bold'
+  | 'italic'
+  | 'inline-code'
+  | 'strike'
+  | 'link'
   | 'row-above'
   | 'row-below'
   | 'row-delete'
+  | 'row-move-up'
+  | 'row-move-down'
   | 'col-left'
   | 'col-right'
   | 'col-delete'
@@ -45,6 +56,7 @@ export type TableMenuAction =
   | 'align-right'
   | 'align-none'
   | 'copy-table'
+  | 'format-table'
   | 'to-text'
   | 'auto-width'
   | 'table-delete'
@@ -59,8 +71,13 @@ export const tableMenu = reactive({
   /** 当前列是否还能左移/右移（第一列禁左移、最后一列禁右移） */
   canMoveLeft: true,
   canMoveRight: true,
-  /** 预览（只读）面板：仅复制/列宽重置可用 */
-  readOnly: false
+  /** 当前行是否还能上移/下移（表头、首数据行禁上移；末行禁下移） */
+  canMoveRowUp: true,
+  canMoveRowDown: true,
+  /** 预览（只读）面板：仅复制与列宽重置可用 */
+  readOnly: false,
+  /** 弹菜单时的面板类型（「格式化表格源码」只在 cm 提供） */
+  targetKind: 'pm' as Target['kind']
 })
 
 type Target =
@@ -82,6 +99,8 @@ export interface OpenTableMenuOpts {
   canAbove: boolean
   canMoveLeft?: boolean
   canMoveRight?: boolean
+  canMoveRowUp?: boolean
+  canMoveRowDown?: boolean
 }
 
 export function openTableMenu(
@@ -99,7 +118,10 @@ export function openTableMenu(
   tableMenu.canAbove = opts.canAbove
   tableMenu.canMoveLeft = opts.canMoveLeft ?? false
   tableMenu.canMoveRight = opts.canMoveRight ?? false
+  tableMenu.canMoveRowUp = opts.canMoveRowUp ?? false
+  tableMenu.canMoveRowDown = opts.canMoveRowDown ?? false
   tableMenu.readOnly = tgt.kind === 'preview'
+  tableMenu.targetKind = tgt.kind
 }
 
 export function closeTableMenu(): void {
@@ -107,33 +129,104 @@ export function closeTableMenu(): void {
 }
 
 export interface TableMenuItem {
-  action: TableMenuAction
+  /** 分隔线条目无动作（sep: true） */
+  action?: TableMenuAction
   label: string
+  /** 展示用快捷键文案（快捷键已实际绑定：Alt+方向键 行/列移动） */
+  accel?: string
   disabled?: boolean
   danger?: boolean
+  /** 分隔线（label === '-'） */
+  sep?: boolean
 }
 
-export function tableMenuItems(): TableMenuItem[] {
-  const ro = tableMenu.readOnly
+export interface TableMenuGroup {
+  id: 'format' | 'row' | 'col' | 'table'
+  label: string
+  items: TableMenuItem[]
+}
+
+/** 菜单顶部直接列出的项（Typora 表格右键同样把剪贴板放最上） */
+export function tableMenuTop(state: { readOnly: boolean }): TableMenuItem[] {
+  const ro = state.readOnly
   return [
-    // 表头/分隔行之上不可插入（markdown 表头必须首行）
-    { action: 'row-above', label: t('table.addRowAbove'), disabled: ro || !tableMenu.canAbove },
-    { action: 'row-below', label: t('table.addRowBelow'), disabled: ro },
-    { action: 'row-delete', label: t('table.deleteRow'), disabled: ro || !tableMenu.canRow },
-    { action: 'col-left', label: t('table.addColLeft'), disabled: ro },
-    { action: 'col-right', label: t('table.addColRight'), disabled: ro },
-    { action: 'col-delete', label: t('table.deleteCol'), disabled: ro || !tableMenu.canCol },
-    { action: 'col-move-left', label: t('table.moveColLeft'), disabled: ro || !tableMenu.canMoveLeft },
-    { action: 'col-move-right', label: t('table.moveColRight'), disabled: ro || !tableMenu.canMoveRight },
-    { action: 'align-left', label: t('table.alignLeft'), disabled: ro },
-    { action: 'align-center', label: t('table.alignCenter'), disabled: ro },
-    { action: 'align-right', label: t('table.alignRight'), disabled: ro },
-    { action: 'align-none', label: t('table.alignNone'), disabled: ro },
-    { action: 'copy-table', label: t('table.copyTable') },
-    { action: 'auto-width', label: t('table.autoWidth') },
-    { action: 'to-text', label: t('table.toText'), disabled: ro },
-    { action: 'table-delete', label: t('table.deleteTable'), disabled: ro, danger: true }
+    { action: 'cut', label: t('ctx.cut'), accel: 'Ctrl+X', disabled: ro },
+    { action: 'copy', label: t('ctx.copy'), accel: 'Ctrl+C' },
+    { action: 'paste', label: t('ctx.paste'), accel: 'Ctrl+V', disabled: ro }
   ]
+}
+
+/** 常用格式组（Typora 表格右键在表格操作之上还带 B/I/代码/链接） */
+function formatGroup(readOnly: boolean): TableMenuGroup {
+  return {
+    id: 'format',
+    label: t('table.groupFormat'),
+    items: [
+      { action: 'bold', label: t('table.fmtBold'), accel: 'Ctrl+B', disabled: readOnly },
+      { action: 'italic', label: t('table.fmtItalic'), accel: 'Ctrl+I', disabled: readOnly },
+      { action: 'inline-code', label: t('table.fmtCode'), accel: 'Ctrl+Shift+C', disabled: readOnly },
+      { action: 'strike', label: t('table.fmtStrike'), accel: 'Ctrl+Shift+X', disabled: readOnly },
+      { action: 'link', label: t('table.fmtLink'), accel: 'Ctrl+K', disabled: readOnly }
+    ]
+  }
+}
+
+/** 菜单按 行/列/整表 三模块分组（子菜单，2026-10-31 用户要求对齐 Typora 且更好找）。
+ *  - 「格式化表格源码」只在源码/双栏提供（即显/预览没有源码概念，点了也看不见变化）
+ *  - 预览（只读）只给「整表」组：复制表格 + 自适应宽度 */
+export function tableMenuGroups(targetKind: Target['kind']): TableMenuGroup[] {
+  const ro = tableMenu.readOnly
+  const cmOnly = targetKind === 'cm'
+  const rowGroup: TableMenuGroup = {
+    id: 'row',
+    label: t('table.groupRow'),
+    items: [
+      { action: 'row-above', label: t('table.addRowAbove'), disabled: ro || !tableMenu.canAbove },
+      { action: 'row-below', label: t('table.addRowBelow'), disabled: ro, accel: 'Ctrl+Enter' },
+      { action: 'row-move-up', label: t('table.moveRowUp'), disabled: ro || !tableMenu.canMoveRowUp, accel: 'Alt+↑' },
+      { action: 'row-move-down', label: t('table.moveRowDown'), disabled: ro || !tableMenu.canMoveRowDown, accel: 'Alt+↓' },
+      { action: 'row-delete', label: t('table.deleteRow'), disabled: ro || !tableMenu.canRow, accel: 'Ctrl+Shift+⌫' }
+    ]
+  }
+  const colGroup: TableMenuGroup = {
+    id: 'col',
+    label: t('table.groupCol'),
+    items: [
+      { action: 'col-left', label: t('table.addColLeft'), disabled: ro },
+      { action: 'col-right', label: t('table.addColRight'), disabled: ro },
+      { action: 'col-move-left', label: t('table.moveColLeft'), disabled: ro || !tableMenu.canMoveLeft, accel: 'Alt+←' },
+      { action: 'col-move-right', label: t('table.moveColRight'), disabled: ro || !tableMenu.canMoveRight, accel: 'Alt+→' },
+      { action: 'col-delete', label: t('table.deleteCol'), disabled: ro || !tableMenu.canCol },
+      { sep: true, label: '-' },
+      { action: 'align-left', label: t('table.alignLeft'), disabled: ro },
+      { action: 'align-center', label: t('table.alignCenter'), disabled: ro },
+      { action: 'align-right', label: t('table.alignRight'), disabled: ro },
+      { action: 'align-none', label: t('table.alignNone'), disabled: ro }
+    ]
+  }
+  const tableGroup: TableMenuGroup = {
+    id: 'table',
+    label: t('table.groupTable'),
+    items: [
+      { action: 'copy-table', label: t('table.copyTable') },
+      ...(cmOnly
+        ? ([{ action: 'format-table', label: t('table.formatTable'), disabled: ro }] as TableMenuItem[])
+        : []),
+      { action: 'to-text', label: t('table.toText'), disabled: ro },
+      { action: 'auto-width', label: t('table.autoWidth') },
+      { sep: true, label: '-' },
+      { action: 'table-delete', label: t('table.deleteTable'), disabled: ro, danger: true }
+    ]
+  }
+  if (ro) {
+    return [
+      { id: 'table', label: t('table.groupTable'), items: [
+        { action: 'copy-table', label: t('table.copyTable') },
+        { action: 'auto-width', label: t('table.autoWidth') }
+      ] }
+    ]
+  }
+  return [formatGroup(false), rowGroup, colGroup, tableGroup]
 }
 
 /* ---------- 源码（CodeMirror）侧执行 ---------- */
@@ -178,6 +271,19 @@ function runCmTableAction(view: CmView, info: TableInfo, action: TableMenuAction
     void writeClipboard(lines.join('\n'))
     return
   }
+  // 常用格式/剪贴板走通用执行路径（runTableMenuAction 已分发），到这里只处理结构操作
+  if (
+    action === 'cut' ||
+    action === 'copy' ||
+    action === 'paste' ||
+    action === 'bold' ||
+    action === 'italic' ||
+    action === 'inline-code' ||
+    action === 'strike' ||
+    action === 'link'
+  ) {
+    return
+  }
   if (action === 'to-text') {
     const text = lines
       .filter((_, i) => i !== 1) // 丢弃分隔行
@@ -207,7 +313,13 @@ function runCmTableAction(view: CmView, info: TableInfo, action: TableMenuAction
             ? { kind: 'align', how: 'right' }
             : action === 'align-none'
               ? { kind: 'align', how: 'none' }
-              : { kind: action }
+              : action === 'row-move-up'
+                ? { kind: 'row-up' }
+                : action === 'row-move-down'
+                  ? { kind: 'row-down' }
+                  : action === 'format-table'
+                    ? { kind: 'format-table' }
+                    : { kind: action }
   const edit = applyTableOp(lines, info, op)
   if (!edit) return
   const anchor =
@@ -247,6 +359,39 @@ function runPreviewAction(table: HTMLTableElement, action: TableMenuAction): voi
 }
 
 /** 执行菜单动作（TableContextMenu.vue 调用） */
+/** 剪贴板动作（系统语义；粘贴走 navigator 读文本插入） */
+function runClipboardAction(view: PmView | CmView, action: 'cut' | 'copy' | 'paste'): void {
+  if (action === 'copy') {
+    document.execCommand('copy')
+    return
+  }
+  if (action === 'cut') {
+    document.execCommand('cut')
+    return
+  }
+  void (async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (!text) return
+      if ('dispatch' in view && 'state' in view && view.dom.classList.contains('ProseMirror')) {
+        const pm = view as PmView
+        if (!(pm.state.selection instanceof TextSelection)) return
+        const { from, to } = pm.state.selection
+        pm.dispatch(pm.state.tr.insertText(text, from, to))
+        return
+      }
+      const cm = view as CmView
+      const head = cm.state.selection.main.head
+      cm.dispatch({
+        changes: { from: head, insert: text },
+        selection: { anchor: head + text.length }
+      })
+    } catch {
+      /* 剪贴板权限受限：静默放弃 */
+    }
+  })()
+}
+
 export function runTableMenuAction(action: TableMenuAction): void {
   closeTableMenu()
   if (!target) return
@@ -261,7 +406,17 @@ export function runTableMenuAction(action: TableMenuAction): void {
     runPreviewAction(tgt.table, action)
     return
   }
-  runCmTableAction(tgt.view, tgt.info, action)
+  if (action === 'cut' || action === 'copy' || action === 'paste') {
+    tgt.view.focus()
+    runClipboardAction(tgt.view, action)
+    return
+  }
+  if (action === 'bold') cmdBold(tgt.view)
+  else if (action === 'italic') cmdItalic(tgt.view)
+  else if (action === 'inline-code') cmdInlineCode(tgt.view)
+  else if (action === 'strike') cmdStrike(tgt.view)
+  else if (action === 'link') cmdLink(tgt.view)
+  else runCmTableAction(tgt.view, tgt.info, action)
   tgt.view.focus() // 同上：复制/自适应等提前 return 的路径也恢复焦点
 }
 
@@ -288,16 +443,23 @@ function onContext(e: MouseEvent): void {
     const hit = view.posAtCoords({ left: e.clientX, top: e.clientY })
     const pos = hit?.pos
     if (pos != null && pos >= 0 && pos <= view.state.doc.content.size) {
-      try {
-        view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pos))))
-      } catch {
-        /* 落点不可解析：保持原选区 */
+      // 右键点落在已有选区内时保留选区——否则「选中单元格文字 → 右键加粗」会
+      // 被这里的落点重置折叠掉，格式动作拿不到选区（表现为点了没反应）
+      const sel = view.state.selection
+      const inside = !sel.empty && pos >= sel.from && pos <= sel.to
+      if (!inside) {
+        try {
+          view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pos))))
+        } catch {
+          /* 落点不可解析：保持原选区 */
+        }
       }
     }
     // 行列可删性按落位后的选区复算：表头不可删/不可上方插入、只剩单列时不可删列
     const meta = findTableSelection(view)
     const tNode = meta ? view.state.doc.nodeAt(meta.pos) : null
     const colCount = tNode && tNode.childCount > 0 ? tNode.child(0).childCount : 0
+    const rowCount = tNode ? tNode.childCount : 0
     openTableMenu(
       e.clientX,
       e.clientY,
@@ -307,7 +469,10 @@ function onContext(e: MouseEvent): void {
         canAbove: (meta?.row ?? 0) >= 1,
         // 第一列禁左移、最后一列禁右移（与删列的边界一致）
         canMoveLeft: !!meta && meta.col > 0,
-        canMoveRight: !!meta && colCount > 0 && meta.col < colCount - 1
+        canMoveRight: !!meta && colCount > 0 && meta.col < colCount - 1,
+        // 行移动边界：表头(0)/首个数据行(1)禁上移；末行禁下移（row0 是表头行）
+        canMoveRowUp: !!meta && meta.row >= 2,
+        canMoveRowDown: !!meta && meta.row >= 1 && meta.row < rowCount - 1
       },
       { kind: 'pm', view }
     )
@@ -358,6 +523,7 @@ function onContext(e: MouseEvent): void {
     }
     e.preventDefault()
     e.stopPropagation()
+    const blockIdx = info.cursorLine - info.startLine
     openTableMenu(
       e.clientX,
       e.clientY,
@@ -366,7 +532,10 @@ function onContext(e: MouseEvent): void {
         canCol: info.colCount > 1,
         canAbove: info.cursorLine > info.startLine + 1,
         canMoveLeft: info.colIndex > 0,
-        canMoveRight: info.colIndex < info.colCount - 1
+        canMoveRight: info.colIndex < info.colCount - 1,
+        // 行移动边界：表头(0)/分隔行(1)/首个数据行(2)禁上移；末行禁下移
+        canMoveRowUp: blockIdx >= 3,
+        canMoveRowDown: blockIdx >= 2 && info.cursorLine < info.endLine
       },
       { kind: 'cm', view, info }
     )

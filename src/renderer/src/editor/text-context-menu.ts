@@ -305,9 +305,17 @@ function runParaAction(action: string, target: 'pm' | 'cm'): void {
       return
     }
     case 'code': {
-      const codeT = view.state.schema.nodes.code_block
+      const codeT = state.schema.nodes.code_block
       if (!codeT) return
-      tr.setNodeMarkup($pos.before(), codeT)
+      // 不能 setNodeMarkup 原地改类型：code_block 只收纯文本，段落里的行内
+      // 节点/标记让它不合法，事务被丢弃——表现为「点了没反应」（第 19 批实测）
+      const text = $pos.parent.textContent
+      const node = codeT.create({ language: '' }, text ? state.schema.text(text) : null)
+      const from = $pos.before()
+      const to = $pos.after()
+      tr.replaceWith(from, to, node)
+      // 光标落块内末尾（继续写代码）
+      tr.setSelection(TextSelection.near(tr.doc.resolve(from + 1 + text.length), -1))
       break
     }
   }
@@ -390,6 +398,18 @@ export function initTextContextMenu(): void {
           if (!inside) {
             view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(pos))))
           }
+        }
+      }
+    } else {
+      // 源码侧同理：右键不移动 CM 光标，段落转换会作用到旧光标所在行
+      // （右键第三行却改了第一行的实测 bug）。点落在已有选区内时保留选区。
+      const view = liveCm()
+      if (view) {
+        const pos = view.posAtCoords({ x: e.clientX, y: e.clientY })
+        if (pos != null) {
+          const sel = view.state.selection.main
+          const inside = !sel.empty && pos >= sel.from && pos <= sel.to
+          if (!inside) view.dispatch({ selection: { anchor: pos } })
         }
       }
     }

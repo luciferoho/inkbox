@@ -22,12 +22,15 @@ export type TableOp =
   | { kind: 'row-above' }
   | { kind: 'row-below' }
   | { kind: 'row-delete' }
+  | { kind: 'row-up' }
+  | { kind: 'row-down' }
   | { kind: 'col-left' }
   | { kind: 'col-right' }
   | { kind: 'col-delete' }
   | { kind: 'col-move-left' }
   | { kind: 'col-move-right' }
   | { kind: 'align'; how: 'left' | 'center' | 'right' | 'none' }
+  | { kind: 'format-table' }
   | { kind: 'table-delete' }
 
 export interface TableEdit {
@@ -144,6 +147,22 @@ export function applyTableOp(
       const cl = Math.min(idx, lines.length - 1)
       return { lines, cursorLine: cl, cursorCol: Math.min(info.colIndex, colCount - 1) }
     }
+    case 'row-up': {
+      // 与上一数据行整行交换；表头(0)/分隔行(1)不可动，首个数据行(2)上移 = 顶到
+      // 分隔行，同样不可执行（Typora 同语义，菜单按此禁用）
+      if (idx < 3 || idx >= lines.length) return null
+      const tmp = lines[idx - 1]
+      lines[idx - 1] = lines[idx]
+      lines[idx] = tmp
+      return { lines, cursorLine: idx - 1, cursorCol: Math.min(info.colIndex, colCount - 1) }
+    }
+    case 'row-down': {
+      if (idx < 2 || idx >= lines.length - 1) return null
+      const tmp = lines[idx + 1]
+      lines[idx + 1] = lines[idx]
+      lines[idx] = tmp
+      return { lines, cursorLine: idx + 1, cursorCol: Math.min(info.colIndex, colCount - 1) }
+    }
     case 'col-left': {
       mapCells(info.colIndex, false, '')
       return { lines, cursorLine: idx, cursorCol: info.colIndex }
@@ -172,6 +191,39 @@ export function applyTableOp(
       }
       return { lines, cursorLine: idx, cursorCol: to }
     }
+    case 'format-table': {
+      // Typora「格式化表格源码」同语义：内容不变，各列按最大显示宽（CJK/全角
+      // 记 2）补空格对齐；分隔行保留对齐标记并补齐到列宽
+      const cellRows = lines.map((l) => splitCells(l))
+      const colN = Math.max(colCount, ...cellRows.map((cs) => cs.length), 1)
+      const widths: number[] = []
+      for (let c = 0; c < colN; c++) {
+        let w = 3
+        for (let i = 0; i < cellRows.length; i++) {
+          if (i === 1) continue // 分隔行不参与测宽
+          w = Math.max(w, dispWidth(cellRows[i]?.[c] ?? ''))
+        }
+        widths.push(w)
+      }
+      const out = cellRows.map((cs, i) => {
+        const filled: string[] = []
+        for (let c = 0; c < colN; c++) {
+          const raw = cs[c] ?? (i === 1 ? '---' : '')
+          if (i === 1) {
+            const m = /^(:?)(-+)\??(:?)$/.exec(raw.trim()) ?? /^(:?)()(:?)$/.exec('---')
+            const lead = m?.[1] ?? ''
+            const trail = m?.[3] ?? ''
+            const dashes = Math.max(1, widths[c] - lead.length - trail.length)
+            filled.push((lead + '-'.repeat(dashes) + trail).padEnd(widths[c], '-'))
+          } else {
+            filled.push(raw + ' '.repeat(Math.max(0, widths[c] - dispWidth(raw))))
+          }
+        }
+        return `| ${filled.join(' | ')} |`
+      })
+      lines.splice(0, lines.length, ...out)
+      return { lines, cursorLine: idx, cursorCol: Math.min(info.colIndex, colN - 1) }
+    }
     case 'align': {
       const cells = splitCells(lines[1])
       while (cells.length < colCount) cells.push('---')
@@ -183,4 +235,68 @@ export function applyTableOp(
     case 'table-delete':
       return { lines: [], cursorLine: 0, cursorCol: 0 }
   }
+}
+
+/** 分隔行单元格归一：至少 3 个连字符并保留对齐标记（`:---` / `:---:` / `---:`）。
+ *  GFM 要求分隔行每格 ≥3 个 `-`——少于 3 个时该行不是分隔行，整张表退化为
+ *  普通段落（milkdown 的 markdown-table 序列化器会按内容宽度缩到 1-2 个，
+ *  存盘后预览与其它编辑器直接渲染失败） */
+function normalizeSepCell(raw: string): string {
+  const t = raw.trim()
+  const lead = t.startsWith(':') ? ':' : ''
+  const trail = t.endsWith(':') ? ':' : ''
+  const inner = t.replace(/^:/, '').replace(/:$/, '')
+  const dashes = Math.max(3, inner.replace(/[^:-]/g, '').length)
+  return lead + '-'.repeat(dashes) + trail
+}
+
+/** 即显写回前归一化表格源码：markdown-table 会把整表按显示宽度重排
+ *  （补空格、分隔行缩到 1-2 个连字符）。这里把表格块压回紧凑形态
+ *  `| a | b |`、分隔行统一 ≥3 连字符；已规范的表格输出逐字节不变。
+ *  跳过代码围栏内的 | 行。 */
+export function normalizeTables(md: string): string {
+  const lines = md.split('\n')
+  const isRow = (l: string): boolean => /^[ \t]*\|/.test(l)
+  const isSep = (l: string): boolean =>
+    isRow(l) && splitCells(l).every((c) => /^:?-{1,}:?$/.test(c))
+  let fence: string | null = null
+  for (let i = 0; i < lines.length; i++) {
+    const fm = /^[ \t]*(`{3,}|~{3,})/.exec(lines[i])
+    if (fm) {
+      if (fence === null) fence = fm[1].slice(0, 1).repeat(3)
+      else if (lines[i].trimStart().startsWith(fence)) fence = null
+      continue
+    }
+    if (fence !== null) continue
+    // 表格块起始：本行是 | 行且下一行是分隔行
+    if (!isRow(lines[i]) || i + 1 >= lines.length || !isSep(lines[i + 1])) continue
+    const indent = /^[ \t]*/.exec(lines[i])![0]
+    const start = i
+    let end = i + 1
+    while (end + 1 < lines.length && isRow(lines[end + 1])) end++
+    for (let k = start; k <= end; k++) {
+      const cells = splitCells(lines[k])
+      const body =
+        k === start + 1
+          ? cells.map(normalizeSepCell)
+          : cells.map((c) => c)
+      lines[k] = indent + `| ${body.join(' | ')} |`
+    }
+    i = end
+  }
+  return lines.join('\n')
+}
+
+const WIDE_CHAR_RE =
+  /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6\u3000-\u303F\u2190-\u21FF\u{1F300}-\u{1FAFF}]/u
+
+/** 显示宽度：CJK/全角/常用 emoji 记 2，其余记 1（源码列对齐用）。
+ *  星形区（emoji）必须用 \u{} + u 标志——裸 \u1F300 会被切成 \u1F30+字面量，
+ *  产生覆盖 ASCII 的杂散范围（A1 都算宽字符，列对齐全错） */
+function dispWidth(s: string): number {
+  let w = 0
+  for (const ch of s) {
+    w += WIDE_CHAR_RE.test(ch) ? 2 : 1
+  }
+  return w
 }

@@ -20,7 +20,9 @@ import {
   wrapInBlockquoteCommand,
   wrapInBulletListCommand,
   wrapInOrderedListCommand,
-  toggleInlineCodeCommand
+  toggleInlineCodeCommand,
+  toggleStrongCommand,
+  toggleEmphasisCommand
 } from '@milkdown/kit/preset/commonmark'
 import {
   gfm,
@@ -80,6 +82,7 @@ import {
   widthsFromDom,
 } from '@/editor/table-widths'
 import { registerPmTableExecutor, type TableMenuAction } from '@/editor/table-context-menu'
+import { normalizeTables } from '@/editor/table-utils'
 import { writeClipboard } from '@/editor/code-copy'
 import { createElementToolbar, findTableSelection, type ElToolbarState } from '@/editor/pm-element-toolbar'
 import { createCodeblockChromePlugin, openLangEditorFor } from '@/editor/pm-codeblock-chrome'
@@ -490,6 +493,48 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     }
   }
 
+  /* 表格内 Alt+方向键：整行/整列移动（Typora 同键位，与右键菜单同语义） */
+  if (event.altKey && !event.ctrlKey && !event.metaKey && inTable(state)) {
+    const meta = findTableSelection(view)
+    if (meta) {
+      let moved = false
+      if (event.key === 'ArrowUp' && meta.row >= 2) {
+        moved = movePmRow(view, meta.pos, meta.row, meta.row - 1)
+      } else if (event.key === 'ArrowDown') {
+        moved = movePmRow(view, meta.pos, meta.row, meta.row + 1)
+      } else if (event.key === 'ArrowLeft' && meta.col > 0) {
+        moved = movePmColumn(view, meta.pos, meta.col, meta.col - 1)
+      } else if (event.key === 'ArrowRight') {
+        moved = movePmColumn(view, meta.pos, meta.col, meta.col + 1)
+      }
+      if (moved) {
+        event.preventDefault()
+        const toRow =
+          event.key === 'ArrowUp' ? meta.row - 1 : event.key === 'ArrowDown' ? meta.row + 1 : meta.row
+        const toCol =
+          event.key === 'ArrowLeft' ? meta.col - 1 : event.key === 'ArrowRight' ? meta.col + 1 : meta.col
+        // 行移动用带落点验证的精确定位（collapseTableSelection 的复合偏移在行交换后
+        // 会滑出表格——连续 Alt+↑/↓ 就错行）；列移动不改变行列地址，沿用原实现
+        if (toRow !== meta.row) selectPmTableCell(view, meta.pos, toRow, toCol)
+        else collapseTableSelection(view, toRow, toCol)
+        return true
+      }
+    }
+  }
+
+  /* 表格内 Ctrl+Enter：下方插入一行（Typora 同键位） */
+  if (event.ctrlKey && !event.altKey && !event.shiftKey && event.key === 'Enter' && inTable(state)) {
+    event.preventDefault()
+    elTable(callCommand(addRowAfterCommand.key))
+    return true
+  }
+
+  /* 表格内 Ctrl+Shift+Backspace：删除当前行（Typora 同键位） */
+  if (event.ctrlKey && event.shiftKey && event.key === 'Backspace' && inTable(state)) {
+    event.preventDefault()
+    return executeTableMenuAction('row-delete')
+  }
+
   if (event.key === 'Tab') {
     // 始终拦截:普通段落放行 Tab 会被浏览器抢走焦点(跳到状态栏按钮)
     event.preventDefault()
@@ -778,7 +823,9 @@ function fromWysiwygSource(md: string): string {
       .map((seg) => (seg.startsWith('`') ? seg : seg.replace(/\\([$~])/g, '$1')))
       .join('')
   }
-  let out = lines.join('\n')
+  // 表格源码归一化：milkdown 的 gfm 序列化器会把整表重排（按显示宽度补空格、
+  // 分隔行缩到 1-2 个连字符 → 存盘后不再是合法 GFM 表格），写回前压回紧凑形态
+  let out = normalizeTables(lines.join('\n'))
   if (!docDir) return out
   return out.replace(/\]\(luci-img:\/\/([^)\s]+)\)/g, (_whole, enc: string) => {
     let abs: string
@@ -1654,6 +1701,80 @@ function movePmColumn(
   return true
 }
 
+/** 整行交换（行 0 是表头行，from/to 必须 ≥1；从远端往近端替换防位置漂移）。
+ *  Typora「上移/下移该行」同语义，Alt+↑/↓ 与右键菜单共用 */
+function movePmRow(
+  view: EditorView,
+  tablePos: number,
+  from: number,
+  to: number
+): boolean {
+  const table = view.state.doc.nodeAt(tablePos)
+  if (!table || table.type.name !== 'table') return false
+  if (from < 1 || to < 1 || from === to || from >= table.childCount || to >= table.childCount) {
+    return false
+  }
+  const rowPos = (idx: number): number => {
+    let p = tablePos + 1
+    for (let i = 0; i < idx; i++) p += table.child(i).nodeSize
+    return p
+  }
+  const rowFrom = table.child(from)
+  const rowTo = table.child(to)
+  const posFrom = rowPos(from)
+  const posTo = rowPos(to)
+  const tr = view.state.tr
+  if (to > from) {
+    tr.replaceWith(posTo, posTo + rowTo.nodeSize, rowFrom)
+    tr.replaceWith(posFrom, posFrom + rowFrom.nodeSize, rowTo)
+  } else {
+    tr.replaceWith(posFrom, posFrom + rowFrom.nodeSize, rowTo)
+    tr.replaceWith(posTo, posTo + rowTo.nodeSize, rowFrom)
+  }
+  view.dispatch(tr)
+  return true
+}
+
+/** 行移动后把光标精确放进目标行/列的单元格（带落点验证：near 若滑出该表格
+ *  则不动光标——collapseTableSelection 的复合偏移在行交换后实测会落到表外，
+ *  连续快捷键移动就错行） */
+function selectPmTableCell(
+  view: EditorView,
+  tablePos: number,
+  row: number,
+  col: number
+): void {
+  const table = view.state.doc.nodeAt(tablePos)
+  if (!table || row < 0 || row >= table.childCount) return
+  const rowNode = table.child(row)
+  if (col < 0 || col >= rowNode.childCount) return
+  let rowOff = -1
+  let cellOff = -1
+  table.forEach((rNode, rOff2, rIdx) => {
+    if (rIdx === row) {
+      rowOff = rOff2
+      rNode.forEach((_c, cOff2, cIdx) => {
+        if (cIdx === col) cellOff = cOff2
+      })
+    }
+  })
+  if (rowOff < 0 || cellOff < 0) return
+  // table开口 → 行开口 → 单元格开口 → 段落内容
+  const $pos = view.state.doc.resolve(tablePos + 1 + rowOff + 1 + cellOff + 2)
+  if (!$pos.parent.isTextblock) return
+  const sel = TextSelection.near($pos)
+  // 落点验证：必须在同一张表内（near 滑出则放弃，保持原光标）
+  let inside = false
+  for (let d = sel.$from.depth; d > 0; d--) {
+    if (sel.$from.node(d).type.name === 'table' && sel.$from.before(d) === tablePos) {
+      inside = true
+      break
+    }
+  }
+  if (!inside) return
+  view.dispatch(view.state.tr.setSelection(sel).scrollIntoView())
+}
+
 /* ---------- 表格右键菜单（2.3）：菜单动作 → Milkdown gfm 命令 ----------
    contextmenu 已把光标落到点击单元格（Chromium 原生行为），行列定位用
    findTableSelection 按当前选区复算，不依赖浮层工具条的状态。 */
@@ -1665,6 +1786,23 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
     return true
   }
   switch (action) {
+    /* 常用格式（Typora 表格右键同样提供；表格单元格内也能就地加粗/链接） */
+    case 'cut':
+    case 'copy':
+    case 'paste':
+      return false // 剪贴板走 table-context-menu 的通用路径
+    case 'bold':
+      return milkCmd(callCommand(toggleStrongCommand.key))
+    case 'italic':
+      return milkCmd(callCommand(toggleEmphasisCommand.key))
+    case 'inline-code':
+      return milkCmd(callCommand(toggleInlineCodeCommand.key))
+    case 'strike':
+      return milkCmd(callCommand(toggleStrikethroughCommand.key))
+    case 'link': {
+      const v = getView()
+      return v ? pmToggleLink(v) : false
+    }
     case 'row-above': {
       // 表头之上不可插入（菜单已禁用；命令层同样拒绝）
       const view = getView()
@@ -1700,6 +1838,16 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
       if (!view || !meta) return false
       const to = meta.col + (action === 'col-move-left' ? -1 : 1)
       return movePmColumn(view, meta.pos, meta.col, to)
+    }
+    case 'row-move-up':
+    case 'row-move-down': {
+      const view = getView()
+      const meta = view ? findTableSelection(view) : null
+      if (!view || !meta) return false
+      const to = meta.row + (action === 'row-move-up' ? -1 : 1)
+      const ok = movePmRow(view, meta.pos, meta.row, to)
+      if (ok) selectPmTableCell(view, meta.pos, to, meta.col)
+      return ok
     }
     case 'align-left':
     case 'align-center':
@@ -1747,6 +1895,9 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
       view.dispatch(tr)
       return true
     }
+    case 'format-table':
+      // 源码层面的排版（对齐源码列宽），即显/预览没有源码可排版——菜单只发给 CM
+      return false
   }
 }
 registerPmTableExecutor(executeTableMenuAction)
