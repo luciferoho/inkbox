@@ -60,6 +60,8 @@ class MermaidCodeView implements NodeView {
   private renderSeq = 0
   /** 当前渲染内容指纹：update 时判断是否需要重画 */
   private renderedCode: string | null = null
+  /** 编辑态实时预览的防抖定时器 */
+  private renderTimer: number | null = null
 
   constructor(
     node: PMNode,
@@ -119,7 +121,11 @@ class MermaidCodeView implements NodeView {
     if (this.isMermaid() !== wasMermaid) return false // 语言切换：交给 PM 重建视图
     if (this.isMermaid()) {
       const code = node.textContent
-      if (!this.editing && code !== this.renderedCode) void this.render()
+      if (code !== this.renderedCode) {
+        // 编辑态实时预览（Typora 语义）：源码改动防抖重画；非编辑态维持即时重画
+        if (this.editing) this.scheduleRender()
+        else void this.render()
+      }
     }
     return true
   }
@@ -127,6 +133,7 @@ class MermaidCodeView implements NodeView {
   destroy(): void {
     liveViews.delete(this)
     this.renderSeq++
+    if (this.renderTimer !== null) window.clearTimeout(this.renderTimer)
     this.dom.removeEventListener('mousedown', this.onMouseDown)
   }
 
@@ -136,7 +143,20 @@ class MermaidCodeView implements NodeView {
     if (!this.isMermaid() || this.editing === on) return
     this.editing = on
     this.dom.classList.toggle('md-mermaid--editing', on)
-    if (!on && this.node.textContent !== this.renderedCode) void this.render()
+    if (this.node.textContent !== this.renderedCode) {
+      if (on) this.scheduleRender()
+      else void this.render()
+    }
+  }
+
+  /** 编辑态实时预览（Typora 语义）：源码改动 300ms 防抖后重画。
+   *  编辑中渲染失败保留上一次成功图表（render 失败路径按 editing 分流） */
+  private scheduleRender(): void {
+    if (this.renderTimer !== null) window.clearTimeout(this.renderTimer)
+    this.renderTimer = window.setTimeout(() => {
+      this.renderTimer = null
+      void this.render()
+    }, 300)
   }
 
   get pos(): number | null {
@@ -208,7 +228,8 @@ class MermaidCodeView implements NodeView {
 
     const m = await loadMermaid(dark)
     if (!m) {
-      this.showError(seq, code)
+      if (this.editing) this.failKeepRender(seq)
+      else this.showError(seq, code)
       return
     }
     // 渲染轮次前重应用当前主题配置（HMR 重挂载/切主题窗口期防旧配置）
@@ -247,11 +268,20 @@ class MermaidCodeView implements NodeView {
       return
     }
     if (html === null) {
-      this.showError(seq, code)
+      if (this.editing) this.failKeepRender(seq)
+      else this.showError(seq, code)
       return
     }
     setMermaidCache(key, html)
     this.applyHtml(seq, code, html)
+  }
+
+  /** 编辑态渲染失败（语法错误中途态）：只摘 loading，renderDiv 里上一次成功的
+   *  SVG 原样保留（innerHTML 未被触碰），不闪源码降级/错误图；renderedCode
+   *  不更新，下次输入继续尝试 */
+  private failKeepRender(seq: number): void {
+    if (seq !== this.renderSeq || !this.renderDiv) return
+    this.renderDiv.classList.remove('md-mermaid--loading')
   }
 
   private applyHtml(seq: number, code: string, html: string): void {

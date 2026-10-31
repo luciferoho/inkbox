@@ -76,9 +76,8 @@ const segs = computed<Seg[]>(() => tokenize(props.node.text))
         height="11"
         @click.stop="emit('toggle', node.line)"
       >
-        <!-- 展开 ⌄ / 折叠 ›（Typora 角标） -->
-        <path class="cv-down" d="M2 3.6L5 6.6L8 3.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-        <path class="cv-right" d="M3.6 2L6.6 5L3.6 8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+        <!-- 展开 ⌄ / 折叠 ›（同一 path 旋转 -90° 切换，带过渡） -->
+        <path d="M2 3.6L5 6.6L8 3.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
       <i v-else class="tick" />
       <span class="name"
@@ -109,18 +108,25 @@ const segs = computed<Seg[]>(() => tokenize(props.node.text))
   gap: 8px;
   width: 100%;
   height: 27px;
-  /* 层级缩进走 --depth（主题模式在 base.css 覆盖步长） */
+  /* 层级缩进走 --depth（主题模式在 base.css 覆盖步长）；
+     hover 右移 2px 的微缩进随 transition 滑动（Typora 手感） */
   padding-left: calc(8px + (var(--depth, 1) - 1) * 14px);
   padding-right: 8px;
   border-radius: var(--radius-s);
   color: var(--text-2);
   font-size: 12.5px;
   text-align: left;
+  transition: background 0.16s ease, color 0.16s ease, padding-left 0.16s ease;
 }
 
 .node:hover {
   background: var(--surface-2);
   color: var(--text);
+  padding-left: calc(10px + (var(--depth, 1) - 1) * 14px);
+}
+
+.node:active {
+  background: var(--accent-soft);
 }
 
 .node.on {
@@ -135,6 +141,8 @@ const segs = computed<Seg[]>(() => tokenize(props.node.text))
   margin: -3px 0;
   border-radius: 3px;
   cursor: pointer;
+  /* 折叠/展开：角标旋转过渡（Typora 手感），不再切换双 path */
+  transition: transform 0.16s ease;
 }
 
 .chev:hover {
@@ -142,17 +150,9 @@ const segs = computed<Seg[]>(() => tokenize(props.node.text))
   background: var(--accent-soft);
 }
 
-/* 角标状态：展开 ⌄ / 折叠 ›（Typora 约定） */
-.chev .cv-right {
-  display: none;
-}
-
-.chev.closed .cv-down {
-  display: none;
-}
-
-.chev.closed .cv-right {
-  display: block;
+/* 角标状态：展开 ⌄ / 折叠 ›（右转 90°，随过渡旋转） */
+.chev.closed {
+  transform: rotate(-90deg);
 }
 
 .tick {
@@ -163,6 +163,13 @@ const segs = computed<Seg[]>(() => tokenize(props.node.text))
   opacity: 0.6;
   flex-shrink: 0;
   margin: 0 5px;
+  transition: transform 0.16s ease, opacity 0.16s ease, background 0.16s ease;
+}
+
+/* 悬停行：占位圆点点亮微放大，行内有了「落点」反馈 */
+.node:hover .tick {
+  opacity: 0.95;
+  transform: scale(1.7);
 }
 
 .node.on .tick {

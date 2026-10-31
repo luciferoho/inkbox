@@ -57,6 +57,7 @@ import {
   findReplaceAll
 } from '@/editor/pm-find'
 import { createCenterPlugin } from '@/editor/pm-center'
+import { curHeadingLevel, pmSetHeading as pmSetHeadingLine } from '@/editor/pm-heading'
 import { createGhAlertsPlugin } from '@/editor/gh-alerts'
 import { findState, sameQuery } from '@/editor/find-state'
 import { saveViewProgress, loadView, clearViewAnchor } from '@/editor/tab-view-state'
@@ -258,15 +259,6 @@ function milkCmd(action: Parameters<Editor['action']>[0]): boolean {
   }
 }
 
-/** 光标当前所在标题级别（不在标题内为 null） */
-function curHeadingLevel(state: EditorState): number | null {
-  const { $from } = state.selection
-  for (let d = $from.depth; d >= 1; d--) {
-    if ($from.node(d).type.name === 'heading') return Number($from.node(d).attrs.level ?? 1)
-  }
-  return null
-}
-
 /** 多软行块（段落/标题内含硬换行）按行拆成独立段落，返回是否拆过。
  *  markdown 标题是行级块，整块转标题会把软行全部卷进去（下面的文字样式
  *  跟着变，序列化还会吞行）；源码侧 Ctrl+N 是按行改写——拆齐语义 */
@@ -292,106 +284,15 @@ function splitHardbreakLines(view: EditorView): boolean {
   return true
 }
 
-/** 块内是否含硬换行（软行） */
-function hasHardbreaks(node: PMNode): boolean {
-  let found = false
-  node.forEach((child) => {
-    if (child.type.name === 'hardbreak') found = true
-  })
-  return found
-}
-
-/** 设标题级别；同级再按退回正文（与源码 setHeading 的 toggle 语义一致） */
+/** 设标题级别；同级再按退回正文（与源码 setHeading 的 toggle 语义一致）。
+ *  实现收口在 pm-heading（快捷键与右键菜单同一条路径），这里只传
+ *  milkdown 命令 fallback（列表项外等边界维持原行为） */
 function pmSetHeading(view: EditorView, level: number): boolean {
-  const { state } = view
-  const { from, to, $from } = state.selection
-  const parent = $from.parent
-  const headingT = state.schema.nodes.heading
-  const paraT = state.schema.nodes.paragraph
-  if (!headingT || !paraT) return false
-  if (parent.type.name !== 'paragraph' && parent.type.name !== 'heading') {
-    // 列表项/引用内等场景：维持 milkdown 命令路径
-    if (curHeadingLevel(state) === level) return milkCmd(callCommand(turnIntoTextCommand.key))
-    return milkCmd(callCommand(wrapInHeadingCommand.key, level))
-  }
-  if (!hasHardbreaks(parent)) {
-    const same = parent.type.name === 'heading' && Number(parent.attrs.level ?? 1) === level
-    // 列表项内转标题：先整项提升出列表再设级别（Typora 语义；列表内直接改
-    // paragraph → heading 会被列表结构吞掉，表现为按键无反应）
-    let listDepth = -1
-    for (let d = $from.depth; d >= 1; d--) {
-      const nm = $from.node(d).type.name
-      if (nm === 'bullet_list' || nm === 'ordered_list') {
-        listDepth = d
-        break
-      }
-    }
-    if (listDepth >= 0) {
-      const itemType = state.schema.nodes.list_item
-      if (!itemType || !liftListItem(itemType)(state, view.dispatch)) return false
-      const st2 = view.state
-      if (!(st2.selection instanceof TextSelection)) return false
-      const at2 = st2.selection.$from.before()
-      const tr2 = st2.tr.setNodeMarkup(at2, same ? paraT : headingT, same ? undefined : { level })
-      view.dispatch(tr2.scrollIntoView())
-      return true
-    }
-    // 单行块：toggle（同级 → 正文）。直接 setNodeMarkup——milkdown 的
-    // wrapInHeadingCommand 在「光标在段落末尾」等边界会误伤相邻块（实测把
-    // 下一行设为标题），与右键「段落转换」共用同一语义
-    const at = $from.before()
-    const tr = state.tr
-    tr.setNodeMarkup(at, same ? paraT : headingT, same ? undefined : { level })
-    view.dispatch(tr.scrollIntoView())
-    return true
-  }
-  // 多软行块：拆行 + 与选区相交的行设级、其余行退回正文（一次事务）
-  const start = $from.start()
-  const hbs: number[] = []
-  parent.forEach((child, offset) => {
-    if (child.type.name === 'hardbreak') hbs.push(start + offset)
-  })
-  const tr = state.tr
-  for (let i = hbs.length - 1; i >= 0; i--) {
-    const p = hbs[i]
-    tr.split(p)
-    // split 在 p 处插入闭合/开启 token，硬换行随映射移到 p+2：按 mapping 取真实位置删除
-    const hp = tr.mapping.map(p, 1)
-    tr.delete(hp, hp + 1)
-  }
-  const mappedFrom = tr.mapping.map(from)
-  const mappedTo = tr.mapping.map(to)
-  const lineCount = hbs.length + 1
-  const lines: { pos: number; node: PMNode }[] = []
-  let pos = tr.mapping.map($from.before())
-  for (let i = 0; i < lineCount; i++) {
-    const node = tr.doc.nodeAt(pos)
-    if (!node) break
-    lines.push({ pos, node })
-    pos += node.nodeSize
-  }
-  // 光标所在行：行尾归属当前行（首个「行尾 ≥ 光标」的行）
-  const caretIdx = Math.max(
-    0,
-    lines.findIndex((l) => mappedFrom <= l.pos + l.node.nodeSize)
+  return pmSetHeadingLine(view, level, (st, lv) =>
+    curHeadingLevel(st) === lv
+      ? milkCmd(callCommand(turnIntoTextCommand.key))
+      : milkCmd(callCommand(wrapInHeadingCommand.key, lv))
   )
-  let touched = false
-  lines.forEach((l, i) => {
-    const lineTo = l.pos + l.node.nodeSize
-    // 范围选区：与选区相交的行都设级；纯光标：只设所在行
-    const hit = from !== to ? mappedTo > l.pos && mappedFrom < lineTo : i === caretIdx
-    if (hit) {
-      tr.setNodeMarkup(l.pos, headingT, { level })
-      touched = true
-    } else if (l.node.type.name !== 'paragraph') {
-      tr.setNodeMarkup(l.pos, paraT)
-    }
-  })
-  if (!touched && lines[caretIdx]) {
-    tr.setNodeMarkup(lines[caretIdx].pos, headingT, { level })
-  }
-  view.dispatch(tr.scrollIntoView())
-  return true
 }
 
 /** 标题升级/降级（与源码 shiftHeading 一致）：无标题按方向落到 h1/h2，封顶 h1/h6 */
@@ -2110,7 +2011,48 @@ onBeforeUnmount(() => {
   editor = null
 })
 
-function onHostMousedown(): void {
+/** 文档尾部聚焦（Typora 语义，2026-10-31 反馈）：点击最后一块下方的空白
+ *  （luci-prose 40vh 底部 padding）也要能落下光标。尾部是代码块/图表/公式/
+ *  表格这类块时先补一个空段落再落进去——否则从图表编辑态点下方退不出去，
+ *  只有点图表上方才有效 */
+function focusDocEnd(view: EditorView, clientY: number): boolean {
+  let endBottom: number
+  try {
+    endBottom = view.coordsAtPos(view.state.doc.content.size).bottom
+  } catch {
+    return false
+  }
+  if (clientY <= endBottom) return false
+  const { state } = view
+  const tr = state.tr
+  const last = state.doc.lastChild
+  // 尾部非段落/标题块：没有可直接落光标的位置，补空段落（near() 只会落回块内）
+  if (last && last.type.name !== 'paragraph' && last.type.name !== 'heading') {
+    const paraT = state.schema.nodes.paragraph
+    if (!paraT) return false
+    tr.insert(state.doc.content.size, paraT.create())
+  }
+  tr.setSelection(TextSelection.near(tr.doc.resolve(tr.doc.content.size), -1))
+  view.dispatch(tr)
+  view.focus()
+  return true
+}
+
+function onHostMousedown(e: MouseEvent): void {
+  const target = e.target as HTMLElement | null
+  // 仅内容区下方空白（点击落在 .luci-prose/.wysiwyg-host 自身，不在任何子元素上）；
+  // 其余点击交给 PM 常规定位。顶部/两侧 padding 由 clientY 阈值排除
+  if (target && (target.classList.contains('luci-prose') || target === host.value)) {
+    try {
+      const view = editor?.action((ctx) => ctx.get(editorViewCtx))
+      if (view && focusDocEnd(view, e.clientY)) {
+        e.preventDefault()
+        return
+      }
+    } catch {
+      /* 编辑器未就绪时忽略 */
+    }
+  }
   try {
     const view = editor?.action((ctx) => ctx.get(editorViewCtx))
     if (view && !view.hasFocus) view.focus()

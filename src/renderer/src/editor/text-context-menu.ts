@@ -10,6 +10,7 @@ import { accelKeys, effectiveShortcuts } from '@shared/shortcuts'
 import { cmViews } from './cm-registry'
 import { pmViews } from './pm-registry'
 import { INSERT_COMMANDS, runInsertCommand } from './insert-commands'
+import { pmSetHeading } from './pm-heading'
 import { useUiStore } from '@/stores/ui'
 
 /**
@@ -240,7 +241,6 @@ function runParaAction(action: string, target: 'pm' | 'cm'): void {
   if (!(state.selection instanceof TextSelection)) return
   const { $from } = state.selection
   const paraT = state.schema.nodes.paragraph
-  const headT = state.schema.nodes.heading
   // 列表项内转块类型（标题/正文/代码块）：先整项提升出列表——列表内直接改
   // paragraph → heading 会被列表结构吞掉，表现为「点了没反应」（与快捷键路径同语义）
   if (action === 'body' || action === 'code' || /^h[1-6]$/.test(action)) {
@@ -263,13 +263,9 @@ function runParaAction(action: string, target: 'pm' | 'cm'): void {
   const $pos = cur.$from
   const tr = view.state.tr
   if (action.startsWith('h') && /^[1-6]$/.test(action[1] ?? '')) {
-    const level = Number(action[1])
-    if (!headT) return
-    const at = $pos.before()
-    const node = $pos.parent
-    const same = node.type.name === 'heading' && Number(node.attrs.level ?? 1) === level
-    tr.setNodeMarkup(at, same ? paraT : headT, same ? undefined : { level })
-    view.dispatch(tr.scrollIntoView())
+    // 与快捷键同一条路径（pm-heading）：多软行块先按行拆开、只设光标所在行，
+    // 不再整段卷进同一个标题（与源码侧的行级语义一致，2026-10-31 反馈）
+    pmSetHeading(view, Number(action[1]))
     return
   }
   switch (action) {

@@ -113,22 +113,6 @@
   cursor: text;
 }
 
-/* 即显代码块行号（pm-codeblock-chrome 行号 widget）：每逻辑行行首一个，
-   与预览行号观感一致；不可编辑不选中（widget decoration 不进文档） */
-/* 行号留白用 padding 而非 margin：光标落行首时画在 widget 盒右缘，
-   margin 会让光标压在数字右侧（视觉与行号重叠）；padding 使光标落在文本起点 */
-.wysiwyg-host .luci-prose pre .pm-code-ln {
-  display: inline-block;
-  min-width: 2.1em;
-  padding-right: 1.2em;
-  text-align: right;
-  color: var(--code-comment);
-  user-select: none;
-  pointer-events: auto;
-  cursor: text;
-  font-variant-numeric: tabular-nums;
-}
-
 /* 代码块 chrome：语言标签栏 + 复制按钮（pm-codeblock-chrome 的 widget 栏 + 相邻 pre） */
 .wysiwyg-host .luci-prose .md-code-bar {
   display: flex;
@@ -518,6 +502,8 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   padding: 1px 3px;
   border-radius: 4px;
   cursor: pointer;
+  /* 渲染结果是展示层（KaTeX 碎片文本），不可选中——编辑走源码态（2026-10-31 反馈） */
+  user-select: none;
 }
 
 .wysiwyg-host .luci-prose math-block .luci-math-render {
@@ -569,8 +555,25 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   display: inline-block;
 }
 
-.wysiwyg-host .luci-prose .luci-math--editing .luci-math-render {
+/* 编辑态渲染区：行内公式空间不够，保持隐藏（离开编辑态呈现）；
+   块级公式实时预览（Typora 语义）：源码在上，KaTeX 实时渲染在下，
+   update() 里编辑中同步重渲染 */
+.wysiwyg-host .luci-prose math-inline.luci-math--editing .luci-math-render {
   display: none;
+}
+
+.wysiwyg-host .luci-prose math-block.luci-math--editing {
+  display: flex;
+  flex-direction: column;
+}
+.wysiwyg-host .luci-prose math-block.luci-math--editing .luci-math-src {
+  order: 1;
+}
+.wysiwyg-host .luci-prose math-block.luci-math--editing .luci-math-render {
+  order: 2;
+  display: block;
+  margin-top: 10px;
+  opacity: 0.92;
 }
 
 /* 编辑态外框（选中高亮由 ProseMirror-selectednode 提供，这里补内层呼吸感） */
@@ -583,6 +586,8 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
    pre 外壳与语言标签栏/复制按钮（pm-codeblock-chrome）完全兼容 */
 .wysiwyg-host .luci-prose pre.md-mermaid {
   position: relative;
+  /* 图表块整体是渲染卡片，无行号：顶部收紧（语言栏与图表间距对齐 Typora，2026-10-31 反馈） */
+  padding: 8px 16px 14px;
 }
 
 .wysiwyg-host .luci-prose .md-mermaid-render {
@@ -591,10 +596,11 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   align-items: center;
   min-height: 56px;
   padding: 12px 16px;
-  margin-top: 26px; /* 给 chrome 语言标签栏留位（widget 插在 pre 之前，占位行高对齐） */
   border-radius: 8px;
   background: var(--surface-2);
   cursor: pointer;
+  /* 图表是展示层（SVG 文本碎片），不可选中——编辑走源码态（2026-10-31 反馈） */
+  user-select: none;
 }
 
 .wysiwyg-host .luci-prose .md-mermaid-render:hover {
@@ -612,7 +618,14 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   font-size: 13px;
 }
 
-/* 编辑态：显示源码（code 元素），隐藏图表 */
+/* 编辑态：源码（code 元素）+ 图表实时预览同屏（Typora 语义）——
+   pre 走 flex 纵排，渲染区排到源码下方；源码改动由 nodeView 防抖重画，
+   失败时保留上一次成功图表（wysiwyg-mermaid failKeepRender） */
+.wysiwyg-host .luci-prose pre.md-mermaid {
+  display: flex;
+  flex-direction: column;
+}
+
 .wysiwyg-host .luci-prose pre.md-mermaid > code {
   display: none;
 }
@@ -622,7 +635,8 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
 }
 
 .wysiwyg-host .luci-prose pre.md-mermaid.md-mermaid--editing .md-mermaid-render {
-  display: none;
+  order: 2;
+  margin-top: 10px;
 }
 
 /* ---------- 高亮/上下标/脚注（ROADMAP 1.3/1.4）---------- */

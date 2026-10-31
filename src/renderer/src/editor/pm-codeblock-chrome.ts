@@ -9,14 +9,14 @@ import { FENCE_LANGS } from './cm-fence-completion'
 
 /**
  * 即显模式代码块 chrome：为每个 code_block 节点上方插入
- * 「语言标签 + 复制按钮」widget 栏（与预览管线观感一致），并在每行行首
- * 放行号 widget（与预览行号观感对齐；mermaid 块整块渲染图表，跳过行号）。
+ * 「语言标签 + 复制按钮」widget 栏（与预览管线观感一致）。
  * - widget 内容不可编辑；按钮 mousedown 阻止默认，避免 PM 光标跳动
  * - 点击复制读相邻 pre 的文本（widget 与 pre 同级相邻）
  * - 语言标签可点击：原地换成输入框 + 语言补全菜单（5.2），Enter/点选提交
  *   （setNodeMarkup 改 language 属性；mermaid 切换由节点视图重建自动重绘），
  *   Esc/失焦取消不落盘
- * - decorations 随每次事务重建：语言编辑/增删行/节点增删即时反映
+ * - decorations 随每次事务重建：语言编辑/节点增删即时反映
+ * - 行号（七.2）已按用户要求移除（对齐 Typora，2026-10-31）
  */
 interface ViewRef {
   view: EditorView | null
@@ -91,22 +91,6 @@ function buildDecorations(state: EditorState, ref: ViewRef): DecorationSet {
     decos.push(
       Decoration.widget(pos, bar, { side: -1, key: `cb-chrome-${pos}`, ignoreSelection: true })
     )
-    // 行号 widget：每行行首一个（含空行）；软换行的视觉折行不重复编号（按逻辑行）。
-    // side:-1 让行号排在该位置最前——否则行首光标画在行号左侧（图一反馈）
-    if (lang !== 'mermaid') {
-      let cur = pos + 1
-      const lines = node.textContent.split('\n')
-      for (let i = 0; i < lines.length; i++) {
-        const ln = document.createElement('span')
-        ln.className = 'pm-code-ln'
-        ln.contentEditable = 'false'
-        ln.textContent = String(i + 1)
-        decos.push(
-          Decoration.widget(cur, ln, { key: `cb-ln-${pos}-${i}`, ignoreSelection: true, side: -1 })
-        )
-        cur += lines[i]!.length + 1
-      }
-    }
     return false // 不下钻代码块内容
   })
   return DecorationSet.create(state.doc, decos)
