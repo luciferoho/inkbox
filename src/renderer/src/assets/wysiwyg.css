@@ -611,6 +611,11 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   max-width: 100%;
   height: auto;
 }
+/* 边标签裁字防护（与 preview.css 同口径）：foreignObject 按隐藏态测量定尺寸，
+   主题字体介入后实际渲染盒更宽时会裁字（phycat 边标签实测），放开溢出 */
+.wysiwyg-host .luci-prose .md-mermaid-render svg foreignObject {
+  overflow: visible;
+}
 
 /* 渲染中占位 */
 .wysiwyg-host .luci-prose .md-mermaid--loading {
@@ -809,6 +814,24 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
 .wysiwyg-host .luci-prose .luci-toc li {
   margin: 2px 0;
   line-height: 1.6;
+}
+
+/* 扁平条目的层级缩进兜底（:where 零特异性，主题模式下让位主题的
+   .md-toc-hN margin-left——目录条目已拍平，缩进不能再靠嵌套 ul） */
+.wysiwyg-host .luci-prose .luci-toc :where(.md-toc-h2) {
+  margin-left: 1.4em;
+}
+.wysiwyg-host .luci-prose .luci-toc :where(.md-toc-h3) {
+  margin-left: 2.8em;
+}
+.wysiwyg-host .luci-prose .luci-toc :where(.md-toc-h4) {
+  margin-left: 3.6em;
+}
+.wysiwyg-host .luci-prose .luci-toc :where(.md-toc-h5) {
+  margin-left: 4.2em;
+}
+.wysiwyg-host .luci-prose .luci-toc :where(.md-toc-h6) {
+  margin-left: 4.8em;
 }
 
 .wysiwyg-host .luci-prose .luci-toc a {

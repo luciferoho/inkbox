@@ -246,7 +246,11 @@ export const footnoteDefinitionSchema = $nodeSchema('footnote_definition', () =>
   attrs: { identifier: { default: '', validate: 'string' } },
   toDOM: (node: PMNode) => [
     'div',
-    { class: 'footnote-def', 'data-id': String(node.attrs.identifier ?? '') },
+    {
+      // footnote-item：Typora 脚注定义的惯用类，主题的 .footnote-item 规则直接命中
+      class: 'footnote-def footnote-item',
+      'data-id': String(node.attrs.identifier ?? '')
+    },
     0
   ],
   parseDOM: [
@@ -383,7 +387,9 @@ export const yamlSchema = $nodeSchema('yaml', () => ({
   group: 'block',
   code: true,
   defining: true,
-  toDOM: () => ['div', { class: 'fm-block' }, 0],
+  // md-meta-block：Typora front matter 的惯用类，主题的 pre.md-meta-block 规则
+  // 经主题管线映射（pre.md-meta-block → :is(pre.md-meta-block, .fm-block)）命中
+  toDOM: () => ['div', { class: 'fm-block md-meta-block' }, 0],
   parseDOM: [{ tag: 'div.fm-block', preserveWhitespace: 'full' }],
   parseMarkdown: {
     match: ({ type }) => type === 'yaml',
@@ -429,7 +435,7 @@ export const tocSchema = $nodeSchema('toc', () => ({
   group: 'block',
   atom: true,
   defining: true,
-  toDOM: () => ['nav', { class: 'luci-toc' }, 0],
+  toDOM: () => ['nav', { class: 'luci-toc md-toc' }, 0],
   parseDOM: [{ tag: 'nav.luci-toc' }],
   parseMarkdown: {
     match: ({ type }) => type === 'toc',
@@ -461,7 +467,7 @@ class TocNodeView implements NodeView {
   constructor(view: EditorView) {
     this.view = view
     this.dom = document.createElement('nav')
-    this.dom.className = 'luci-toc'
+    this.dom.className = 'luci-toc md-toc'
     this.dom.addEventListener('click', this.onClick)
     liveTocViews.add(this)
     this.render()
@@ -472,7 +478,8 @@ class TocNodeView implements NodeView {
     this.view.state.doc.descendants((node, pos) => {
       if (node.type.name === 'heading') {
         const level = Number(node.attrs.level ?? 1)
-        if (level <= 3) out.push({ level, text: node.textContent, pos })
+        // Typora [TOC] 收全部 1-6 级
+        if (level <= 6) out.push({ level, text: node.textContent, pos })
       }
       return true
     })
@@ -483,7 +490,9 @@ class TocNodeView implements NodeView {
     const headings = this.collect()
     this.dom.textContent = ''
     const title = document.createElement('p')
-    title.className = 'luci-toc-title'
+    // md-toc* 并挂 Typora 惯用类名：主题的 .md-toc/.md-toc-title/.md-toc-item
+    // 规则不经映射直接命中（.luci-toc* 是我们自己的样式钩子）
+    title.className = 'luci-toc-title md-toc-title'
     title.textContent = '目录'
     this.dom.appendChild(title)
     if (headings.length === 0) {
@@ -493,27 +502,20 @@ class TocNodeView implements NodeView {
       this.dom.appendChild(empty)
       return
     }
-    let i = 0
-    const buildLevel = (level: number): HTMLUListElement => {
-      const ul = document.createElement('ul')
-      while (i < headings.length && headings[i].level >= level) {
-        if (headings[i].level === level) {
-          const h = headings[i++]
-          const li = document.createElement('li')
-          const a = document.createElement('a')
-          a.href = 'javascript:'
-          a.textContent = h.text || '（空标题）'
-          a.dataset.pos = String(h.pos)
-          li.appendChild(a)
-          if (i < headings.length && headings[i].level > level) li.appendChild(buildLevel(level + 1))
-          ul.appendChild(li)
-        } else {
-          ul.appendChild(buildLevel(level + 1)) // 跳级标题归入更深层
-        }
-      }
-      return ul
+    // 扁平结构（Typora 同款）：条目是平级 li + md-toc-hN margin 缩进，不嵌套。
+    // 嵌套 ul 会让 :hover 沿祖先链全亮（每层一层绿底叠成色板），Typora 无此问题
+    const ul = document.createElement('ul')
+    for (const h of headings) {
+      const li = document.createElement('li')
+      li.className = `md-toc-item md-toc-h${h.level}`
+      const a = document.createElement('a')
+      a.href = 'javascript:'
+      a.textContent = h.text || '（空标题）'
+      a.dataset.pos = String(h.pos)
+      li.appendChild(a)
+      ul.appendChild(li)
     }
-    this.dom.appendChild(buildLevel(headings[0].level))
+    this.dom.appendChild(ul)
   }
 
   private onClick = (e: MouseEvent): void => {
