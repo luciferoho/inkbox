@@ -168,8 +168,19 @@ export const zh = {
   'side.filterNoHit': '没有匹配的文件。',
 
   // 表格工具栏
+  'table.groupFormat': '常用格式',
+  'table.fmtBold': '加粗',
+  'table.fmtItalic': '斜体',
+  'table.fmtCode': '行内代码',
+  'table.fmtStrike': '删除线',
+  'table.fmtLink': '链接',
+  'table.groupRow': '行操作',
+  'table.groupCol': '列操作',
+  'table.groupTable': '整表操作',
   'table.addRowAbove': '在上方插入行',
   'table.addRowBelow': '在下方插入行',
+  'table.moveRowUp': '上移该行',
+  'table.moveRowDown': '下移该行',
   'table.deleteRow': '删除当前行',
   'table.addColLeft': '在左侧插入列',
   'table.addColRight': '在右侧插入列',
@@ -182,6 +193,7 @@ export const zh = {
   'table.alignNone': '恢复默认对齐',
   'table.deleteTable': '删除整个表格',
   'table.copyTable': '复制表格',
+  'table.formatTable': '格式化表格源码',
   'table.toText': '转为纯文本',
   'table.autoWidth': '自适应宽度（清除列宽）',
 

@@ -235,7 +235,8 @@ md.core.ruler.push('luci_toc', (state: StateCore) => {
       const level = Number(toks[i].tag.slice(1)) || 1
       const id = `luci-h-${++n}`
       toks[i].attrSet('id', id)
-      if (level <= 3) headings.push({ level, text: toks[i + 1]?.content ?? '', id })
+      // Typora [TOC] 收全部 1-6 级（只收 1-3 会缺四五级，用户实测）
+      if (level <= 6) headings.push({ level, text: toks[i + 1]?.content ?? '', id })
     }
   }
   for (let i = 1; i < toks.length - 1; i++) {
@@ -251,25 +252,16 @@ md.core.ruler.push('luci_toc', (state: StateCore) => {
   }
 })
 
-/** 目录块 HTML：按标题层级递归嵌套 <ul>（内部生成，文本已转义） */
+/** 目录块 HTML：扁平列表（Typora 同款，条目平级 + md-toc-hN 缩进交给主题
+ *  margin-left；嵌套结构会让 ：hover 沿祖先链整链点亮）。内部生成，文本已转义 */
 function buildTocHtml(headings: { level: number; text: string; id: string }[]): string {
   if (headings.length === 0) return ''
-  let i = 0
-  const buildLevel = (level: number): string => {
-    let html = '<ul>'
-    while (i < headings.length && headings[i].level >= level) {
-      if (headings[i].level === level) {
-        const h = headings[i++]
-        html += `<li><a href="#${h.id}">${escapeHtml(h.text)}</a>`
-        if (i < headings.length && headings[i].level > level) html += buildLevel(level + 1)
-        html += '</li>'
-      } else {
-        html += buildLevel(level + 1) // 跳级标题归入更深层
-      }
-    }
-    return html + '</ul>'
+  let html = '<ul>'
+  for (const h of headings) {
+    html += `<li class="md-toc-item md-toc-h${h.level}"><a href="#${h.id}">${escapeHtml(h.text)}</a></li>`
   }
-  return `<nav class="md-toc"><p class="md-toc-title">目录</p>${buildLevel(headings[0].level)}</nav>`
+  html += '</ul>'
+  return `<nav class="md-toc"><p class="md-toc-title">目录</p>${html}</nav>`
 }
 
 md.renderer.rules.luci_toc_block = (tokens, idx) => {
@@ -1077,7 +1069,9 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const info = tok.info.trim()
   if (info.split(/\s+/)[0] !== 'mermaid') {
     // 代码块 chrome：语言标签栏 + 复制按钮（导出走 Preview DOM 剥离，见 ExportDialog）。
-    // 行号（七.2）已按用户要求移除（对齐 Typora，2026-10-31）；长行软换行由 CSS 承担
+    // 行号（七.2）已按用户要求移除（对齐 Typora，2026-10-31）；长行软换行由 CSS 承担。
+    // pre 注入 data-language：即显侧一直带该属性，主题的徽标
+    // ::before{content:attr(data-language)} 与 [data-language=…] 语言判别在预览侧同样生效
     const lang = escapeHtml(info.split(/\s+/)[0].toLowerCase())
     ensureCodeCopyHandler()
     const inner = defaultFence(tokens, idx, options, env, self)
@@ -1086,7 +1080,7 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
       `<div class="md-code"><div class="md-code-bar">` +
       `<span class="md-code-lang">${lang}</span>` +
       `<button type="button" class="md-code-copy" title="${label}" aria-label="${label}">${COPY_ICON}</button>` +
-      `</div>${inner}</div>`
+      `</div>${inner.replace('<pre>', `<pre data-language="${lang}">`)}</div>`
     )
   }
   const line = tok.attrGet('data-source-line')

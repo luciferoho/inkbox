@@ -20,6 +20,13 @@ import type { ThemeInfo } from '@shared/types'
  *  主题的表格/代码样式被内置样式盖掉（sonnet 实测）。 */
 const SCOPE = ':is(.md-preview.md-preview.md-preview, .luci-prose.luci-prose.luci-prose)'
 
+/** 剥掉全部块注释：仅用于「分析」通道（变量收集/字号探测/cm 色提取）。
+ *  主题包常用注释保留多套可选配置（phycat 的 --autonum 整段注释），
+ *  裸正则会把注释里的定义当真——Typora 不生效的变量我们也不能生效。 */
+export function stripCssComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, ' ')
+}
+
 /* ---------- 相对路径工具 ---------- */
 
 function dirnameOf(file: string): string {
@@ -148,6 +155,12 @@ function scopeSelector(sel: string): string {
     .replace(
       /(^|[\s>+~(])(:root|html|body|content|#write|\.write)(?![\w-])/gi,
       (_m, pre) => `${pre}${SCOPE}`
+    )
+    // front matter：Typora 是 pre.md-meta-block，即显侧是 div.fm-block——
+    // 复合映射后主题的 YAML 卡样式（虚线框/YAML 角标）两种 DOM 都命中
+    .replace(
+      /(^|[\s>+~(])pre\.md-meta-block(?![\w-])/gi,
+      '$1:is(pre.md-meta-block, .fm-block)'
     )
     // pre.md-fences 复合写法先剥类（night 等官方主题），再于通用替换兜底——
     // 否则 `.md-fences → pre` 会产出非法的 prepre，整条规则作废（底色丢失）。
@@ -687,13 +700,40 @@ function extractCmWrapperStyle(css: string, set: Map<string, string>, defs: Map<
     if (fg && parseColor(fg)) set.set('--code-fg', fg)
     const radius = pick(/(?:^|;)\s*border-radius\s*:\s*([^;!}]+)/i)
     if (radius) set.set('--code-radius', radius)
+    // 围栏内间距/字族/字号：Typora 围栏的 padding 在 CodeMirror 包装层上
+    //（phycat: 20px 12px 12px 20px + CascadiaCode），不提取则代码块贴边、
+    // 字体退回内置默认——与 Typora 同主题观感差一截。行内层（.CodeMirror-lines）
+    // 的字号由别处提取且优先，这里只在缺席时补。
+    // padding 按 CodeMirror 实际展开记每侧：包装层值 + CM 默认内层
+    //（.CodeMirror-lines 4px 上下 + 行 0 4px 左右）才是 Typora 代码文字的真实内距
+    const pad = pick(/(?:^|;)\s*padding\s*:\s*([^;!}]+)/i)
+    if (pad) {
+      const parts = pad.replace(/!important/i, '').trim().split(/\s+/)
+      if (parts.length <= 4 && parts.every((p) => /^[-\d.\w%]+$/.test(p))) {
+        const [t, r = t, b = t, l = r] = parts
+        const plus4 = (v: string) => `calc(${v} + 4px)`
+        set.set('--code-pad-t', plus4(t))
+        set.set('--code-pad-r', plus4(r))
+        set.set('--code-pad-b', plus4(b))
+        set.set('--code-pad-l', plus4(l))
+      } else {
+        set.set('--code-pad', pad) // 复杂值原样兜底
+      }
+    }
+    const ff = pick(/(?:^|;)\s*font-family\s*:\s*([^;!}]+)/i)
+    if (ff && !set.has('--code-font-family')) set.set('--code-font-family', ff)
+    const fsz = pick(/(?:^|;)\s*font-size\s*:\s*([^;!}]+)/i)
+    if (fsz && !set.has('--code-font-size')) set.set('--code-font-size', fsz)
   }
 }
 
-export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): string {
+export function typoraValueBridge(inputCss: string, polarity?: 'light' | 'dark'): string {
   // 主题里全部变量定义（首现优先）：桥接值为 var() 引用时就地解析，
   // 解析不到（变量定义在非全局选择器上）就跳过该条，绝不能把未定义引用
-  // 写进我们的令牌（会把 --bg 变成空值，整应用丢底色）
+  // 写进我们的令牌（会把 --bg 变成空值，整应用丢底色）。
+  // 分析在剥注释的副本上做：注释掉的可选配置不能泄漏成真样式
+  //（phycat 注释掉的 --autonum 曾让标题凭空编号，Typora 无此现象）
+  const css = stripCssComments(inputCss)
   const defs = new Map<string, string>()
   for (const m of css.matchAll(/(--[\w-]+)\s*:\s*([^;}]+)/g)) {
     if (!defs.has(m[1])) defs.set(m[1], m[2].trim())
@@ -920,9 +960,41 @@ html[data-theme-css] .sidebar-wrap .panel .node.active {
   rules.unshift(`color-scheme: ${light ? 'light' : 'dark'};`)
   // 选择器带上 [data-theme]：特异性高于 base.css 的 [data-theme='dark'] 调色板，
   // 主题配色才能真正接管（对齐 Typora：选主题即整窗换肤）
+  // 围栏外形补充（仅在主题确实给了包装层参数时输出）：Typora 围栏的
+  // 内边距在 CodeMirror 包装层上，对应我们的【code 内容】而不是 pre 容器——
+  // pre 的 ::before 是主题圆点条（.md-fences::before），padding 若留在 pre 上
+  // 会变成「圆点条上方多一截、圆点条与代码贴死」（与 Typora 相反，实测）。
+  // 正确分布：pre padding 归零（圆点条贴顶），code 拿到整套 padding
+  //（20px 顶 = 圆点条与代码的间距）。字族仍在 pre 上向下继承。
+  // 绝不能无条件输出，否则主题只写 .md-fences padding 时会被我们的回退值覆盖
+  let fenceChrome = ''
+  const hasPad = set.has('--code-pad-t')
+  if (hasPad || set.has('--code-pad') || set.has('--code-font-family')) {
+    const preDecls = [
+      hasPad || set.has('--code-pad') ? 'padding: 0;' : '',
+      set.has('--code-font-family') ? 'font-family: var(--code-font-family);' : ''
+    ]
+      .filter(Boolean)
+      .join(' ')
+    const codePad = hasPad
+      ? `padding: var(--code-pad-t) var(--code-pad-r) var(--code-pad-b) var(--code-pad-l) !important;`
+      : set.has('--code-pad')
+        ? `padding: var(--code-pad) !important;`
+        : ''
+    fenceChrome = `
+/* 围栏包装层外形（.cm-s-inner.CodeMirror 的 padding/font——Typora 围栏实际观感） */
+${SCOPE} pre:not(.md-meta-block):not(.md-mermaid) { ${preDecls} }
+${SCOPE} pre:not(.md-meta-block):not(.md-mermaid) > code {
+  ${codePad}
+  /* code 默认 inline：inline 盒的 padding-left 只作用第一行，后续行全部贴边 */
+  display: block;
+}
+`
+  }
   return (
     (rules.length ? `\n/* Typora 变量 → 应用令牌 */\n:root[data-theme] { ${rules.join(' ')} }\n` : '') +
-    panelSkin
+    panelSkin +
+    fenceChrome
   )
 }
 
@@ -1035,6 +1107,45 @@ ${SCOPE} li {
    胶囊底透出来像被遮挡；(0,4,2) 高于主题 blockquote::before 的 (0,4,1) */
 ${SCOPE} blockquote.md-alert::before {
   content: none;
+}
+/* 目录标题让位主题：Typora 的「目录」标题来自主题 .md-toc::before（phycat），
+   我们自带的 md-toc-title 文本在主题模式下隐藏，避免主题 ::before + 内置
+   标题双标题；主题没画标题时与 Typora 同样无标题 */
+${SCOPE} .md-toc-title {
+  display: none;
+}
+/* 目录内部结构对齐 Typora：缩进交给主题 .md-toc-hN margin-left，
+   我们的 ul 缩进/li 间距让位（否则双重缩进）；Typora 的 [TOC] 条目是
+   span 不是 li，主题的 #write li:before 列表连接线（绿竖线）碰不到它，
+   我们是真 ul/li 会被连带——目录内排除 */
+${SCOPE} .md-toc ul {
+  padding-left: 0 !important;
+  margin: 0 !important;
+}
+${SCOPE} .md-toc li {
+  /* 只收纵向间距；margin-left 是主题 .md-toc-hN 的层级缩进，不能拦 */
+  margin-block: 0 !important;
+}
+${SCOPE} .md-toc li::before {
+  content: none;
+}
+/* 目录条目颜色：Typora 里 #write a{color:主色} 的 ID 特异性 (1,0,1) 压过
+   .md-toc-item a{color:inherit}，条目呈链接主色（phycat 实测绿）；作用域化
+   把 ID 特异性抹平成 (0,3,1) 后 inherit（muted 灰绿）反赢，再乘主题按级
+   递减的 opacity，四五六级几乎不可读（用户实测）。按 Typora 实观补齐主色，
+   并撤销自带 a:hover 变色——主题 hover 是整行底色/缩进滑动/辉光，链接色不动 */
+${SCOPE} .md-toc-item a,
+${SCOPE} .md-toc-item a:hover {
+  color: var(--primary-color, inherit) !important;
+}
+/* 脚注定义区对齐 Typora 实际观感：主题 .footnote-item em 的 display:block
+   会把定义里的行内格式拆成整行（phycat 实测「格式」「代码」各占一行），
+   Typora 里它们是行内的；对齐一律左起（配 :has(img) 分隔符排除使用） */
+${SCOPE} .footnote-item em {
+  display: inline !important;
+}
+${SCOPE} .footnote-item p {
+  text-align: left;
 }
 `
 
@@ -1164,13 +1275,30 @@ export async function processThemeCss(
       ? raw.replace(exportOnly, '@import $1;')
       : raw.replace(exportOnly, '')
   // 根字号 ≠ 16px 的主题（blubook 14px / nord 18px）：rem 先按主题基准换算成
-  // 等值 px，再走作用域化——html 规则已不作用于真实根元素，不换算会整体偏大/偏小
-  raw = convertRem(raw, themeRootFontSize(raw) ?? 16)
+  // 等值 px，再走作用域化——html 规则已不作用于真实根元素，不换算会整体偏大/偏小。
+  // 字号探测同样在剥注释后做，注释掉的 html 字号不能决定 rem 基准
+  raw = convertRem(raw, themeRootFontSize(stripCssComments(raw)) ?? 16)
   // 标题级别角标（blubook：#write>hN::before{content:'H1'..'H6'}，绝对定位在
   // 标题左侧的 Typora 页边距区）——我们的内容列没有页边距区，角标与折叠箭头
   // 叠挤还被裁（用户确认不显示）。剥掉 content 声明：::before 无内容即不生成
   // （esther 等的 hN::before 空内容装饰线不带 HN 字面量，不受影响）
   raw = raw.replace(/content\s*:\s*(['"])H[1-6]\1\s*;?/gi, '')
+  // lang → data-language 属性桥：Typora 围栏 pre 用 lang 属性（[lang=mermaid]、
+  // attr(lang)），我们用 data-language。不改写时主题的语言判别全部落空——
+  // phycat 的 .md-fences:not([lang=mermaid])::before 会把圆点条画到图表上，
+  // 徽标文本 attr(lang) 也取不到值（实测）。纯属性名改写，值/运算符原样
+  raw = raw
+    .replace(/\[\s*lang(\s*[~^|*$]?=|\s*\])/gi, '[data-language$1')
+    .replace(/attr\(\s*lang\s*\)/gi, 'attr(data-language)')
+  // :has(img) 排除 PM 分隔符：即显 DOM 里每个 void 节点旁都有 .ProseMirror-separator
+  // 空 img（caret 实现），主题的 #write p:has(img){text-align:center}（图片段落居中，
+  // Typora 本意）会把不含图的段落（脚注定义实测）误判成图片段落居中+折行
+  raw = raw.replace(/:has\(([^()]*)\)/gi, (whole, inner: string) => {
+    if (/(^|[\s>+~(])img(?![\w-])/i.test(inner)) {
+      return `:has(${inner.replace(/(^|[\s>+~(])(img)(?![\w-])/gi, '$1$2:not(.ProseMirror-separator)')})`
+    }
+    return whole
+  })
   const withUrls = await rewriteUrls(raw, dir, mode)
   return ALIAS_BLOCK + THEME_RESET + scopeThemeCss(withUrls) + CONTENT_FINAL + typoraValueBridge(withUrls, entry.variant === 'dark' ? 'dark' : 'light')
 }

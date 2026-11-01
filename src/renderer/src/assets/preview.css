@@ -356,6 +356,12 @@ html[data-theme-css] .md-preview .md-front-matter {
   /* 图表/公式渲染结果是展示层，不可选中（源码错误兜底文本仍可复制） */
   user-select: none;
 }
+/* 边标签裁字防护：htmlLabels 的 foreignObject 尺寸按隐藏态测量，主题/回退
+   字体介入后实际渲染盒可能更宽（phycat 的 JetBrains Mono !important 实测把
+   「即显/预览」边字裁掉半截），放开溢出让标签完整呈现 */
+.md-preview .mermaid svg foreignObject {
+  overflow: visible;
+}
 .md-preview .mermaid-error {
   color: var(--danger);
   font-family: var(--font-code);
@@ -466,6 +472,22 @@ html[data-theme-css] .hljs-section {
 .md-preview .md-toc li {
   margin: 2px 0;
   line-height: 1.6;
+}
+/* 扁平条目的层级缩进兜底（:where 零特异性，主题模式下让位主题 margin-left） */
+.md-preview .md-toc :where(.md-toc-h2) {
+  margin-left: 1.4em;
+}
+.md-preview .md-toc :where(.md-toc-h3) {
+  margin-left: 2.8em;
+}
+.md-preview .md-toc :where(.md-toc-h4) {
+  margin-left: 3.6em;
+}
+.md-preview .md-toc :where(.md-toc-h5) {
+  margin-left: 4.2em;
+}
+.md-preview .md-toc :where(.md-toc-h6) {
+  margin-left: 4.8em;
 }
 .md-preview .md-toc a {
   color: var(--text);

@@ -131,7 +131,11 @@ function detectVariant(name: string, absPath: string): { variant: ThemeInfo['var
   const suffixed = VARIANT_SUFFIX.find((s) => s.re.test(name))
   let color: string | undefined
   try {
-    const css = readFileSync(absPath, 'utf-8').slice(0, 200_000)
+    // 剥注释再分析：主题常用注释保留另一套配色（浅色变体注释着深色变量），
+    // 不剥会把注释里的值当真，明暗判定/色板全错
+    const css = readFileSync(absPath, 'utf-8')
+      .slice(0, 200_000)
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
     // 色板取主色：按 primary → element → bg 顺序找（alternation 会按文本顺序
     // 命中排在前面的 --bg-color，多数浅色变体的色板就全变白了）
     color =
