@@ -15,3 +15,6 @@ release/
 
 # 开发期临时脚本
 scripts/make-bigfile.mjs
+
+# dev 下的主题/字体目录（安装目录/themes 的开发态位置，按需自备不入库）
+/themes/

@@ -1,6 +1,17 @@
 import { app, ipcMain, protocol, shell } from 'electron'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join, normalize, relative, sep } from 'node:path'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmdirSync,
+  statSync,
+  unlinkSync,
+  writeFileSync
+} from 'node:fs'
+import { dirname, join, normalize, relative, sep } from 'node:path'
 import type { ThemeInfo } from '@shared/types'
 
 /** M3 主题生态（Typora 兼容）：
@@ -11,12 +22,125 @@ import type { ThemeInfo } from '@shared/types'
  *  变量约定：主题覆盖 --bg-color/--text-color/--primary-color 等 Typora 变量，
  *  渲染层做双向映射（见 services/theme-css.ts）。 */
 
+/** 应用所在目录（安装目录）：打包版 = exe 所在目录（便携版 = 便携 exe 目录，
+ *  随应用走），dev = 应用源码目录。主题/字体存这里（见 themesDir），不再落 C 盘
+ *  userData（旧位置启动时自动迁移，见 migrateLegacyThemesDir） */
+export function installDir(): string {
+  return (
+    process.env.PORTABLE_EXECUTABLE_DIR ||
+    (app.isPackaged ? dirname(process.execPath) : app.getAppPath())
+  )
+}
+
 export function themesDir(): string {
-  return join(app.getPath('userData'), 'themes')
+  return join(installDir(), 'themes')
 }
 
 export function userCssPath(): string {
   return join(app.getPath('userData'), 'base.user.css')
+}
+
+/* ---------- 旧位置迁移（userData/themes → 安装目录/themes） ---------- */
+
+export interface MigrateStats {
+  /** 成功移入新目录的文件数 */
+  moved: number
+  /** 同名冲突跳过（两边都保留，源留在旧目录） */
+  skipped: number
+  /** 移动失败（源保留，下次启动续迁） */
+  failed: number
+}
+
+/** 启动迁移结果：渲染层启动时经 theme:migrationReport 取一次弹提示（null = 未迁移） */
+let migrateReport: MigrateStats | null = null
+
+function countFiles(dir: string): number {
+  let n = 0
+  const walk = (d: string): void => {
+    let entries
+    try {
+      entries = readdirSync(d, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      if (e.isDirectory()) walk(join(d, e.name))
+      else n++
+    }
+  }
+  walk(dir)
+  return n
+}
+
+/** 移动单项：同卷 rename 快路径；跨卷复制+校验+删源。目录同名则递归合并 */
+function moveEntry(src: string, dest: string, stats: MigrateStats): void {
+  try {
+    const st = statSync(src)
+    if (existsSync(dest)) {
+      if (st.isDirectory() && statSync(dest).isDirectory()) {
+        for (const name of readdirSync(src)) moveEntry(join(src, name), join(dest, name), stats)
+        try {
+          rmdirSync(src) // 子项全部移走才成功；有跳过项则保留
+        } catch {
+          /* 保留 */
+        }
+        return
+      }
+      stats.skipped++
+      return
+    }
+    try {
+      renameSync(src, dest)
+      stats.moved += st.isDirectory() ? countFiles(dest) : 1
+      return
+    } catch {
+      /* 跨卷/被占用：走复制校验删源 */
+    }
+    if (st.isDirectory()) {
+      mkdirSync(dest, { recursive: true })
+      for (const name of readdirSync(src)) moveEntry(join(src, name), join(dest, name), stats)
+      try {
+        rmdirSync(src)
+      } catch {
+        /* 保留 */
+      }
+    } else {
+      copyFileSync(src, dest)
+      if (statSync(dest).size !== statSync(src).size) throw new Error('size mismatch after copy')
+      unlinkSync(src)
+      stats.moved++
+    }
+  } catch {
+    stats.failed++
+  }
+}
+
+/** 主题/字体旧位置（userData/themes，C 盘）→ 安装目录/themes 自动迁移。
+ *  同名冲突跳过不覆盖；未移完的旧目录保留，下次启动续迁（幂等）。
+ *  只在打包版或 INKBOX_USER_DATA 隔离验证实例执行：默认 userData 的 dev 实例
+ *  与日常安装版共用同一份用户数据，迁移会把日常主题搬进源码树 */
+export function migrateLegacyThemesDir(): void {
+  if (!app.isPackaged && !process.env.INKBOX_USER_DATA) return
+  const legacy = normalize(join(app.getPath('userData'), 'themes'))
+  const target = normalize(themesDir())
+  if (!existsSync(legacy) || legacy === target) return
+  // 目标嵌在旧目录内（用户把安装目录选进旧目录）：不能把父目录往子目录里搬
+  if (target.startsWith(legacy + sep)) return
+  const stats: MigrateStats = { moved: 0, skipped: 0, failed: 0 }
+  try {
+    mkdirSync(target, { recursive: true })
+    for (const name of readdirSync(legacy)) {
+      moveEntry(join(legacy, name), join(target, name), stats)
+    }
+    try {
+      rmdirSync(legacy) // 移空才成功；剩有跳过/失败项则保留待续迁
+    } catch {
+      /* 保留 */
+    }
+    if (stats.moved || stats.skipped || stats.failed) migrateReport = stats
+  } catch {
+    /* 旧目录读不动：保持现状，不阻塞启动 */
+  }
 }
 
 /** 相对路径白名单：无盘符、无 ..、正斜杠分隔（themeCss 配置与协议同此校验） */
@@ -382,6 +506,16 @@ export function registerThemesIpc(): void {
   ipcMain.handle('theme:list', (): ThemeInfo[] => scanThemes())
 
   ipcMain.handle('theme:listFonts', (): string[] => scanFontFiles())
+
+  /** 当前主题/字体目录（安装目录/themes，设置里展示） */
+  ipcMain.handle('theme:dir', (): string => themesDir())
+
+  /** 启动自动迁移结果（取一次即清）：渲染层弹提示 */
+  ipcMain.handle('theme:migrationReport', (): MigrateStats | null => {
+    const r = migrateReport
+    migrateReport = null
+    return r
+  })
 
   ipcMain.handle('theme:readCss', (_e, file: string): string | null => {
     const rel = safeRelPath(file)
