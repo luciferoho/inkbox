@@ -96,6 +96,10 @@ interface Window {
       getWindowPrefs(key: string): Promise<import('@shared/types').WindowPrefs>
       setWindowPrefs(key: string, patch: Partial<import('@shared/types').WindowPrefs>): Promise<void>
       onConfigChanged(cb: (cfg: import('@shared/types').AppConfig) => void): () => void
+      /** 命令行带起的待打开文件（右键/双击关联文件），启动时一次性取走 */
+      takeLaunchFiles(): Promise<string[]>
+      /** 二次启动（右键/双击）投递来的文件，请求本窗口打开 */
+      onExternalOpen(cb: (files: string[]) => void): () => void
     }
     image: {
       upload(fileName: string, dataUrl: string): Promise<{ ok: boolean; url?: string; error?: string; code?: 'unreachable' }>
@@ -115,9 +119,23 @@ interface Window {
       readCss(file: string): Promise<string | null>
       listFonts(): Promise<string[]>
       openDir(): Promise<void>
+      /** 主题/字体目录（安装目录/themes） */
+      dir(): Promise<string>
+      /** 启动自动迁移结果（取一次即清）：null = 本次未迁移 */
+      migrationReport(): Promise<{ moved: number; skipped: number; failed: number } | null>
       userCssPath(): Promise<string>
       readUserCss(): Promise<string>
       openUserCss(): Promise<void>
+    }
+    /** 系统文件关联（右键菜单 / 默认应用，注册表 HKCU，免管理员） */
+    assoc: {
+      status(): Promise<import('@shared/types').AssocStatus>
+      /** 开/关「在 Inkbox 中打开」右键菜单 */
+      setContextMenu(on: boolean): Promise<{ ok: boolean }>
+      /** 把受支持文档类型设为默认用 Inkbox 打开 */
+      setDefault(): Promise<{ ok: boolean }>
+      /** 打开 Windows 设置→默认应用 */
+      openDefaultSettings(): Promise<void>
     }
     win: {
       minimize(): void

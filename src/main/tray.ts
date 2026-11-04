@@ -26,15 +26,17 @@ export function resetQuitting(): void {
 }
 
 /** 显示并聚焦主窗口（托盘点击 / 二次启动 second-instance 共用）。
- *  只认编辑窗口：设置窗还开着时点托盘也要唤起编辑窗口，而不是聚焦设置窗 */
-export function showMainWindow(): void {
+ *  只认编辑窗口：设置窗还开着时点托盘也要唤起编辑窗口，而不是聚焦设置窗。
+ *  返回唤起的窗口（二次启动投递命令行文件用；无窗口时 null） */
+export function showMainWindow(): BrowserWindow | null {
   const wins = BrowserWindow.getAllWindows()
   const editors = wins.filter((w) => !isSettingsWindow(w))
   const win = editors.find((w) => w.isVisible()) ?? editors[0] ?? wins[0]
-  if (!win) return
+  if (!win) return null
   if (win.isMinimized()) win.restore()
   win.show()
   win.focus()
+  return win
 }
 
 function trayImage(): Electron.NativeImage {

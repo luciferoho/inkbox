@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   AppConfig,
   AppInfo,
+  AssocStatus,
   DetachDoc,
   DirEntry,
   DraftPayload,
@@ -129,6 +130,14 @@ const api = {
     getConfig: (): Promise<AppConfig> => ipcRenderer.invoke('app:getConfig'),
     setConfig: (patch: Partial<AppConfig>): Promise<AppConfig> =>
       ipcRenderer.invoke('app:setConfig', patch),
+    /** 命令行带起的待打开文件（右键/双击关联文件，冷启动暂存），启动时一次性取走 */
+    takeLaunchFiles: (): Promise<string[]> => ipcRenderer.invoke('app:takeLaunchFiles'),
+    /** 二次启动（右键/双击）投递来的文件，请求本窗口打开 */
+    onExternalOpen: (cb: (files: string[]) => void): (() => void) => {
+      const listener = (_e: Electron.IpcRendererEvent, files: string[]): void => cb(files)
+      ipcRenderer.on('app:externalOpen', listener)
+      return () => ipcRenderer.removeListener('app:externalOpen', listener)
+    },
     /** 切换界面语言：主进程同步重建菜单/托盘文案 */
     setLocale: (locale: AppConfig['locale']): Promise<void> =>
       ipcRenderer.invoke('app:setLocale', locale),
@@ -203,11 +212,27 @@ const api = {
     listFonts: (): Promise<string[]> => ipcRenderer.invoke('theme:listFonts'),
     /** 打开（不存在则创建）主题目录 */
     openDir: (): Promise<void> => ipcRenderer.invoke('theme:openDir'),
+    /** 主题/字体目录（安装目录/themes） */
+    dir: (): Promise<string> => ipcRenderer.invoke('theme:dir'),
+    /** 启动自动迁移结果（取一次即清）：null = 本次未迁移 */
+    migrationReport: (): Promise<{ moved: number; skipped: number; failed: number } | null> =>
+      ipcRenderer.invoke('theme:migrationReport'),
     /** 用户自定义样式表绝对路径（userData/base.user.css） */
     userCssPath: (): Promise<string> => ipcRenderer.invoke('userCss:path'),
     readUserCss: (): Promise<string> => ipcRenderer.invoke('userCss:read'),
     /** 打开（不存在则创建）用户样式表 */
     openUserCss: (): Promise<void> => ipcRenderer.invoke('userCss:open')
+  },
+  /** 系统文件关联（右键菜单 / 默认应用，注册表 HKCU，免管理员） */
+  assoc: {
+    status: (): Promise<AssocStatus> => ipcRenderer.invoke('assoc:status'),
+    /** 开/关「在 Inkbox 中打开」右键菜单 */
+    setContextMenu: (on: boolean): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('assoc:setContextMenu', on),
+    /** 把受支持文档类型设为默认用 Inkbox 打开 */
+    setDefault: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('assoc:setDefault'),
+    /** 打开 Windows 设置→默认应用 */
+    openDefaultSettings: (): Promise<void> => ipcRenderer.invoke('assoc:openDefaultSettings')
   },
   win: {
     minimize: (): void => ipcRenderer.send('win:minimize'),

@@ -2,7 +2,7 @@
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { useUiStore, type ThemePref } from '@/stores/ui'
 import type { LocalePref } from '@/i18n'
-import type { AppInfo, MenuCommand, PluginInfo, ThemeInfo } from '@shared/types'
+import type { AppInfo, AssocStatus, MenuCommand, PluginInfo, ThemeInfo } from '@shared/types'
 import {
   SHORTCUT_COMMANDS,
   effectiveShortcuts,
@@ -266,6 +266,44 @@ function togglePlugin(p: PluginInfo): void {
   void ui.setPluginEnabled(p.manifest.id, !pluginEnabled(p))
 }
 
+/* ---------- 主题/字体目录（安装目录/themes，固定不自定义） ---------- */
+const themeDir = ref('')
+
+/* ---------- 系统集成：右键菜单注册 / 设为默认（HKCU 注册表，免管理员） ---------- */
+const assoc = ref<AssocStatus>({ contextMenu: false, defaults: {} })
+
+async function refreshAssoc(): Promise<void> {
+  try {
+    assoc.value = await window.api.assoc.status()
+  } catch {
+    /* 注册表查询失败按未注册显示 */
+  }
+}
+
+async function toggleContextMenu(): Promise<void> {
+  const { ok } = await window.api.assoc.setContextMenu(!assoc.value.contextMenu)
+  if (!ok) ui.showToast(t('settings.sysAssocFailed'))
+  await refreshAssoc()
+}
+
+async function makeDefault(): Promise<void> {
+  const { ok } = await window.api.assoc.setDefault()
+  if (!ok) ui.showToast(t('settings.sysAssocFailed'))
+  await refreshAssoc()
+}
+
+function openDefaultSettings(): void {
+  void window.api.assoc.openDefaultSettings()
+}
+
+const assocDefaultHint = computed(() => {
+  const total = Object.keys(assoc.value.defaults).length
+  const on = Object.values(assoc.value.defaults).filter(Boolean).length
+  if (total > 0 && on === total) return t('settings.sysDefaultOn')
+  if (on > 0) return t('settings.sysDefaultPartial')
+  return t('settings.sysDefaultOff')
+})
+
 /* ---------- 双栏布局：左侧导航 + 右侧当前分区内容 ---------- */
 type SettingsNav = 'appearance' | 'startup' | 'editor' | 'upload' | 'shortcuts' | 'plugins' | 'about'
 const nav = ref<SettingsNav>('appearance')
@@ -290,6 +328,8 @@ const appInfo = ref<AppInfo>({
 })
 onMounted(() => {
   void window.api.app.getInfo().then((i) => (appInfo.value = i))
+  void window.api.theme.dir().then((d) => (themeDir.value = d))
+  void refreshAssoc()
 })
 
 function checkUpdate(): void {
@@ -355,6 +395,7 @@ function checkUpdate(): void {
 
         <!-- 主题样式与字体（M3） -->
         <h3 class="group-title">{{ $t('settings.themeCss') }}</h3>
+        <p class="row-hint">{{ $t('settings.themeDirRow', { dir: themeDir }) }}</p>
         <div class="row">
           <span class="label">{{ $t('settings.themeCss') }}</span>
           <select class="theme-select" :value="ui.appearance.themeCss" @change="pickTheme(($event.target as HTMLSelectElement).value)">
@@ -526,6 +567,30 @@ function checkUpdate(): void {
           </button>
         </div>
         <p class="row-hint">{{ $t('settings.openAtLoginHint') }}</p>
+
+        <!-- 系统集成（右键菜单/默认应用） -->
+        <h3 class="group-title">{{ $t('settings.gSystem') }}</h3>
+        <div class="row">
+          <span class="label">{{ $t('settings.sysContextMenu') }}</span>
+          <button
+            class="switch"
+            role="switch"
+            :aria-checked="assoc.contextMenu"
+            :class="{ on: assoc.contextMenu }"
+            @click="toggleContextMenu"
+          >
+            <i class="knob" />
+          </button>
+        </div>
+        <p class="row-hint">{{ $t('settings.sysContextMenuHint') }}</p>
+        <div class="row">
+          <span class="label">{{ $t('settings.sysDefault') }}</span>
+          <button class="link-btn" @click="makeDefault">{{ $t('settings.sysSetDefault') }}</button>
+          <button class="link-btn" @click="openDefaultSettings">
+            {{ $t('settings.sysDefaultSettings') }}
+          </button>
+        </div>
+        <p class="row-hint">{{ assocDefaultHint }}</p>
 
         <!-- 工作区 -->
         <h3 class="group-title">{{ $t('settings.gWorkspace') }}</h3>

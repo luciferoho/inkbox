@@ -180,10 +180,17 @@ onMounted(() => {
       restoreFolders: ui.restoreFolders,
       crashed: init.crashed
     })
+    // 命令行带起的文件（右键「在 Inkbox 中打开」/双击关联文件）：会话恢复后打开并激活
+    for (const p of await window.api.app.takeLaunchFiles()) await docs.openPath(p)
     if (freshEntries.length > 0) ui.showToast(t('app.draftsRestored', { n: freshEntries.length }))
     // 更新重装的启动：提示已升级 + 未保存内容已恢复（draftsRestored 提示可能已同时出现）
     const restartVersion = await window.api.update.restartVersion()
     if (restartVersion) ui.showToast(t('app.updatedRestored', { v: restartVersion }))
+    // 主题/字体旧位置自动迁移（安装版升级首启）：toast 单槽，只在无更高优先提示时展示
+    const migrated = await window.api.theme.migrationReport()
+    if (migrated && migrated.moved > 0 && freshEntries.length === 0 && !restartVersion) {
+      ui.showToast(t('app.themesMigrated', { n: migrated.moved }))
+    }
     // 恢复完成：淡出开屏页，进入应用（用户看到的直接是恢复后的界面）
     await nextTick()
     dismissSplash()
@@ -215,6 +222,10 @@ onMounted(() => {
     prevUpdatePhase = s.phase
   })
   window.api.onMenuCommand(dispatch)
+  // 二次启动（右键「在 Inkbox 中打开」/双击关联文件）：投递到本窗口打开
+  window.api.app.onExternalOpen((files) => {
+    for (const p of files) void docs.openPath(p)
+  })
   // 任一窗口改了全局配置（主题/语言/字号等）：本窗口即时跟随
   // （纸宽/侧栏宽是窗口私有偏好，不在广播里，各窗口互不干扰）
   window.api.app.onConfigChanged((cfg) => ui.applyConfig(cfg))
