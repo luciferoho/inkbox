@@ -221,6 +221,14 @@ html[data-theme-css] .md-preview .md-front-matter {
   list-style: none;
   margin-left: -1.4em;
 }
+/* 任务项统一渲染 li > p（对齐 Typora 结构，主题兄弟规则的前提）；
+   紧列表的唯一段落 margin 归零，观感与原先的裸文本一致。
+   :where 压低特异性到 (0,2,1)：压过内置 .md-preview p 边距、又不挡主题
+   自己的 #write p 边距（接管主题的 p 缩进——phycat 的 margin 0 10px
+   正是圆圈与正文的间距来源）；防护主题由管线里的 !important 归零兜底 */
+.md-preview :where(li.task-list-item) > p:only-child {
+  margin: 0;
+}
 .md-preview .task-item-checkbox {
   accent-color: var(--accent);
   margin-right: 7px;

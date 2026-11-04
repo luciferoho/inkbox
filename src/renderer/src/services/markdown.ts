@@ -382,6 +382,19 @@ md.core.ruler.push('luci_task_lists', (state: StateCore) => {
     }disabled tabindex="-1"> `
     toks[i].children!.unshift(box)
     toks[i - 2].attrJoin('class', 'task-list-item')
+    // Typora 的任务项永远是 li > input + p 结构（主题的 input:checked+p 等
+    // 兄弟规则、input+p 几何规则全以此为前提），紧列表也要渲染出 p；
+    // 间距由 preview.css 的 p:only-child margin 归零补偿，观感与裸文本一致
+    if (toks[i - 1].hidden) {
+      toks[i - 1].hidden = false
+      for (let j = i + 1; j < toks.length; j++) {
+        if (toks[j].type === 'paragraph_close') {
+          toks[j].hidden = false
+          break
+        }
+        if (toks[j].type === 'list_item_open' || toks[j].type === 'list_item_close') break
+      }
+    }
   }
 })
 

@@ -130,6 +130,21 @@ function protectComments(css: string): { text: string; restore: (s: string) => s
   return { text, restore: (s) => s.replace(/\u0000C(\d+)\u0000/g, (_, i) => kept[Number(i)]) }
 }
 
+/** 任务勾选态兄弟选择器桥：Typora 的 checkbox 是 li 直接子节点、与段落是兄弟，
+ *  主题用 `input:checked + p` 做「勾选后文字变灰/划线」（phycat 的任务完成态、
+ *  `input[type=checkbox] + p` 的划线生长底）；我们的 checkbox 在段落内部，
+ *  兄弟关系不成立——转成 li:has(input...) 后代判定，声明的落点同为该段落。
+ *  返回 null 表示不匹配（含伪元素/无 task 语境的照原样走通用管线） */
+function bridgeTaskSibling(sel: string): string | null {
+  const inputAt = sel.search(/(^|[^\w-])input(?![\w-])/i)
+  if (inputAt < 0 || !/task-list-item/i.test(sel.slice(0, inputAt))) return null
+  const m = sel.slice(inputAt).match(/^\s*(input(?![\w-])[^{}+~]*?)\s*([+~])\s*([^{}+~][^{}]*)$/i)
+  if (!m) return null
+  const chain = m[3].trim()
+  if (/task-list-item/i.test(chain)) return null
+  return `:is(li.task-list-item, li[data-item-type='task']):has(${m[1].trim()}) ${chain}`
+}
+
 /** 单个选择器 → 作用域化。
  *  选择器里的注释（如 `/*核心变量*​/ :root`）直接剥掉再判定，否则占位符
  *  会破坏 :root/前缀判定，产出永远匹配不到的选择器。
@@ -148,6 +163,10 @@ function scopeSelector(sel: string): string {
     s = s.slice(stateMatch[0].length).trim()
     if (!s) return `${statePrefix} ${SCOPE}`
   }
+  // 任务勾选态兄弟选择器桥（必须在通用替换前：桥产物里 task-list-item 已
+  // 消化成 :is() 形态，不再吃裸类替换）
+  const bridged = bridgeTaskSibling(s)
+  if (bridged) s = bridged
   // :root / html / body / #write / content / .write（Typora 正文容器别名）→ SCOPE；
   // .md-fences（Typora 代码块）→ pre（我们的代码块同样是 pre 元素）；
   // .CodeMirror-lines 是 Typora 围栏内层（字号/行高/字族），映射到 pre code
@@ -1220,6 +1239,124 @@ ${SCOPE} .md-mermaid-render {
 }
 `
 
+/* ---------- 任务复选框：防护 / 交还主题（按主题内容二选一注入） ---------- */
+
+/** 主题是否自绘任务复选框：Typora 主机的 checkbox 是去原生化基底，主题用
+ *  ::before/::after 或显式 appearance 自绘形状（phycat 圆形辉光/night √ 框/
+ *  newsprint 按钮 √）。剥注释后扫描：task-list 语境（.md-task-list-item /
+ *  .task-list-item）的 input 规则或通用 input[type=checkbox]，且带伪元素或
+ *  appearance 声明才算自绘——只微调位置（top/left）的规则不接管，保留防护 */
+function themeDrawsTaskCheckbox(css: string): boolean {
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const appearanceDecl = /(?:^|;)\s*(?:-[a-z]+-)?appearance\s*:/i.test(m[2])
+    for (const part of splitTopLevel(m[1])) {
+      const sel = part.replace(/\u0000C\d+\u0000/g, '').trim()
+      // Typora 界面壳（偏好面板/对话框/菜单）里的 checkbox 不是内容复选框
+      // （eyes-green 的 .ty-preferences input[type=checkbox] 实测）
+      if (/\.ty-|#typora|\.modal|dialog|\.menu-/i.test(sel)) continue
+      const hasCheckbox =
+        (/task-list-item/i.test(sel) && /(^|[^\w-])input(?![\w-])/i.test(sel)) ||
+        /(^|[^\w-])input\[type\s*=\s*(['"]?)checkbox\2\]/i.test(sel)
+      if (!hasCheckbox) continue
+      if (appearanceDecl || /::?(before|after)\s*$/i.test(sel)) return true
+    }
+  }
+  return false
+}
+
+/** 自绘复选框的「圆形逃逸量」：个别主题把可见圆画在 input 盒外（::before
+ *  position:absolute + 正 left 偏移，phycat 亮色基座 left:18px），而 left 值
+ *  仍按「圆应悬在沟槽」设计——实际渲染圆心右移、盖住正文（该选择器在真实
+ *  Typora 里因 md- 前缀缺失不命中，作者从未见过实际效果）。返回逃逸 px，
+ *  由接管块把 input 整体左移同等距离补回。无逃逸返回 null */
+function themeTaskCircleEscape(css: string): string | null {
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const sel = m[1].replace(/\u0000C\d+\u0000/g, '').trim()
+    if (!/(^|[^\w-])input(?![\w-])[^{}]*::?(before|after)\s*$/i.test(sel)) continue
+    if (!/task-list-item/i.test(sel) && !/input\[type\s*=\s*(['"]?)checkbox\1\]/i.test(sel)) continue
+    if (!/position\s*:\s*absolute/i.test(m[2])) continue
+    const left = m[2].match(/(?:^|;)\s*left\s*:\s*(\d*\.?\d+)px/i)
+    if (left && Number(left[1]) > 4) return `${left[1]}px` // ≤4px 视为居中微调，不算逃逸
+  }
+  return null
+}
+
+/** 主题未自绘任务复选框时的防护：复选框是功能件不是内容。部分主题的通用
+ *  input 规则（全局边框、appearance:button 巨形控件）会落到内联复选框上——
+ *  统一恢复原生外观与尺寸，仅保留主题强调色（accent-color 由 preview/wysiwyg
+ *  的默认规则提供）。主题自绘时整段不发（见 TASK_CHECKBOX_TAKEOVER） */
+const TASK_CHECKBOX_GUARD = `
+/* 主题模式：任务复选框防护（主题未自绘复选框时才注入） */
+html[data-theme-css] .task-item-checkbox {
+  -webkit-appearance: checkbox !important;
+  appearance: checkbox !important;
+  width: 13px !important;
+  height: 13px !important;
+  margin: 0 7px 0 0 !important;
+  border: 0 !important;
+  border-radius: 3px !important;
+  background: none !important;
+  vertical-align: -1.5px !important;
+}
+html[data-theme-css] .task-item-checkbox::before {
+  content: none !important;
+}
+/* 任务项统一渲染 li > p 后（对齐 Typora 结构），紧列表的唯一段落不吃主题
+   的通用 #write p 边距（防护主题下它原本作用于裸文本，等效无边距） */
+html[data-theme-css] :is(li.task-list-item, li[data-item-type='task']) > p:only-child {
+  margin: 0 !important;
+}
+`
+
+/** 主题自绘任务复选框时的主机职责：Typora 里 checkbox 默认就是去原生化
+ *  （appearance:none），主题的 ::before/::after 自绘才能着色（本 Chromium 的
+ *  appearance 初值即 none，主题写的 -webkit-appearance:initial 无需改写）。
+ *  仅补主机基底，形状/几何/配色交主题自己的规则——作用域化后恒为 (0,4,x)，
+ *  压过这里的 (0,2,0)，主题写没写 appearance 都不受影响。
+ *  li 的负 margin 同时收回：那是给内联复选框腾位的补偿，主题的 checkbox 是
+ *  绝对定位悬挂在列表缩进沟槽里（Typora 几何），叠加负 margin 会把圆圈推出
+ *  ul 盒子、贴死正文（radiation/vampire 实测） */
+const TASK_CHECKBOX_TAKEOVER = `
+/* 主题自绘任务复选框：主机去原生化（Typora 行为），外观交主题 */
+html[data-theme-css] .task-item-checkbox {
+  -webkit-appearance: none;
+  appearance: none;
+}
+/* 恢复 Typora 几何：任务项不吃内联复选框的负 margin 补偿，圆圈悬在沟槽。
+   (0,3,1) 严格压过内置 li 负 margin 规则 (0,2,1)（不靠样式表顺序），又低于
+   主题作用域化规则的地板 (0,4,1)——主题想自己设任务项 margin 时仍可覆盖 */
+html[data-theme-css] :is(.md-preview, .luci-prose) :is(li.task-list-item, li[data-item-type='task']) {
+  margin-left: 0;
+}
+/* checkbox 的锚点对齐 Typora：主题常给任务段落 position:relative（phycat），
+   绝对定位的 checkbox 会锚到段落盒——段落自身的缩进（phycat #write p 的
+   margin 0 10px）会把圆圈一起右移、贴死正文（实测间距 -1px，Typora 9px）。
+   Typora 里 checkbox 的锚是 li，段内取消定位即可，定位值仍由主题给出 */
+html[data-theme-css] :is(.md-preview.md-preview.md-preview, .luci-prose.luci-prose.luci-prose)
+  :is(li.task-list-item, li[data-item-type='task']) > p {
+  position: static;
+  margin-top: 0;
+}
+/* 纵向对齐由主机接管：主题的 top 值（phycat 9px）按 Typora 行盒度量调的，
+   在我们的行高/字号体系里圆心比文字中心低 ~5px。top 取首行行盒中心
+   （1lh 跟随继承行高=内容字号×行距），translate 上移自身半高——圆心精确
+   对齐行中心且适配任意主题圆圈尺寸；translate 是独立属性，与主题自己的
+   transform（morandi 的微调）叠加不互覆盖。
+   font:inherit 必须带：input 的 UA 默认字体不随内容（13.33px/normal），
+   lh 单位会失真成 15px（内容行盒实为 27px，实测 dy -4.5）。
+   (0,5,0) 压过主题作用域化地板 (0,4,1)——主题残留的 !important 旧坐标
+   （morandi top:3px、sonnet margin-top）同特异性下靠它作废 */
+html[data-theme-css] :is(.md-preview.md-preview.md-preview, .luci-prose.luci-prose.luci-prose)
+  .task-item-checkbox {
+  position: absolute !important;
+  font: inherit;
+  top: 0.5lh !important;
+  translate: 0 -50%;
+  transform: none !important; /* morandi 的 -5px 纵向微调随旧坐标系作废（实测 dy -4.4） */
+  margin-block: 0 !important;
+}
+`
+
 /* ---------- 入口 ---------- */
 
 /** 主题条目：ThemeInfo 已含 name/file/family/variant */
@@ -1299,6 +1436,28 @@ export async function processThemeCss(
     }
     return whole
   })
+  // .md-task-list-item > input 子代连接符桥：Typora 的 checkbox 是 li 直接
+  // 子节点，我们包在段落里（即显侧 widget 同样挂在段首），子代选择器会整体
+  // 落空（night/newsprint 的复选框规则全部失效）——降级为后代选择器
+  raw = raw.replace(/(\.md-task-list-item\s*)>(\s*input\b)/gi, '$1 $2')
   const withUrls = await rewriteUrls(raw, dir, mode)
-  return ALIAS_BLOCK + THEME_RESET + scopeThemeCss(withUrls) + CONTENT_FINAL + typoraValueBridge(withUrls, entry.variant === 'dark' ? 'dark' : 'light')
+  // 任务复选框按主题内容二选一：主题自绘（phycat/night/newsprint）→ 主机去
+  // 原生化、外观交主题；未自绘 → 防护原生外观（通用 input 规则不污染复选框）
+  const taskDrawn = themeDrawsTaskCheckbox(stripCssComments(withUrls))
+  // 圆形逃逸补偿：可见圆画在 input 盒外的主题（phycat 亮色基座），把 input
+  // 左移同等距离让圆回到沟槽
+  const circleEscape = taskDrawn ? themeTaskCircleEscape(stripCssComments(withUrls)) : null
+  const takeoverCss =
+    TASK_CHECKBOX_TAKEOVER +
+    (circleEscape
+      ? `\n/* 圆形逃逸补偿（::before 右偏 ${circleEscape} 逃出 input 盒盖住正文）：input 等距左移 */\nhtml[data-theme-css] .task-item-checkbox { margin-left: -${circleEscape}; }\n`
+      : '')
+  return (
+    ALIAS_BLOCK +
+    THEME_RESET +
+    scopeThemeCss(withUrls) +
+    CONTENT_FINAL +
+    typoraValueBridge(withUrls, entry.variant === 'dark' ? 'dark' : 'light') +
+    (taskDrawn ? takeoverCss : TASK_CHECKBOX_GUARD)
+  )
 }
