@@ -342,7 +342,8 @@ export const zh = {
   // 代码块复制按钮（md-preview 渲染管线）
   'code.copy': '复制代码',
   'code.copied': '已复制',
-    'code.editLang': '修改语言',
+  'code.editLang': '修改语言',
+  'code.langPlaceholder': '语言',
   'ip.title': '插入',
   'ip.placeholder': '输入命令名过滤…',
   'ip.noMatch': '无匹配命令',

@@ -133,21 +133,44 @@
   border-top-right-radius: 0;
 }
 
-/* Typora 主题模式：隐藏语言栏，代码块交给主题（.md-fences → pre）渲染。
-   主题把 pre margin 归零（依赖 Typora 的 #write flex gap），我们没有 flex，
-   这里补回块间距，否则代码块会贴着上下正文 */
+/* Typora 主题模式：语言栏不再整条隐藏——隐藏后语言项根本点不到（5.2 语言
+   选择器在主题模式形同虚设，用户实测反馈）。改为透明浮层盖在代码块右上角
+   （Typora 观感：标签在块内角上）：条身固定高、pre 用负 margin 上移与之重叠；
+   条身 pointer-events:none 不拦正文点击，只有语言标签/复制按钮可点 */
 html[data-theme-css] .wysiwyg-host .luci-prose .md-code-bar {
-  display: none;
-}
-/* 例外：语言编辑进行中临时亮出编辑栏（否则输入框 0×0 不可聚焦，
-   主题模式下语言切换/插入后选语言完全不可用） */
-html[data-theme-css] .wysiwyg-host .luci-prose .md-code-bar:has(.md-code-lang-input) {
   display: flex;
+  position: relative;
+  /* 必须压过主题给围栏的层叠层级：phycat .md-fences{z-index:1}、
+     聚焦态 .md-fences.md-focus{z-index:100}——同为定位元素时按 DOM 序
+     pre 在 bar 之后会盖住浮层标签（实测 phycat 语言整块消失） */
+  z-index: 101;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  /* 固定 28px（标签 11px/复制钮 16px 恒定，不随正文字号缩放）：
+     与主题管线给 pre 补的头部预留带（padding-top: max(…, 28px−code顶距)）
+     严格等高——首行代码从浮层底边开始，长行不再钻到工具栏底下 */
+  height: 28px;
+  margin-bottom: -28px;
+  padding: 0 10px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  pointer-events: none;
+}
+html[data-theme-css] .wysiwyg-host .luci-prose .md-code-bar .md-code-lang,
+html[data-theme-css] .wysiwyg-host .luci-prose .md-code-bar .md-code-copy {
+  pointer-events: auto;
+}
+/* pre 顶边与浮层顶边对齐（条高被负 margin 抵消）。类名重复抬特异性：
+   要压过主题管线 CONTENT_FINAL 的 `> * + pre` 补距规则（同 !important 靠类数胜） */
+html[data-theme-css] .wysiwyg-host .luci-prose.luci-prose .md-code-bar + pre {
+  margin-top: 0 !important;
 }
 html[data-theme-css] .wysiwyg-host .luci-prose pre {
   box-shadow: none;
   margin: 1em 0 !important;
-  /* 语言栏隐藏后，“栏 + pre”的直角拼接规则仍在；圆角回到主题 .md-fences 的值 */
+  /* 圆角回到主题 .md-fences 的值（“栏 + pre”直角拼接规则只在内置模式生效） */
   border-radius: var(--code-radius, 10px);
 }
 .wysiwyg-host .luci-prose .md-code-lang {

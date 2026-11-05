@@ -60,7 +60,8 @@ function buildDecorations(state: EditorState, ref: ViewRef): DecorationSet {
 
     const langEl = document.createElement('span')
     langEl.className = 'md-code-lang'
-    langEl.textContent = lang
+    // 未设语言也要有可点的占位（空标签 0 宽，浮层模式下无处下嘴）
+    langEl.textContent = lang || t('code.langPlaceholder')
     langEl.title = t('code.editLang')
     langEl.addEventListener('mousedown', (e) => {
       e.preventDefault()
