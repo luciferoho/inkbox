@@ -341,7 +341,8 @@ export const en: MsgSchema = {
   // Code block copy button (md-preview pipeline)
   'code.copy': 'Copy code',
   'code.copied': 'Copied',
-    'code.editLang': 'Edit language',
+  'code.editLang': 'Edit language',
+  'code.langPlaceholder': 'lang',
   'ip.title': 'Insert',
   'ip.placeholder': 'Type to filter commands…',
   'ip.noMatch': 'No matching command',

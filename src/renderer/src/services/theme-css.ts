@@ -280,12 +280,35 @@ function stripContainerDecls(body: string): string {
     .replace(/(^|[;{\n])\s*background(?:-color|-image)?\s*:[^;}]*;?/gi, '$1')
 }
 
+/** 主题容器的 flex 纵向间距（`#write{display:flex;flex-direction:column;gap}`
+ *  是 Typora 主题的常见排版约定，sonnet 即此）：gap 被 stripContainerDecls
+ *  剥离后块间距全丢——sonnet 实测 p margin 全 0、代码块贴正文、标题负 margin
+ *  叠进正文（用户反馈「过于拥挤」）。记下行间距值，由 processThemeCss 在
+ *  CONTENT_FINAL 之后补相邻块 margin-top，语义等同 gap。 */
+let themeFlexGap: string | null = null
+
+function containerRowGap(body: string): string | null {
+  const disp = body.match(/(?:^|[;{\n])\s*display\s*:\s*([^;}]+)/i)
+  if (!disp || !/\bflex\b/i.test(disp[1])) return null
+  const dir = body.match(/(?:^|[;{\n])\s*flex-direction\s*:\s*([^;}]+)/i)
+  if (dir && !/column/i.test(dir[1])) return null // 横向 flex 的 gap 是列间距，不补
+  const row = body.match(/(?:^|[;{\n])\s*row-gap\s*:\s*([^;}]+)/i)
+  if (row) return row[1].trim()
+  const g = body.match(/(?:^|[;{\n])\s*gap\s*:\s*([^;}]+)/i)
+  if (!g) return null
+  const first = g[1].trim().split(/[\s/]+/)[0] ?? ''
+  // normal 等关键字没有长度语义，写进 margin 声明是非法的
+  return /^(normal|initial|inherit|unset|revert)$/i.test(first) ? null : first
+}
+
 /** 注释占位符（protectComments 产物，NUL 包裹的 C<n>）整体剥离。
  *  源码用 fromCharCode 构造，避免转义写法 */
 const commentHolderRe = new RegExp(String.fromCharCode(0) + 'C[0-9]+' + String.fromCharCode(0), 'g')
 
-/** 遍历块结构做作用域化；@font-face/@keyframes 等原样，@media/@supports 递归 */
-function scopeBlocks(css: string): string {
+/** 遍历块结构做作用域化；@font-face/@keyframes 等原样，@media/@supports 递归。
+ *  nested：@media 等内层——gap 捕获只认顶层容器规则（打印媒体里的 gap
+ *  不能决定屏幕排版节奏） */
+function scopeBlocks(css: string, nested = false): string {
   let out = ''
   let i = 0
   while (i < css.length) {
@@ -314,7 +337,7 @@ function scopeBlocks(css: string): string {
     if (at) {
       const name = at[1].toLowerCase()
       if (name === 'media' || name === 'supports' || name === 'container' || name === 'layer' || name === 'scope') {
-        out += headPrefix + headPart + '{' + scopeBlocks(body) + '}'
+        out += headPrefix + headPart + '{' + scopeBlocks(body, true) + '}'
       } else {
         out += headPrefix + headPart + '{' + body + '}' // @font-face/@keyframes/@property 等原样
       }
@@ -322,6 +345,10 @@ function scopeBlocks(css: string): string {
       // 容器本身（html/body/#write/:root/.write）的页面盒模型/布局/底色声明让位；
       // 后代规则（#write p、.write th…）原样保留
       const isContainer = allContainerSubjects(headPart)
+      if (isContainer && !nested) {
+        const gap = containerRowGap(body)
+        if (gap) themeFlexGap = gap
+      }
       const decls = isContainer ? stripContainerDecls(body) : body
       const scopedSel = scopeSelectorList(headPart.trim())
       if (!scopedSel.trim()) {
@@ -730,11 +757,18 @@ function extractCmWrapperStyle(css: string, set: Map<string, string>, defs: Map<
       const parts = pad.replace(/!important/i, '').trim().split(/\s+/)
       if (parts.length <= 4 && parts.every((p) => /^[-\d.\w%]+$/.test(p))) {
         const [t, r = t, b = t, l = r] = parts
-        const plus4 = (v: string) => `calc(${v} + 4px)`
-        set.set('--code-pad-t', plus4(t))
-        set.set('--code-pad-r', plus4(r))
-        set.set('--code-pad-b', plus4(b))
-        set.set('--code-pad-l', plus4(l))
+        // 包装层内距全 0（sonnet 的 .CodeMirror pre{padding:0} 会命中这里）：
+        // 没有可搬走的内距，fenceChrome 再把 pre 归零只会丢掉主题写在
+        // .md-fences 上的真实内距（sonnet 14px → 实测内容贴边 1px）——视为缺席，
+        // pre 保留主题自身 padding（与 Typora 一致：fences 内距 + CM 内距本就叠加）
+        const allZero = [t, r, b, l].every((v) => parseFloat(v) === 0)
+        if (!allZero) {
+          const plus4 = (v: string) => `calc(${v} + 4px)`
+          set.set('--code-pad-t', plus4(t))
+          set.set('--code-pad-r', plus4(r))
+          set.set('--code-pad-b', plus4(b))
+          set.set('--code-pad-l', plus4(l))
+        }
       } else {
         set.set('--code-pad', pad) // 复杂值原样兜底
       }
@@ -744,6 +778,88 @@ function extractCmWrapperStyle(css: string, set: Map<string, string>, defs: Map<
     const fsz = pick(/(?:^|;)\s*font-size\s*:\s*([^;!}]+)/i)
     if (fsz && !set.has('--code-font-size')) set.set('--code-font-size', fsz)
   }
+}
+
+/** 主题围栏盒内距（.md-fences/pre 本体规则；简写/长手按文档序后者覆盖前者，
+ *  与级联同向）。top/sides 缺省 null；sides 取左右较小值（更贴边的一侧决定
+ *  下限）。单位原样返回（rem 已过 convertRem，em 运行时按元素字号解析）。
+ *  两道过滤（2026-11-05 全主题审计实测）：
+ *  ① 只认「末段主体就是围栏/pre 本身」的分组——`.md-fences .CodeMirror-line`
+ *     这类后代规则的 padding 属于子元素，算进来会污染真值；
+ *  ② 跳过我们 DOM 永不出现的状态（Typora 预览态 .md-fences-with-preview、
+ *     focus 态 .md-focus、行元素 .CodeMirror-line、语言限定 [lang=…]、子态
+ *     :has(…)）——lightmind 的 `.md-fences-with-preview{padding:0}` 曾按
+ *     “后写胜”把 48px 顶距盖成 0、触发误判贴边。`:not(…)` 里的同名条件是
+ *     反状态（我们正属该态），必须保留。 */
+function fenceBoxPadding(css: string): { top: string | null; sides: string | null } {
+  const norm = (v: string): string => (/^[-\d.]+$/.test(v) ? v + 'px' : v)
+  const px = (v: string): number => {
+    const n = parseFloat(v)
+    if (!Number.isFinite(n)) return 0
+    return /rem|em/i.test(v) ? n * 16 : n
+  }
+  const stateful =
+    /(?<!:not\()(?<!:has\()(?:\.md-fences-with-preview|\.md-focus|\.CodeMirror-line|\.md-diagram-panel|:has\(|\[[\w-]+(?==))/
+  const subjectOk = (part: string): boolean => {
+    const seg = part.split(/[\s>+~]+/).filter(Boolean).pop() ?? ''
+    if (/::?(?:before|after)\b/i.test(seg)) return false // 伪元素段
+    if (/^pre(?![\w.-])/.test(seg)) {
+      // pre 本体：裸 pre 或 #write pre（Typora 围栏）。`.md-fences pre` /
+      // `.CodeMirror pre` 是围栏内层的 CodeMirror pre（主题用它 padding:0
+      // 归零，sonnet 实测会把 .md-fences 的 0.875rem 盖掉），不算主体
+      if (/\.md-fences\s/.test(part)) return false
+      return !/[\s>+~]/.test(part) || /^#write[\s>+~]/.test(part)
+    }
+    return /^\.md-fences(?![\w-])/.test(seg)
+  }
+  let t: string | null = null
+  let l: string | null = null
+  let r: string | null = null
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const parts = m[1].split(',').map((s) => s.trim())
+    if (!parts.some((p) => subjectOk(p) && !stateful.test(p))) continue
+    const body = m[2]
+    const sh = body.match(/(?:^|[;{\n])\s*padding\s*:\s*([^;!}]+)/i)
+    if (sh) {
+      const p = sh[1].trim().split(/\s+/)
+      const [pt, pr = pt, , pl = pr] = p
+      t = norm(pt)
+      l = norm(pl)
+      r = norm(pr)
+    }
+    const hit = (re: RegExp): string | null => {
+      const v = body.match(re)
+      return v ? norm(v[1].trim()) : null
+    }
+    const pt = hit(/(?:^|[;{\n])\s*padding-top\s*:\s*([^;!}]+)/i)
+    if (pt) t = pt
+    const pl = hit(/(?:^|[;{\n])\s*padding-left\s*:\s*([^;!}]+)/i)
+    if (pl) l = pl
+    const pr = hit(/(?:^|[;{\n])\s*padding-right\s*:\s*([^;!}]+)/i)
+    if (pr) r = pr
+  }
+  const sides =
+    l === null && r === null ? null : l === null ? (r as string) : r === null ? l : px(l) <= px(r) ? l : r
+  return { top: t, sides }
+}
+
+/** 主题给围栏画了流内头部条带（phycat 的语言条：.md-fences::before 实高
+ *  且非 absolute）——条带本身撑起头部空间，浮层标签落在条带里，无需再补
+ *  预留带（补了反而把条带压下去、标签浮到条带上方）。 */
+function themeHasInFlowStrip(css: string): boolean {
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const parts = m[1].split(',').map((s) => s.trim())
+    const isFencePseudo = parts.some((p) => /^\.md-fences\b[^ >+~]*::?(?:before|after)$/i.test(p))
+    if (!isFencePseudo) continue
+    const body = m[2]
+    if (/content\s*:\s*none\b/i.test(body)) continue // content:none 不生成盒
+    if (/position\s*:\s*(?:absolute|fixed)/i.test(body)) continue // 绝对定位不吃流内高度
+    const h = body.match(/(?:^|[;{\n])\s*height\s*:\s*([-\d.]+)(px|rem|em)?/i)
+    if (!h) continue
+    const px = parseFloat(h[1]) * (/^(?:rem|em)$/i.test(h[2] ?? 'px') ? 16 : 1)
+    if (px >= 24) return true
+  }
+  return false
 }
 
 export function typoraValueBridge(inputCss: string, polarity?: 'light' | 'dark'): string {
@@ -1010,10 +1126,37 @@ ${SCOPE} pre:not(.md-meta-block):not(.md-mermaid) > code {
 }
 `
   }
+  // 头部预留带 + 最小左右内距（2026-11-05 全主题审计）：
+  // 浮层语言栏占代码块顶部固定 28px（wysiwyg.css 等高配平）。主题自带流内
+  // 条带（phycat 语言条）的条带本身就是头部→跳过；其余主题首行会钻到工具栏
+  // 底下（vue/eyes-green/claude-like/kiro/sonnet/orangeheart 实测重叠）→按主题
+  // 自身顶距补足到 28px，fenceChrome 把内距搬去 code 的主题按 code 顶距扣减
+  //（max 里减 var，避免顶距叠高）。左右内距 <14px 的（vue 0/eyes-green 4/
+  // newsprint 7）抬到 14px——只在未启用内距搬运（!hasPad）时做，搬运主题的
+  // 内距在 code 层（morandigarden 14/orangeheart 12）本就正常。
+  const fencePad = fenceBoxPadding(css)
+  const sidesPx = fencePad.sides
+    ? parseFloat(fencePad.sides) * (/rem|em/i.test(fencePad.sides) ? 16 : 1)
+    : 0
+  const headerFix: string[] = []
+  if (!themeHasInFlowStrip(css)) {
+    headerFix.push(
+      `${SCOPE} pre:not(.md-meta-block):not(.md-mermaid) {\n  padding-top: max(${fencePad.top ?? '0px'}, calc(28px - var(--code-pad-t, 0px))) !important;\n}`
+    )
+  }
+  if (!hasPad && sidesPx < 14) {
+    headerFix.push(
+      `${SCOPE} pre:not(.md-meta-block):not(.md-mermaid) {\n  padding-inline: max(${fencePad.sides ?? '0px'}, 14px) !important;\n}`
+    )
+  }
+  const headerFixCss = headerFix.length
+    ? `\n/* 代码块头部预留带 / 最小左右内距（见上注） */\n${headerFix.join('\n')}\n`
+    : ''
   return (
     (rules.length ? `\n/* Typora 变量 → 应用令牌 */\n:root[data-theme] { ${rules.join(' ')} }\n` : '') +
     panelSkin +
-    fenceChrome
+    fenceChrome +
+    headerFixCss
   )
 }
 
@@ -1420,6 +1563,10 @@ export async function processThemeCss(
   // 叠挤还被裁（用户确认不显示）。剥掉 content 声明：::before 无内容即不生成
   // （esther 等的 hN::before 空内容装饰线不带 HN 字面量，不受影响）
   raw = raw.replace(/content\s*:\s*(['"])H[1-6]\1\s*;?/gi, '')
+  // 主题自绘语言徽标（lightmind 的 .md-fences::after{content:attr(lang)} 左上角
+  // 常驻语言名）：与我们可编辑的右上角浮层标签重复显示（用户实测「两处语言」）。
+  // 只清空文本保留盒——徽标若带底色/条带设计不破坏；语言显示与编辑统一归浮层
+  raw = raw.replace(/content\s*:\s*attr\(\s*(?:lang|data-language)\s*\)\s*;?/gi, "content: '';")
   // lang → data-language 属性桥：Typora 围栏 pre 用 lang 属性（[lang=mermaid]、
   // attr(lang)），我们用 data-language。不改写时主题的语言判别全部落空——
   // phycat 的 .md-fences:not([lang=mermaid])::before 会把圆点条画到图表上，
@@ -1452,11 +1599,27 @@ export async function processThemeCss(
     (circleEscape
       ? `\n/* 圆形逃逸补偿（::before 右偏 ${circleEscape} 逃出 input 盒盖住正文）：input 等距左移 */\nhtml[data-theme-css] .task-item-checkbox { margin-left: -${circleEscape}; }\n`
       : '')
+  // flex gap 补距：捕获与读取必须同处同步段（themeFlexGap 是模块级单槽，
+  // 中间隔 await 会被并发的 processThemeCss 串扰）
+  themeFlexGap = null
+  const scoped = scopeThemeCss(withUrls)
+  const gap = themeFlexGap
+  const gapFix = gap
+    ? `\n/* 主题靠 #write{display:flex;column;gap} 排版（Typora 惯例），容器级 flex/gap
+   已被 stripContainerDecls 剥离——块间距以相邻块 margin-top 补回（flex 不折叠
+   margin，正负 margin 折叠结果与 gap+自身 margin 等价）。!important 压过主题的
+   普通 margin 规则；主题常带 .md-fences{margin:0!important}（三重作用域 (0,4,1)），
+   pre 单独补一条同特异度后代规则（预览侧代码块有包装层，直接子选择器会落空）、
+   靠本块在主题之后序位取胜 */
+${SCOPE} > * + * { margin-top: ${gap} !important; }
+${SCOPE} pre:not(.md-meta-block) { margin-top: ${gap} !important; }\n`
+    : ''
   return (
     ALIAS_BLOCK +
     THEME_RESET +
-    scopeThemeCss(withUrls) +
+    scoped +
     CONTENT_FINAL +
+    gapFix +
     typoraValueBridge(withUrls, entry.variant === 'dark' ? 'dark' : 'light') +
     (taskDrawn ? takeoverCss : TASK_CHECKBOX_GUARD)
   )
