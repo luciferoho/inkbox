@@ -896,7 +896,10 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
 .wysiwyg-host h6 .pm-fold-arrow {
   position: absolute;
   left: -20px;
-  top: calc((1.3em - 18px) / 2);
+  /* 1lh = 按钮继承的标题行高（font:inherit 连行高一起继承）：箭头永远对首行
+     行盒垂直居中——原 1.3em 是按默认行高的硬编码近似，主题把行高改掉就错位
+     （phycat 图标片标题行高 40px 时箭头中心 13 vs 文字 19.5，实测差 7px） */
+  top: calc((1lh - 18px) / 2);
   display: inline-flex;
   align-items: center;
   justify-content: center;
