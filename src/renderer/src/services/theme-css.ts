@@ -1407,6 +1407,74 @@ function themeDrawsTaskCheckbox(css: string): boolean {
   return false
 }
 
+/** 自绘复选框是「流内伪元素 + input 未给宽高」型（newsprint 的 √ 盒大于 UA
+ *  的 13×13）：必须去原生化并按伪元素收缩，否则原生面只露顶边、√ 吊在盒下。
+ *  有显式宽高的主题（sonnet/morandi/phycat/lightmind）盒子由主题自己定，不进
+ *  此分支（避免动到已验收的外观）。返回是否需要内容收缩。
+ *  调用方传入 stripCssComments 后的 css，无注释占位符，无需再剥 */
+function themeTaskCheckboxContentSizing(css: string): boolean {
+  let staticPseudo = false
+  let inputSized = false
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    for (const part of splitTopLevel(m[1])) {
+      const sel = part.trim()
+      if (/\.ty-|#typora|\.modal|dialog|\.menu-/i.test(sel)) continue
+      const hasCheckbox =
+        (/task-list-item/i.test(sel) && /(^|[^\w-])input(?![\w-])/i.test(sel)) ||
+        /(^|[^\w-])input\[type\s*=\s*["']?checkbox["']?\]/i.test(sel)
+      if (!hasCheckbox) continue
+      if (/::?(before|after)\s*$/i.test(sel)) {
+        if (!/(?:^|[;{\n])\s*position\s*:\s*(?:absolute|fixed)/i.test(m[2])) staticPseudo = true
+      } else if (/(?:^|[;{\n])\s*(?:width|height)\s*:/i.test(m[2])) {
+        inputSized = true
+      }
+    }
+  }
+  return staticPseudo && !inputSized
+}
+
+/** newsprint 型（流内伪元素自绘 + input 无显式宽高）。主题把可见形状整个画在
+ *  input::before 上：content:'√'、未勾选 #ddd、背景 #F3F2EE——背景与纸色相同，
+ *  盒子不可见，只剩一个「幽灵勾」，未勾选态几乎看不清（内置 newsprint 的原始
+ *  设计如此，非渲染缺陷；Typora 里同样是淡勾）。这里按主题自己声明的输入框
+ *  边框色 (#aaa) 把伪元素做成可见方框：未勾选空框、勾选墨色勾。宽度沿用主题
+ *  的 1.25rem，高度由 1.6rem 收到 1.25rem——主题那 1.6rem 是给隐形底座的，
+ *  做成可见框后必须方正。
+ *  Chromium 只有 appearance:none 才把 checkbox 当普通盒子渲染伪元素（实测
+ *  13×13→22×29），同时压过主题作用域的 appearance:button。
+ *  只在本分支注入——sonnet/lightmind/phycat/morandi 显式定尺寸、自己画边框，
+ *  不进此分支，不受影响 */
+const TASK_CHECKBOX_CONTENT_SIZE = `
+html[data-theme-css] :is(.md-preview.md-preview.md-preview, .luci-prose.luci-prose.luci-prose)
+  .task-item-checkbox {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  box-sizing: border-box !important;
+  width: 1.25rem !important;
+  height: 1.25rem !important;
+  border: none !important;
+  color: inherit !important;
+}
+html[data-theme-css] :is(.md-preview.md-preview.md-preview, .luci-prose.luci-prose.luci-prose)
+  .task-item-checkbox::before {
+  box-sizing: border-box;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 100% !important;
+  height: 100% !important;
+  border: 1px solid #aaa !important;
+  background: transparent !important;
+  color: transparent !important;
+  /* 勾形比正文小一档：Times 的 √ 在 20px 方框里贴角，收到 14px 才有留白 */
+  font-size: .875em !important;
+}
+html[data-theme-css] :is(.md-preview.md-preview.md-preview, .luci-prose.luci-prose.luci-prose)
+  .task-item-checkbox:checked::before {
+  color: inherit !important;
+}
+`
+
 /** 自绘复选框的「圆形逃逸量」：个别主题把可见圆画在 input 盒外（::before
  *  position:absolute + 正 left 偏移，phycat 亮色基座 left:18px），而 left 值
  *  仍按「圆应悬在沟槽」设计——实际渲染圆心右移、盖住正文（该选择器在真实
@@ -1567,6 +1635,40 @@ export async function processThemeCss(
   // 常驻语言名）：与我们可编辑的右上角浮层标签重复显示（用户实测「两处语言」）。
   // 只清空文本保留盒——徽标若带底色/条带设计不破坏；语言显示与编辑统一归浮层
   raw = raw.replace(/content\s*:\s*attr\(\s*(?:lang|data-language)\s*\)\s*;?/gi, "content: '';")
+  // phycat 类「标题行内图标片」：hN::after 的 inline-block 图标块（实高 height:
+  // 2em）在流内把行盒撑到图标高——文字被基线锁在盒顶，而标题条 top:50% 与折叠
+  // 箭头 top:0.5lh 按整盒/行高排 → 三者相差 6-7px（用户实测「没有垂直居中对齐」）。
+  // 给同批标题补 line-height: 图标高：行盒=图标高、文字半行距居中，条中心=箭头
+  // 中心=文字中心（h3 实测 14→20 全部同心）。三重防线防误伤：只认 inline-block/
+  // inline-flex（block 的是换行下划线，补 line-height 无效且 2px 条会把行高压烂）、
+  // 高度要撑行量级（图标片 2em/40px；2-4px 的线条排除）、流内（absolute/fixed
+  // 不进流不撑盒）
+  const chipHeadings: string[] = []
+  raw = raw.replace(/([^{}]+)\{([^{}]*)\}/g, (whole, sel: string, body: string) => {
+    const parts = sel
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const isChip =
+      parts.length > 0 &&
+      parts.every((p) => /::?after\s*$/i.test(p) && /(?:h[1-6]\b|\.md-heading)/i.test(p))
+    if (!isChip) return whole
+    if (/(?:^|[;{\n])\s*position\s*:\s*(?:absolute|fixed)/i.test(body)) return whole
+    const disp = body.match(/(?:^|[;{\n])\s*display\s*:\s*([^;!}]+)/i)
+    if (!disp || !/inline-(?:block|flex)/i.test(disp[1])) return whole
+    const h = body.match(/(?:^|[;{\n])\s*height\s*:\s*([^;!}]+)/i)
+    if (!h) return whole
+    const hv = h[1].trim()
+    const em = /^([\d.]+)(?:r?em)$/i.exec(hv)
+    const px = /^([\d.]+)px$/i.exec(hv)
+    const tallEnough = em ? parseFloat(em[1]) >= 1.4 : px ? parseFloat(px[1]) >= 20 : false
+    if (!tallEnough) return whole
+    chipHeadings.push(
+      `${parts.map((p) => p.replace(/::?after\s*$/i, '').trim()).join(', ')} {\n    line-height: ${hv} !important;\n}`
+    )
+    return whole
+  })
+  if (chipHeadings.length) raw += '\n' + chipHeadings.join('\n') + '\n'
   // lang → data-language 属性桥：Typora 围栏 pre 用 lang 属性（[lang=mermaid]、
   // attr(lang)），我们用 data-language。不改写时主题的语言判别全部落空——
   // phycat 的 .md-fences:not([lang=mermaid])::before 会把圆点条画到图表上，
@@ -1594,8 +1696,11 @@ export async function processThemeCss(
   // 圆形逃逸补偿：可见圆画在 input 盒外的主题（phycat 亮色基座），把 input
   // 左移同等距离让圆回到沟槽
   const circleEscape = taskDrawn ? themeTaskCircleEscape(stripCssComments(withUrls)) : null
+  // 流内伪元素自绘且 input 无显式宽高（newsprint 型）：补去原生化+内容收缩
+  const contentSizing = taskDrawn && themeTaskCheckboxContentSizing(stripCssComments(withUrls))
   const takeoverCss =
     TASK_CHECKBOX_TAKEOVER +
+    (contentSizing ? TASK_CHECKBOX_CONTENT_SIZE : '') +
     (circleEscape
       ? `\n/* 圆形逃逸补偿（::before 右偏 ${circleEscape} 逃出 input 盒盖住正文）：input 等距左移 */\nhtml[data-theme-css] .task-item-checkbox { margin-left: -${circleEscape}; }\n`
       : '')
