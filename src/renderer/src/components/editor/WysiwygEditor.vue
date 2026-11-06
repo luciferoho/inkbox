@@ -42,7 +42,7 @@ import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { history } from '@milkdown/kit/plugin/history'
 import { replaceAll, $prose, callCommand } from '@milkdown/kit/utils'
 import { NodeSelection, TextSelection, type EditorState } from '@milkdown/kit/prose/state'
-import { Fragment, type Node as PMNode, type NodeType } from '@milkdown/kit/prose/model'
+import { Fragment, type Node as PMNode } from '@milkdown/kit/prose/model'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { lift } from '@milkdown/kit/prose/commands'
 import { liftListItem, sinkListItem } from '@milkdown/kit/prose/schema-list'
@@ -66,6 +66,9 @@ import { saveViewProgress, loadView, clearViewAnchor } from '@/editor/tab-view-s
 import { applyCachedImageSizes, rememberImgSize } from '@/editor/img-size-cache'
 import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createPasteLinkPlugin } from '@/editor/paste-link'
+import { openTableGrid } from '@/editor/table-grid'
+import { createEmojiCompletionPlugin } from '@/editor/pm-emoji-completion'
+import { createLinkHoverTipPlugin } from '@/editor/pm-link-hover-tip'
 import { createHeadingFoldPlugin } from '@/editor/pm-heading-fold'
 import {
   beginColResize,
@@ -346,29 +349,6 @@ function pmToggleList(view: EditorView, ordered: boolean): boolean {
   return true
 }
 
-/** 插入两列表格骨架（列1/列2 表头 + 空数据行），光标落首个表头单元格。
- *  与源码 cmdInsertTable 的骨架一致；插在当前顶层块之后 */
-function pmInsertTable(view: EditorView): boolean {
-  const { state } = view
-  const tableT = state.schema.nodes.table
-  const rowT = state.schema.nodes.table_row
-  const headerT = state.schema.nodes.table_header
-  const cellT = state.schema.nodes.table_cell
-  const paraT = state.schema.nodes.paragraph
-  if (!tableT || !rowT || !headerT || !cellT || !paraT) return false
-  const { $from } = state.selection
-  const at = $from.after(1)
-  const cell = (type: NodeType, text: string): PMNode =>
-    type.create(null, paraT.create(null, text ? state.schema.text(text) : null))
-  const table = tableT.create(null, [
-    rowT.create(null, [cell(headerT, '列1'), cell(headerT, '列2')]),
-    rowT.create(null, [cell(cellT, ''), cell(cellT, '')])
-  ])
-  const tr = state.tr.insert(at, table)
-  tr.setSelection(TextSelection.near(tr.doc.resolve(at + 4)))
-  view.dispatch(tr)
-  return true
-}
 
 /** 插入块级公式：空段落原地替换、否则插到当前文本块之后；落 NodeSelection
  *  让 MathNodeView 进入嵌套源码编辑态（与 $$ 输入规则同款行为，Ctrl+Shift+M） */
@@ -469,7 +449,9 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     }
     if (!event.shiftKey && key.toLowerCase() === 't') {
       event.preventDefault()
-      return pmInsertTable(view)
+      // 5.6：弹 5×5 行列网格选择器（锚在光标处，落点即显）
+      openTableGrid('pm', view)
+      return true
     }
     if (event.shiftKey && key === 'Q') {
       event.preventDefault()
@@ -1072,23 +1054,13 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
   window.addEventListener('mouseup', onUp)
 }
 
-/** 表头按下横向拖动 → 实时移动列（跨列时逐相邻步交换，跟手）。
- *  - 列宽边界命中时列宽拖拽优先（先注册且已 preventDefault，defaultPrevented 短路）
- *  - 拖动超过阈值才启动：纯点击表头仍可编辑表头文字
- *  - 高亮是挂在 body 上的 overlay（fixed），完全不碰 PM 管理的表格 DOM
- *    （外部属性写入会被 DOM 观察器当成文档变更，实测会卡死渲染） */
-function onHostMouseDownTableDrag(e: MouseEvent): void {
-  if (e.button !== 0 || e.defaultPrevented) return
-  const el = e.target as HTMLElement | null
-  const table = el?.closest?.('table')
-  if (!(table instanceof HTMLTableElement)) return
+/** 表头拖拽把手：从第 startCol 列开始横向拖动 → 实时移动列（跨列时逐相邻步交换，跟手）。
+ *  - 入口只有表头上方的把手按钮（不再拖表头单元格本身：避免与选中/编辑表头文字冲突）
+ *  - 拖动超过阈值才启动；高亮是挂在 body 上的 overlay（fixed），完全不碰 PM 管理的
+ *    表格 DOM（外部属性写入会被 DOM 观察器当成文档变更，实测会卡死渲染） */
+function startColDrag(view: EditorView, table: HTMLTableElement, startCol: number, startX: number): void {
   const header = table.rows[0]
-  if (!header || !el?.closest?.('th') || !header.contains(el)) return // 只在表头行启动
-  if (hitColumnBoundary(table, e.clientX) !== null) return // 边界让位列宽拖拽
-  const view = getView()
-  if (!view) return
-  const startCol = Array.from(header.cells).findIndex((c) => c.contains(el as Node))
-  if (startCol < 0) return
+  if (!header || startCol < 0 || startCol >= header.cells.length) return
   // DOM 表头单元格 → PM 表格文档位置（交换事务按文档位置寻址）
   let tablePos = -1
   try {
@@ -1107,8 +1079,8 @@ function onHostMouseDownTableDrag(e: MouseEvent): void {
   // 让「拖一次」= 恰好一个撤销步（undo 回拖拽前、redo 恢复结果）
   const startNode = view.state.doc.nodeAt(tablePos)
   if (!startNode || startNode.type.name !== 'table') return
+  tblDragging = true
 
-  const startX = e.clientX
   let active = false
   let moved = false
   let cur = startCol
@@ -1138,6 +1110,7 @@ function onHostMouseDownTableDrag(e: MouseEvent): void {
     document.body.classList.remove('inkbox-col-dragging')
     indicator?.remove()
     indicator = null
+    tblDragging = false
   }
   const onMove = (ev: MouseEvent): void => {
     // PM 重绘制换了 table 节点（拖拽中标签切换等）：静默终止
@@ -1190,30 +1163,223 @@ function onHostMouseDownTableDrag(e: MouseEvent): void {
   window.addEventListener('mouseup', onUp)
 }
 
-/** 表格按下统一入口（Vue 模板不允许同名事件修饰符写两遍）：
- *  先列宽（命中边界即接管并 preventDefault），未命中再看表头列拖拽 */
+/** 表格按下：只管列宽拖拽（列序拖动由表头上方的把手触发，见 syncTableHandles） */
 function onHostMouseDownTable(e: MouseEvent): void {
   onHostMouseDownTableWidths(e)
-  onHostMouseDownTableDrag(e)
+}
+
+/* ---------- 表格行列拖拽把手（悬浮在单元格上方/左侧，单实例复用） ----------
+ *  只显示「当前悬浮的那一列 / 那一行」的把手：多把手同时出现既干扰阅读，
+ *  也让表头空间拥挤。把手是 body 层 fixed 元素，不碰 PM 管理的表格 DOM。 */
+
+const TBL_HANDLE_W = 30
+const TBL_HANDLE_H = 22
+
+/** 列把手图标：两列点，暗示左右拖 */
+const GRIP_V =
+  '<svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true">' +
+  '<circle cx="3.5" cy="4" r="1.2" /><circle cx="6.5" cy="4" r="1.2" />' +
+  '<circle cx="3.5" cy="8" r="1.2" /><circle cx="6.5" cy="8" r="1.2" />' +
+  '<circle cx="3.5" cy="12" r="1.2" /><circle cx="6.5" cy="12" r="1.2" />' +
+  '</svg>'
+/** 行把手图标：两行点，暗示上下拖 */
+const GRIP_H =
+  '<svg viewBox="0 0 16 10" width="16" height="10" aria-hidden="true">' +
+  '<circle cx="4" cy="3.5" r="1.2" /><circle cx="8" cy="3.5" r="1.2" /><circle cx="12" cy="3.5" r="1.2" />' +
+  '<circle cx="4" cy="6.5" r="1.2" /><circle cx="8" cy="6.5" r="1.2" /><circle cx="12" cy="6.5" r="1.2" />' +
+  '</svg>'
+
+let colHandleLayer: HTMLDivElement | null = null
+let colHandleBtn: HTMLButtonElement | null = null
+let colHandleTable: HTMLTableElement | null = null
+let colHandleIndex = -1
+
+let rowHandleLayer: HTMLDivElement | null = null
+let rowHandleBtn: HTMLButtonElement | null = null
+let rowHandleTable: HTMLTableElement | null = null
+let rowHandleIndex = -1
+
+function buildHandleLayer(cls: string, btnCls: string, icon: string, title: string): [HTMLDivElement, HTMLButtonElement] {
+  const layer = document.createElement('div')
+  layer.className = `luci-tbl-layer ${cls}`
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = `luci-tbl-handle ${btnCls}`
+  btn.title = title
+  btn.innerHTML = icon
+  layer.appendChild(btn)
+  // 指针进入把手：撤销「离开表格就收起」的待收定时器，否则刚移到手上就消失
+  layer.addEventListener('mouseenter', cancelHandleHide)
+  // 从把手回到编辑器时保留（位置由宿主 mousemove 接着维护），其余情况延迟收起
+  layer.addEventListener('mouseleave', (e) => {
+    const rt = e.relatedTarget as Node | null
+    if (rt && host.value?.contains(rt)) return
+    scheduleHideTableHandles()
+  })
+  btn.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    cancelHandleHide()
+    const view = getView()
+    if (cls.includes('col') && colHandleTable && colHandleIndex >= 0) {
+      const table = colHandleTable
+      const col = colHandleIndex
+      hideTableHandles()
+      if (view) startColDrag(view, table, col, e.clientX)
+    } else if (rowHandleTable && rowHandleIndex >= 1) {
+      const table = rowHandleTable
+      const row = rowHandleIndex
+      hideTableHandles()
+      if (view) startRowDrag(view, table, row, e.clientY)
+    }
+  })
+  document.body.appendChild(layer)
+  return [layer, btn]
+}
+
+function hideColHandle(): void {
+  colHandleTable = null
+  colHandleIndex = -1
+  if (colHandleLayer) colHandleLayer.style.display = 'none'
+}
+
+function hideRowHandle(): void {
+  rowHandleTable = null
+  rowHandleIndex = -1
+  if (rowHandleLayer) rowHandleLayer.style.display = 'none'
+}
+
+function hideTableHandles(): void {
+  hideColHandle()
+  hideRowHandle()
+}
+
+/* 把手与表头之间有几像素空隙，指针从表格移向把手时必然先「离开单元格」。
+ * 立即收起会让把手在指尖前消失（用户反馈「太难选中」），改为延迟收起 +
+ * 指针进入把手即取消；拖拽进行中一律不显示把手。 */
+let handleHideTimer = 0
+let tblDragging = false
+
+function cancelHandleHide(): void {
+  if (!handleHideTimer) return
+  window.clearTimeout(handleHideTimer)
+  handleHideTimer = 0
+}
+
+function scheduleHideTableHandles(): void {
+  if (handleHideTimer) return
+  handleHideTimer = window.setTimeout(() => {
+    handleHideTimer = 0
+    hideTableHandles()
+  }, 350)
+}
+
+/** 指针离开编辑器：移向把手时保留，否则延迟收起 */
+function onHostLeaveForHandles(e: MouseEvent): void {
+  const rt = e.relatedTarget as Node | null
+  if (rt && (colHandleLayer?.contains(rt) || rowHandleLayer?.contains(rt))) {
+    cancelHandleHide()
+    return
+  }
+  scheduleHideTableHandles()
+}
+
+/** 只在「当前列」表头上方显示列把手 */
+function showColHandle(table: HTMLTableElement, index: number): void {
+  const header = table.rows[0]
+  if (!header || index < 0 || index >= header.cells.length) {
+    hideColHandle()
+    return
+  }
+  const r = header.cells[index].getBoundingClientRect()
+  const hostRect = host.value?.getBoundingClientRect()
+  // 横向滚动后跑出可视区的列不给把手（点到看不见的地方会拖错列）
+  if (hostRect && (r.right <= hostRect.left + 2 || r.left >= hostRect.right - 2)) {
+    hideColHandle()
+    return
+  }
+  if (!colHandleLayer || !colHandleBtn) {
+    const [layer, btn] = buildHandleLayer('luci-col-handles', 'luci-col-handle', GRIP_V, t('table.dragCol'))
+    colHandleLayer = layer
+    colHandleBtn = btn
+  }
+  colHandleTable = table
+  colHandleIndex = index
+  colHandleLayer.style.display = ''
+  colHandleBtn.dataset.col = String(index)
+  colHandleBtn.style.left = `${Math.round(r.left + r.width / 2 - TBL_HANDLE_W / 2)}px`
+  // 表头贴近编辑区顶时把手别飘到编辑区外（工具条/标签栏上）
+  const top = r.top - TBL_HANDLE_H - 4
+  colHandleBtn.style.top = `${Math.round(hostRect ? Math.max(hostRect.top + 2, top) : top)}px`
+}
+
+/** 只在「当前行」左侧显示行把手（表头行 0 不给：表头不可移动） */
+function showRowHandle(table: HTMLTableElement, index: number): void {
+  const row = table.rows[index]
+  if (!row || index < 1) {
+    hideRowHandle()
+    return
+  }
+  const r = row.getBoundingClientRect()
+  const tableRect = table.getBoundingClientRect()
+  const hostRect = host.value?.getBoundingClientRect()
+  if (hostRect && (r.bottom <= hostRect.top + 2 || r.top >= hostRect.bottom - 2)) {
+    hideRowHandle()
+    return
+  }
+  if (!rowHandleLayer || !rowHandleBtn) {
+    const [layer, btn] = buildHandleLayer('luci-row-handles', 'luci-row-handle', GRIP_H, t('table.dragRow'))
+    rowHandleLayer = layer
+    rowHandleBtn = btn
+  }
+  rowHandleTable = table
+  rowHandleIndex = index
+  rowHandleLayer.style.display = ''
+  rowHandleBtn.dataset.row = String(index)
+  // 贴表格左侧，空间不足时钳在编辑区内侧（不越出内容区）
+  const left = tableRect.left - TBL_HANDLE_W - 6
+  rowHandleBtn.style.left = `${Math.round(hostRect ? Math.max(hostRect.left + 2, left) : left)}px`
+  rowHandleBtn.style.top = `${Math.round(r.top + r.height / 2 - TBL_HANDLE_H / 2)}px`
+}
+
+/** 宿主 mousemove：按当前悬浮单元格刷新列/行把手（各只保留一个） */
+function syncTableHandles(target: HTMLElement | null): void {
+  // 拖拽过程中不显示把手（指针扫过单元格会不断触发本函数）
+  if (tblDragging) {
+    hideTableHandles()
+    return
+  }
+  const table = target?.closest?.('table')
+  const cell = target?.closest?.('td, th')
+  if (!(table instanceof HTMLTableElement) || !(cell instanceof HTMLTableCellElement)) {
+    // 延迟收起：指针走向把手时要路过表格外的一小段空白
+    scheduleHideTableHandles()
+    return
+  }
+  cancelHandleHide()
+  showColHandle(table, cell.cellIndex)
+  const rowEl = cell.parentElement
+  showRowHandle(table, rowEl instanceof HTMLTableRowElement ? rowEl.rowIndex : -1)
 }
 
 /** 表头列边界 hover：光标变 col-resize（el-table 手感）；rAF 节流避免每次移动查布局 */
 let cursorRaf = 0
 function onHostMouseMoveTableCursor(e: MouseEvent): void {
-  if (cursorRaf) return
   const x = e.clientX
   const target = e.target as HTMLElement | null
+  const table = target?.closest?.('table')
+  // 把手同步：不挂 rAF——窗口被遮挡/后台时 rAF 会暂停，把手就永远不出现
+  syncTableHandles(target)
+  if (!(table instanceof HTMLTableElement)) {
+    host.value?.style.removeProperty('cursor')
+    return
+  }
+  if (cursorRaf) return
   cursorRaf = window.requestAnimationFrame(() => {
     cursorRaf = 0
-    const table = target?.closest?.('table')
-    if (!(table instanceof HTMLTableElement)) {
-      host.value?.style.removeProperty('cursor')
-      return
-    }
     const col = hitColumnBoundary(table, x)
     if (col !== null) host.value?.style.setProperty('cursor', 'col-resize')
-    // 表头单元格非边界处提示可拖拽整列
-    else if (target?.closest?.('th')) host.value?.style.setProperty('cursor', 'grab')
     else host.value?.style.removeProperty('cursor')
   })
 }
@@ -1707,8 +1873,10 @@ function movePmRow(
   view: EditorView,
   tablePos: number,
   from: number,
-  to: number
+  to: number,
+  opts: { scroll?: boolean; recordHistory?: boolean } = {}
 ): boolean {
+  const { scroll = true, recordHistory = true } = opts
   const table = view.state.doc.nodeAt(tablePos)
   if (!table || table.type.name !== 'table') return false
   if (from < 1 || to < 1 || from === to || from >= table.childCount || to >= table.childCount) {
@@ -1731,8 +1899,109 @@ function movePmRow(
     tr.replaceWith(posFrom, posFrom + rowFrom.nodeSize, rowTo)
     tr.replaceWith(posTo, posTo + rowTo.nodeSize, rowFrom)
   }
-  view.dispatch(tr)
+  if (!recordHistory) tr.setMeta('addToHistory', false)
+  view.dispatch(scroll ? tr.scrollIntoView() : tr)
   return true
+}
+
+/** 行序拖拽（行把手）：从第 startRow 行开始上下拖动，跨行时逐相邻步交换。
+ *  与列拖拽同语义——逐帧交换不入历史，松手回滚后以单一历史项重放。 */
+function startRowDrag(view: EditorView, table: HTMLTableElement, startRow: number, startY: number): void {
+  const rows = table.rows
+  if (!rows[startRow] || startRow < 1 || startRow >= rows.length) return
+  let tablePos = -1
+  try {
+    const $cell = view.state.doc.resolve(view.posAtDOM(rows[startRow].cells[0] ?? rows[startRow], 0))
+    for (let d = $cell.depth; d > 0; d--) {
+      if ($cell.node(d).type.name === 'table') {
+        tablePos = $cell.before(d)
+        break
+      }
+    }
+  } catch {
+    /* DOM 与文档失配：放弃本次拖拽 */
+  }
+  if (tablePos < 0) return
+  const startNode = view.state.doc.nodeAt(tablePos)
+  if (!startNode || startNode.type.name !== 'table') return
+  tblDragging = true
+
+  let active = false
+  let moved = false
+  let cur = startRow
+  let indicator: HTMLDivElement | null = null
+
+  /** 指针 y 落在哪一行（按实时 rects；交换后行位置已变，必须重算） */
+  const rowAtY = (y: number): number => {
+    const trs = table.rows
+    for (let i = 1; i < trs.length; i++) {
+      if (y < trs[i].getBoundingClientRect().bottom) return i
+    }
+    return trs.length - 1
+  }
+  const moveIndicator = (): void => {
+    if (!indicator) return
+    const row = table.rows[Math.min(cur, table.rows.length - 1)]
+    if (!row) return
+    const r = row.getBoundingClientRect()
+    indicator.style.left = `${r.left}px`
+    indicator.style.top = `${r.top}px`
+    indicator.style.width = `${r.width}px`
+    indicator.style.height = `${r.height}px`
+  }
+  const cleanup = (): void => {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    document.body.classList.remove('inkbox-col-dragging')
+    indicator?.remove()
+    indicator = null
+    tblDragging = false
+  }
+  const onMove = (ev: MouseEvent): void => {
+    if (!table.isConnected) {
+      cleanup()
+      return
+    }
+    if (!active) {
+      if (Math.abs(ev.clientY - startY) < 6) return
+      active = true
+      document.body.classList.add('inkbox-col-dragging')
+      window.getSelection()?.removeAllRanges()
+      indicator = document.createElement('div')
+      indicator.className = 'inkbox-col-drag-indicator'
+      document.body.appendChild(indicator)
+    }
+    ev.preventDefault()
+    window.getSelection()?.removeAllRanges()
+    const hover = rowAtY(ev.clientY)
+    if (hover < 1 || hover === cur) {
+      moveIndicator()
+      return
+    }
+    while (cur !== hover && cur >= 1 && table.isConnected) {
+      const dir: -1 | 1 = hover > cur ? 1 : -1
+      if (cur + dir < 1) break
+      if (!movePmRow(view, tablePos, cur, cur + dir, { recordHistory: false, scroll: false })) break
+      cur += dir
+      moved = true
+    }
+    moveIndicator()
+  }
+  const onUp = (): void => {
+    if (active && moved && cur !== startRow) {
+      const curNode = view.state.doc.nodeAt(tablePos)
+      if (curNode && curNode.type.name === 'table' && curNode.nodeSize === startNode.nodeSize) {
+        const back = view.state.tr
+        back.replaceWith(tablePos, tablePos + curNode.nodeSize, startNode)
+        back.setMeta('addToHistory', false)
+        view.dispatch(back)
+        movePmRow(view, tablePos, startRow, cur, { recordHistory: true, scroll: false })
+      }
+    }
+    cleanup()
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
 }
 
 /** 行移动后把光标精确放进目标行/列的单元格（带落点验证：near 若滑出该表格
@@ -1925,8 +2194,10 @@ onMounted(() => {
   })
   // 点击即显区域任意位置都要让编辑器拿到焦点，避免"点了但打不了字"
   host.value.addEventListener('mousedown', onHostMousedown)
-  // 表格列边界 hover 光标（el-table 手感）
+  // 表格列边界 hover 光标（el-table 手感）+ 表头上方列序把手
   host.value.addEventListener('mousemove', onHostMouseMoveTableCursor, { passive: true })
+  host.value.addEventListener('mouseleave', onHostLeaveForHandles)
+  host.value.addEventListener('scroll', hideTableHandles, { passive: true })
   // 图片悬浮地址提示（mouseover/out 冒泡委托）;滚动即收起避免提示漂移
   host.value.addEventListener('mouseover', onHostOver)
   host.value.addEventListener('mouseout', onHostOut)
@@ -2026,6 +2297,10 @@ onMounted(() => {
     .use(centerProsePlugin)
     .use(wysiwygImagePlugin)
     .use(pasteLinkPlugin)
+    // emoji 短代码补全（5.9）：`:smi` 弹候选，对齐源码模式 2.11
+    .use($prose(() => createEmojiCompletionPlugin()))
+    // 链接悬浮提示条（5.10）：hover 显示地址 + 复制/打开
+    .use($prose(() => createLinkHoverTipPlugin()))
     // 标题折叠箭头（2.9）：纯装饰器，折叠区段不影响序列化
     .use(headingFoldPlugin)
     // 表格列宽记忆恢复（2.2）
@@ -2142,6 +2417,11 @@ onBeforeUnmount(() => {
   pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   host.value?.removeEventListener('mousedown', onHostMousedown)
   host.value?.removeEventListener('mousemove', onHostMouseMoveTableCursor)
+  host.value?.removeEventListener('mouseleave', onHostLeaveForHandles)
+  host.value?.removeEventListener('scroll', hideTableHandles)
+  colHandleLayer?.remove()
+  colHandleLayer = null
+  colHandleTable = null
   host.value?.removeEventListener('mouseover', onHostOver)
   host.value?.removeEventListener('mouseout', onHostOut)
   host.value?.removeEventListener('scroll', onHostScroll)

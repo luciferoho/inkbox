@@ -1133,3 +1133,215 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   border-bottom-color: var(--accent);
   background: var(--surface-2);
 }
+
+/* emoji 短代码补全（5.9）：弹层挂 body（fixed），不随编辑器滚动容器移动 */
+.emoji-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 168px;
+  max-height: 232px;
+  overflow: auto;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.emoji-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.emoji-menu-item:hover,
+.emoji-menu-item.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.emoji-menu-char {
+  width: 1.4em;
+  font-size: 15px;
+  line-height: 1;
+  text-align: center;
+}
+
+.emoji-menu-name {
+  font-family: var(--font-code);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* 主题模式：黑白主题会把 --surface/--accent 改得七零八落，弹层统一取页面底色 */
+html[data-theme-css] .emoji-menu {
+  background: var(--bg) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 30%) !important;
+  padding: 4px !important;
+}
+
+html[data-theme-css] .emoji-menu-item {
+  height: 26px !important;
+  min-height: 0 !important;
+  padding: 0 8px !important;
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: none !important;
+  box-shadow: none !important;
+  font-family: var(--font-code) !important;
+  font-size: 12px !important;
+  color: var(--text-2) !important;
+}
+
+html[data-theme-css] .emoji-menu-item:hover,
+html[data-theme-css] .emoji-menu-item.is-active {
+  background: var(--accent-soft) !important;
+  color: var(--accent-strong, var(--accent)) !important;
+}
+
+/* 链接悬浮提示条（5.10）：只读提示，与「光标进入就地展开」互补 */
+.link-hover-tip {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 460px;
+  padding: 5px 6px 5px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 16%);
+  font-size: 12px;
+}
+
+.link-hover-tip-url {
+  overflow: hidden;
+  max-width: 300px;
+  color: var(--text-2);
+  font-family: ui-monospace, Consolas, 'Cascadia Mono', monospace;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.link-hover-tip-btn {
+  flex-shrink: 0;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 11.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.link-hover-tip-btn:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+html[data-theme-css] .link-hover-tip {
+  background: var(--bg) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 30%) !important;
+}
+
+html[data-theme-css] .link-hover-tip-btn {
+  height: 22px !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 8px !important;
+  border: 0 !important;
+  border-radius: 5px !important;
+  background: var(--accent-soft) !important;
+  box-shadow: none !important;
+  font-size: 11.5px !important;
+  color: var(--text-2) !important;
+}
+
+html[data-theme-css] .link-hover-tip-btn:hover {
+  color: var(--accent-strong, var(--accent)) !important;
+}
+/* 表格行列拖拽把手：只显示当前悬浮的那一列/那一行；body 层 fixed，不碰 PM DOM */
+.luci-tbl-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+  pointer-events: none;
+}
+
+.luci-tbl-handle {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: grab;
+  pointer-events: auto;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 8%);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+/* 命中区比视觉盒子再外扩一圈（手感优先），视觉不变 */
+.luci-tbl-handle::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+.luci-tbl-handle:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-strong);
+  color: var(--accent);
+}
+
+.luci-tbl-handle:active {
+  cursor: grabbing;
+}
+
+.luci-tbl-handle svg {
+  fill: currentColor;
+  pointer-events: none;
+}
+
+/* 主题模式：反掉主题对 button/input 的样式（胶囊化/大内距/描边） */
+html[data-theme-css] .luci-tbl-handle {
+  width: 30px !important;
+  height: 22px !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 5px !important;
+  background: var(--bg) !important;
+  color: var(--text-2) !important;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 24%) !important;
+  font-size: 0 !important;
+  line-height: 0 !important;
+}
+
+html[data-theme-css] .luci-tbl-handle:hover {
+  background: var(--accent-soft) !important;
+  border-color: var(--accent-strong) !important;
+  color: var(--accent-strong, var(--accent)) !important;
+}

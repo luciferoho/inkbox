@@ -91,14 +91,19 @@ Inkbox 已覆盖 Typora 主干：四模式编辑（即显/源码/双栏/预览�
 - [x] **5.3 快捷键一致性**（S）即显补注册 Ctrl+Shift+X 删除线、Ctrl+Shift+C 行内码（快捷键面板已宣称但仅源码侧有），补 Ctrl+Shift+M 公式块（Typora 键位）；核对面板宣称与两编辑器实际键位全表一致 ✓ 即显走 toggleStrikethrough/toggleInlineCodeCommand，公式块 pmInsertMathBlock 落 NodeSelection 自动进嵌套编辑态；源码侧 cmdInsertMathBlock 插 $$ 围栏光标落空行；面板新增公式块行（sc.mathBlock）。CDP 真窗口验证（X/C 开关、M 空段/非空段、源码 Mod-M）
 - [x] **5.4 插入面板（快捷键唤起）**（M-L）过滤式插入命令面板：表格/代码块/公式/Mermaid/图片/链接/引用/列表/任务列表/TOC/脚注/分隔线/emoji/日期。入口两个，共用同一命令层（editor/insert-commands.ts，即显/源码双实现、纯 PM 不依赖 Milkdown ctx；深层容器放不下时自动退到顶层块之后插入）：Ctrl+Shift+P（走既有菜单加速键注册表 file:insertPanel，支持设置页改键）+ 右键「插入」子菜单（5.8 承载）✓ CDP 真窗口验证（打开聚焦/过滤/Enter 执行：表格+mermaid+分隔线+脚注+任务列表/源码侧公式块/Esc 关闭；加速键已注册 debugMenuAccels，dispatch 链路 debugMenuInvoke 全通）
 - [x] **5.4a 用户实测反馈修复（代码块插入）** ①行号 widget 加 `side:-1`——此前光标画在行号左侧；②插入代码块后自动进入语言编辑（`openLangEditorFor` 按 pos 取 chrome 标签直接调起，不依赖 decorations 重建时序；ESC 交回焦点、提交后光标落块内首行）；③Ctrl+Shift+K（即显/源码）与插入面板同款先选语言，源码侧光标落 ``` 之后；④`runInsertCommand` 对 codeBlock 例外不回焦 PM（PM 持焦时 input.focus 会被选区重占顶掉）；⑤**主题模式下 `.md-code-bar` 是 display:none，语言输入框 0×0 不可聚焦**——补 `:has(.md-code-lang-input)` 临时亮出，并给输入框/菜单出主题模式 !important 收口（防主题 input 规则撑成胶囊）；⑥源码围栏补全走 closed 分支时只换语言词、光标留在行尾——新增 `setFenceLang` 自己 dispatch 把光标移到块内首行
-- [ ] **5.5 选区浮动格式条**（M）选中文字浮现微型工具条（粗体/斜体/删除线/行内码/高亮/链接/标题级切换）；设置页可关（默认开）；纯按需浮现，不加常驻工具栏。
-- [ ] **5.6 表格行列选择器**（S）Ctrl+T / 插入面板建表时弹 5×5 网格 hover 选择（替代固定 2 列）；轻量 popover，比 Typora 的对话框更轻。
-- [ ] **5.7 脚注引用/定义互跳**（S）即显点击 `[^x]` 引用滚动定位到文末定义并高亮，定义处提供返回。
+- [x] **5.5 选区浮动格式条**（M）即显选中文本浮现微型工具条：粗体/斜体/删除线/行内码/高亮/链接/标题级切换（正文+H1-H6 菜单，同级 toggle 语义与快捷键一致）。纯按需浮现：选区塌陷/点条外/Esc/焦点离开即收，滚动跟随重定位，顶部空间不足落选区下方；代码块/公式/HTML 块/yaml/TOC 内选区不弹；设置「写作辅助」可关（`editor.formatBar` 默认开）✓ CDP 真窗口验证 25 项（浮现几何/七按钮/mark 开关与按钮高亮态/链接就地展开收条/标题菜单/正文回退/收条三路/代码块屏蔽/设置开关/配置写盘）。
+  - 顺带修复：主进程 `config.load()` 重建 editor 对象时丢了可选布尔字段——拼写检查/智能标点开关重启后静默回退（同批修复，formatBar 依赖同一持久化路径）。
+  - 实现要点：`editor/format-bar.ts` 全局 selectionchange 触发（**refresh 推迟一个宏任务**——事件触发时 PM 内部选区尚未消化 DOM 选区，同步读会拿到旧空选区导致条不出现/按过期选区误开）；条容器 `mousedown.prevent` 保住 PM 选区；动作复用 `pmInsertLink`（与 Ctrl+K 同语义）与 `pmSetHeading`。
+- [x] **5.6 表格行列选择器**（S）Ctrl+T（即显/源码）/ 插入面板 / 右键「插入→表格」时弹 5×5 网格 hover 选择（替代固定 2 列）：hover 出子矩形高亮 + 「N 行 × M 列」表头，点格插入 N×M 表格（首行表头 列1..列N）。轻量 popover 锚在光标处，下方空间不足上翻；打开不抢焦点（容器 mousedown.prevent），Esc/点外/失焦取消 ✓ CDP 真窗口验证 13 项（浮现几何/25 格/hover 3×4=12 格高亮/即显插 2×3 表结构/源码插 3×2 内容/双端 Ctrl+T/面板命令路径/关闭三路）。
+  - 实现：`editor/table-grid.ts`（状态与锚点）+ `TableGridPicker.vue`；尺寸化插入 `pmInsertTableDims`/`cmInsertTableDims`（insert-commands `insertTableDims` 双端分发），原固定 2×2 的 `pmInsertTable`/`cmdInsertTable` 删除。
+- [x] **5.7 脚注引用/定义互跳**（S）随 `f70fb6a` 落地：Ctrl+单击正文角标滚动定位到文末定义并高亮闪烁；定义行尾 ↩ 按钮跳回正文同名引用（平滑滚动+落光标角标后）。单击角标=就地编辑（对齐 Typora 1.15）。✓ CDP 复验（跳转定义可见/↩ 存在/回跳生效）。
 - [x] **5.8 通用文本右键菜单**（M）正文右键：剪贴板操作 + 段落转换（正文/标题1-3/有序/无序/任务/引用/代码块，PM 单块 setNodeMarkup+wrapIn、CM 逐行前缀改写）+ 「插入」子菜单（复用 5.4 命令层）；与既有图片/表格右键菜单同一自绘体系（TextContextMenu.vue，图片/表格命中时不弹）✓ CDP 真窗口验证（菜单条目/h2 转换/TOC 插入/源码侧引用转换/Esc 关闭）
 - [x] **5.8a 用户实测反馈修复（右键菜单）** ①段落转换顺序改为 标题1-6 → 正文 → 无序/有序/任务/引用/代码块；②每项右侧显示快捷键（固定键写自定义键位如 Ctrl+1；可改键命令读 `effectiveShortcuts(ui.shortcuts)` 显示实际设置，如图片 Ctrl+Alt+I）；③未选中时剪切/复制禁用（buildItems 按 selection.empty 判定）；④**右键不再折叠已有选区**（原先无条件 posAtCoords 落光标，导致选中文本右键后剪切/复制变禁用）；⑤**动态裁剪**：光标在代码块/公式/HTML 块/TOC/frontmatter（CM：FencedCode/HTMLBlock/FrontMatter）内时只出剪贴板组，不进段落转换与插入；⑥行高 26→32px、menbg 8px、子菜单间距与强调色对齐 Typora；⑦修 `.has-sub .ctx-accel` 选择器误伤子菜单快捷键（改 `>` 直子）
 - [x] **5.8b 二轮反馈修复（窄窗口裁切）** 子菜单改为 **Teleport 到 body 的 fixed 浮层**（原先嵌在菜单内绝对定位：菜单矮时要内部滚动，绝对定位子菜单既被裁切又把 `scrollWidth` 撑出横向滚动条）→ 独立浮层可贴边：右侧不够翻到左侧、下方空间不足先限高滚动（保持与触发项对齐）、空间 <160px 才整体上移；主菜单 `overflow-x: hidden` + `overflow-y: auto`。子菜单 hover 加 160ms 关闭缓冲，方便斜向移入
-- [ ] **5.9 emoji 补全覆盖即显**（S）`:smi` 弹短代码补全（对齐源码模式 2.11 行为）。
-- [ ] **5.10 链接 hover 提示**（S）hover 链接显示地址提示条（点击复制/打开）；与既有「光标进入就地展开」互补，提升可发现性。
+- [x] **5.9 emoji 补全覆盖即显**（S）即显敲 `:名称前缀`（行首或空白后）弹候选条：字符 + `:名字:` 双列、最多 8 项、上下键循环、Enter/Tab 或点选插入、Esc 关闭且同前缀不再自动弹回（继续输入重开）。词表与源码模式同源（`markdown-it-emoji` full，1903 条，`EMOJI_DEFS` 导出复用）；代码块/HTML 表格/frontmatter/TOC/公式块与行内代码内不补全；冒号前无空白（如 `a:smi`）不触发 ✓ CDP 真窗口验证 17 项。
+  - 关键坑：**键位必须走 document 捕获阶段**——放进 `props.handleKeyDown` 时 Milkdown 预设 keymap 注册更早，PM `someProp` 遇到 Enter 已被 splitBlock 认领就短路，弹层开着按 Enter 仍会落段（实测）。捕获监听 + `stopPropagation` 后 PM 不再消费。弹层挂 body fixed 定位，滚动即收起。
+- [x] **5.10 链接 hover 提示**（S）即显鼠标停链接 400ms 浮出地址条（等宽字体显示完整 URL）+「复制地址」「打开链接」；复制后 toast 提示，打开走与 Ctrl+单击同一链路（window.open → 主进程转系统浏览器/相对链接交给文档目录解析）。移出链接/滚动/按下鼠标/切窗即收；正文已就地展开编辑时不弹（地址就在眼前）✓ CDP 真窗口验证 14 项。
+  - 实现：`editor/pm-link-hover-tip.ts`（插件 view 内挂 mouseover 监听，弹层挂 body fixed 定位）。
 
 ## 七、设计边界（不做）
 

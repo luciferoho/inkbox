@@ -5,7 +5,6 @@ import type { Node as PMNode, NodeType } from '@milkdown/kit/prose/model'
 import { wrapIn } from '@milkdown/kit/prose/commands'
 import { wrapInList } from '@milkdown/kit/prose/schema-list'
 import {
-  cmdInsertTable,
   cmdCodeBlock,
   cmdInsertMathBlock,
   cmdLink,
@@ -18,6 +17,7 @@ import { pmViews } from './pm-registry'
 import { requestLinkSourceFocus } from './wysiwyg-extensions'
 import { openLangEditorFor } from './pm-codeblock-chrome'
 import { insertImageFromDisk } from './insert-image'
+import { openTableGrid } from './table-grid'
 
 /**
  * 插入命令层（5.4 插入面板 / 5.8 右键菜单共用）：
@@ -80,7 +80,7 @@ function blockAfter(
   return tryAt(1, null)
 }
 
-function pmInsertTable(view: PMView): boolean {
+function pmInsertTableDims(view: PMView, rows: number, cols: number): boolean {
   const s = view.state.schema
   const tableT = s.nodes.table
   const rowT = s.nodes.table_row
@@ -90,10 +90,14 @@ function pmInsertTable(view: PMView): boolean {
   if (!tableT || !rowT || !headerT || !cellT || !paraT) return false
   const cell = (type: NodeType, text: string): PMNode =>
     type.create(null, paraT.create(null, text ? s.text(text) : null))
-  const table = tableT.create(null, [
-    rowT.create(null, [cell(headerT, '列1'), cell(headerT, '列2')]),
-    rowT.create(null, [cell(cellT, ''), cell(cellT, '')])
-  ])
+  // 首行表头（列1..列N），其余正文行
+  const body = [
+    rowT.create(null, Array.from({ length: cols }, (_, i) => cell(headerT, `列${i + 1}`))),
+    ...Array.from({ length: Math.max(rows - 1, 1) }, () =>
+      rowT.create(null, Array.from({ length: cols }, () => cell(cellT, '')))
+    )
+  ]
+  const table = tableT.create(null, body)
   return blockAfter(view, [table], (tr, at) => {
     tr.setSelection(TextSelection.near(tr.doc.resolve(at + 4)))
   })
@@ -122,7 +126,8 @@ function pmInsertMathBlock(view: PMView): boolean {
   })
 }
 
-function pmInsertLink(view: PMView): boolean {
+/** 导出：5.5 浮动格式条的链接按钮与 Ctrl+K 同语义复用 */
+export function pmInsertLink(view: PMView): boolean {
   const { state } = view
   const linkT = state.schema.marks.link
   if (!linkT || !(state.selection instanceof TextSelection)) return false
@@ -225,6 +230,24 @@ function pmInsertText(view: PMView, text: string): boolean {
 
 /* ---------- CodeMirror 侧插入实现 ---------- */
 
+/** 尺寸化表格（5.6 网格选择器）：当前行尾插入 N 列表头 + 分隔行 + (rows-1) 空正文行 */
+function cmInsertTableDims(view: NonNullable<ReturnType<typeof cm>>, rows: number, cols: number): boolean {
+  const { state } = view
+  const head = state.selection.main.head
+  const line = state.doc.lineAt(head)
+  const header = '| ' + Array.from({ length: cols }, (_, i) => `列${i + 1}`).join(' | ') + ' |'
+  const sep = '| ' + Array.from({ length: cols }, () => '---').join(' | ') + ' |'
+  const bodyRows = Array.from(
+    { length: Math.max(rows - 1, 1) },
+    () => '| ' + Array.from({ length: cols }, () => '').join(' | ') + ' |'
+  )
+  const insert = '\n' + [header, sep, ...bodyRows].join('\n')
+  view.dispatch(
+    state.update({ changes: { from: line.to, insert }, selection: { anchor: line.to + 3 } })
+  )
+  return true
+}
+
 function cmInsertFence(view: NonNullable<ReturnType<typeof cm>>, lang: string): boolean {
   const { state } = view
   const head = state.selection.main.head
@@ -302,8 +325,30 @@ const both = (
   }
 })
 
+/** 尺寸化插入表格（5.6 网格选择器的落点）：即显/源码双端 + 焦点交回 */
+export function insertTableDims(target: InsertTarget, rows: number, cols: number): boolean {
+  if (target === 'pm') {
+    const v = pm()
+    const ok = v ? pmInsertTableDims(v, rows, cols) : false
+    if (ok && v) v.focus()
+    return ok
+  }
+  const v = cm()
+  const ok = v ? cmInsertTableDims(v, rows, cols) : false
+  if (ok && v) v.focus()
+  return ok
+}
+
 export const INSERT_COMMANDS: InsertCommand[] = [
-  both('table', 'ip.table', pmInsertTable, cmdInsertTable),
+  {
+    id: 'table',
+    labelKey: 'ip.table',
+    // 5.6：不直接插入，弹 5×5 行列网格选择器（锚在光标处）
+    run(target) {
+      openTableGrid(target)
+      return true
+    }
+  },
   both('codeBlock', 'ip.codeBlock', (v) => pmInsertCodeBlock(v), cmdCodeBlock),
   both('math', 'ip.math', pmInsertMathBlock, cmdInsertMathBlock),
   both('mermaid', 'ip.mermaid', (v) => pmInsertCodeBlock(v, 'mermaid'), (v) => cmInsertFence(v, 'mermaid')),
