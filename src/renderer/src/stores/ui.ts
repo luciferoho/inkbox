@@ -112,8 +112,13 @@ export const useUiStore = defineStore('ui', {
         choices: { text: string; value: string; danger?: boolean }[]
         resolve: (value: string) => void
       },
-    /* 排版偏好（全局：字号/行距/内容列宽度，默认占满可用宽度） */
-    editorPrefs: { fontSize: 16, lineHeight: 1.7, contentWidth: CONTENT_WIDTH_MAX } as AppConfig['editor'],
+    /* 排版偏好（全局：字号/行距/内容列宽度，默认占满可用宽度；formatBar=5.5 选区浮动格式条） */
+    editorPrefs: {
+      fontSize: 16,
+      lineHeight: 1.7,
+      contentWidth: CONTENT_WIDTH_MAX,
+      formatBar: true
+    } as AppConfig['editor'],
     /* 内容宽度滑杆的下限：最小窗口下侧栏拉满+快捷键面板打开后的剩余可用宽度 */
     contentWidthMin: CONTENT_WIDTH_MIN,
     contentWidthMax: CONTENT_WIDTH_MAX,

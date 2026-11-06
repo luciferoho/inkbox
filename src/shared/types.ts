@@ -18,6 +18,8 @@ export interface AppConfig {
     typographer?: boolean
     /** 拼写检查：编辑器内英文拼写红线（Chromium 内置词典），默认关 */
     spellcheck?: boolean
+    /** 选区浮动格式条（即显选中文字浮现，5.5），默认开 */
+    formatBar?: boolean
   }
   autosave: {
     enabled: boolean

@@ -9,6 +9,9 @@ import emojiDefs from 'markdown-it-emoji/lib/data/full.mjs'
  * 「解析期替换为字符」行为一致，词表同源（markdown-it-emoji full）。
  */
 
+/** 词表（名字 → 字符）：即显侧补全（pm-emoji-completion）复用同一份，避免两套词表漂移 */
+export const EMOJI_DEFS: Record<string, string> = emojiDefs as Record<string, string>
+
 const OPTIONS: Completion[] = Object.entries(emojiDefs).map(([name, char]) => ({
   label: `:${name}:`,
   detail: char,

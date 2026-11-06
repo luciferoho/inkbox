@@ -727,6 +727,19 @@ function checkUpdate(): void {
           </button>
         </div>
         <p class="row-hint">{{ $t('settings.spellcheckHint') }}</p>
+        <div class="row">
+          <span class="label">{{ $t('settings.formatBar') }}</span>
+          <button
+            class="switch"
+            role="switch"
+            :aria-checked="ui.editorPrefs.formatBar !== false"
+            :class="{ on: ui.editorPrefs.formatBar !== false }"
+            @click="ui.setEditorPrefs({ formatBar: ui.editorPrefs.formatBar === false })"
+          >
+            <i class="knob" />
+          </button>
+        </div>
+        <p class="row-hint">{{ $t('settings.formatBarHint') }}</p>
       </template>
 
       <!-- 图床：PicGo server 协议上传 -->

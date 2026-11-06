@@ -8,6 +8,7 @@ import { useUiStore } from '@/stores/ui'
 import { initImageContextMenu } from '@/editor/image-context-menu'
 import { initTableContextMenu } from '@/editor/table-context-menu'
 import { initTextContextMenu } from '@/editor/text-context-menu'
+import { initFloatingFormatBar } from '@/editor/format-bar'
 import { initCodeCommentShortcut } from '@/editor/code-comment'
 import { insertImageFromDisk, uploadAllLocalImages } from '@/editor/insert-image'
 import { useDocumentsStore, samePath } from '@/stores/documents'
@@ -27,6 +28,8 @@ import Toast from '@/components/chrome/Toast.vue'
 import QuickOpen from '@/components/chrome/QuickOpen.vue'
 import InsertPanel from '@/components/chrome/InsertPanel.vue'
 import TextContextMenu from '@/components/chrome/TextContextMenu.vue'
+import FormatBar from '@/components/chrome/FormatBar.vue'
+import TableGridPicker from '@/components/chrome/TableGridPicker.vue'
 // 弹窗类按需加载（exporter 连带 pdf/字体资源链，打开频率低；设置已独立成窗口）
 const UpdateDialog = defineAsyncComponent(() => import('@/components/chrome/UpdateDialog.vue'))
 const ExportDialog = defineAsyncComponent(() => import('@/components/chrome/ExportDialog.vue'))
@@ -130,6 +133,8 @@ onMounted(() => {
   initTableContextMenu()
   // 正文右键菜单（5.8）：剪贴板/段落转换/插入子菜单
   initTextContextMenu()
+  // 选区浮动格式条（5.5）：即显选中文本浮现（开关在设置-写作辅助）
+  initFloatingFormatBar()
   // Ctrl+/：代码块内切换注释，其余位置开关快捷键面板（主进程已放行该加速键）
   initCodeCommentShortcut()
   // 开屏兜底：恢复流程万一卡住，8 秒后强制进入应用
@@ -461,6 +466,8 @@ async function handleRequestClose(): Promise<void> {
     <QuickOpen />
     <InsertPanel />
     <TextContextMenu />
+    <FormatBar />
+    <TableGridPicker />
     <Toast />
     <!-- 外部文档拖入提示：替代系统默认的复制提示，明确「松开即打开」 -->
     <div v-if="dragOverOpen" class="drop-hint">

@@ -3,6 +3,7 @@ import { EditorSelection, type Line } from '@codemirror/state'
 import { syntaxTree } from '@codemirror/language'
 import type { SyntaxNode } from '@lezer/common'
 import { applyTableOp, cellStart, detectTable, type TableOp } from './table-utils'
+import { openTableGrid } from './table-grid'
 
 /** 选区包裹/解包标记：有选中且已包裹时解包；光标紧邻一对标记（含空对）时移除 */
 function wrapSelection(view: Parameters<Command>[0], open: string, close = open): boolean {
@@ -261,18 +262,6 @@ export const cmdCodeBlock: Command = (view) => {
   const insert = '\n```\n\n```'
   view.dispatch(
     state.update({ changes: { from: line.to, insert }, selection: { anchor: line.to + 4 } })
-  )
-  return true
-}
-
-/** 插入表格：在当前行之后插入两列表格骨架，光标落首个表头单元格（Ctrl+T） */
-export const cmdInsertTable: Command = (view) => {
-  const { state } = view
-  const head = state.selection.main.head
-  const line = state.doc.lineAt(head)
-  const insert = '\n| 列1 | 列2 |\n| --- | --- |\n|  |  |'
-  view.dispatch(
-    state.update({ changes: { from: line.to, insert }, selection: { anchor: line.to + 3 } })
   )
   return true
 }
@@ -620,7 +609,8 @@ export const formattingKeymap: KeyBinding[] = [
   { key: 'Mod-Q', run: cmdToggleQuote },
   { key: 'Mod-K', run: cmdCodeBlock },
   { key: 'Mod-M', run: cmdInsertMathBlock },
-  { key: 'Mod-t', run: cmdInsertTable },
+  // 5.6：Ctrl+T 弹 5×5 行列网格选择器（不再直接插固定 2 列）
+  { key: 'Mod-t', run: (view) => (openTableGrid('cm', view), true) },
   /* 表格内 Alt+方向键：整行/整列移动；Ctrl+Enter：下方插入行
      （Typora 同键位，与表格右键菜单同语义——右键菜单 accel 文案依赖这些绑定） */
   { key: 'Alt-ArrowUp', run: cmTableStructural('row-move-up') },
