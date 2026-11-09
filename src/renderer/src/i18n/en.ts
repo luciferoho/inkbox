@@ -187,6 +187,8 @@ export const en: MsgSchema = {
   'table.moveRowUp': 'Move row up',
   'table.moveRowDown': 'Move row down',
   'table.deleteRow': 'Delete current row',
+  'table.deleteRows': 'Delete {n} selected rows',
+  'table.deleteCols': 'Delete {n} selected columns',
   'table.addColLeft': 'Insert column left',
   'table.addColRight': 'Insert column right',
   'table.deleteCol': 'Delete current column',

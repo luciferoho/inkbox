@@ -1081,8 +1081,78 @@ function buildLinkTail(view: EditorView, info: LinkSourceInfo): HTMLElement {
   return wrap
 }
 
-/** 装饰缓存：输入地址期间避免每次选区刷新都重建 input（会丢焦点） */
-let linkCache: { info: LinkSourceInfo; decos: DecorationSet } | null = null
+/** 装饰缓存：输入地址期间避免每次选区刷新都重建 input（会丢焦点）。
+ *  freeze 缓存表格锁定的位置快照（doc 版本 + 装饰），文档在别处改动时重量 */
+let linkCache: {
+  info: LinkSourceInfo
+  decos: Decoration[]
+  freezeDoc: PMNode
+  freezeDecos: Decoration[]
+} | null = null
+
+/** 表格内链接展开时锁定列宽：展开的 `[文字](地址)` 会在 auto 布局下撑宽所在列、
+ *  挤窄其他列（用户实测「表格聚焦时列宽整体变一下」）。decorations 在 DOM 更新
+ *  前计算，这里量到的是展开前的列宽；之后再算时表格已锁定，量值保持不变。
+ *  表格 nodeView 的 dom 是外壳 div（pm-table-view），node 装饰属性落在外壳上，
+ *  表格本身的布局经 CSS 变量 + `.luci-tbl-freeze > table` 规则施加 */
+function tableFreezeDecos(
+  view: EditorView | null,
+  state: EditorState,
+  info: LinkSourceInfo
+): Decoration[] {
+  if (!view) return []
+  const $pos = state.doc.resolve(info.from)
+  let depth = -1
+  for (let d = $pos.depth; d > 0; d--) {
+    if ($pos.node(d).type.name === 'table') {
+      depth = d
+      break
+    }
+  }
+  if (depth < 0) return []
+  const tablePos = $pos.before(depth)
+  const tableNode = $pos.node(depth)
+  const wrap = view.nodeDOM(tablePos)
+  const found = wrap instanceof HTMLElement ? (wrap.matches('table') ? wrap : wrap.querySelector('table')) : null
+  const table = found instanceof HTMLTableElement ? found : null
+  const first = table?.rows[0]
+  const headerRow = tableNode.firstChild
+  if (!table || !first || !headerRow || widthsFromRow(first).length !== headerRow.childCount) return []
+  const widths = widthsFromRow(first)
+  const total = table.getBoundingClientRect().width
+  if (total <= 0) return []
+  // 地址框上限 = 所在列内容宽 − 链接文字 − 括号，长地址在框内滚动、不溢出到邻列
+  const rowIdx = $pos.index(depth)
+  const colIdx = $pos.index(depth + 1)
+  const cellEl = table.rows[rowIdx]?.cells[colIdx]
+  let cap = 0
+  if (cellEl) {
+    const cs = getComputedStyle(cellEl)
+    const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)
+    let textW = 0
+    try {
+      textW = Math.abs(view.coordsAtPos(info.to).left - view.coordsAtPos(info.from).left)
+    } catch {
+      /* 位置无法定位：只按列宽限 */
+    }
+    cap = Math.max(60, Math.floor(widths[colIdx] - pad - textW - 32))
+  }
+  const decos: Decoration[] = [
+    Decoration.node(tablePos, tablePos + tableNode.nodeSize, {
+      class: 'luci-tbl-freeze',
+      style: `--luci-freeze-w: ${total}px;${cap ? ` --luci-link-cap: ${cap}px;` : ''}`
+    })
+  ]
+  headerRow.forEach((cell, offset, idx) => {
+    const from = tablePos + 2 + offset
+    decos.push(Decoration.node(from, from + cell.nodeSize, { style: `width: ${widths[idx]}px` }))
+  })
+  return decos
+}
+
+function widthsFromRow(row: HTMLTableRowElement): number[] {
+  return Array.from(row.cells).map((c) => c.getBoundingClientRect().width)
+}
 
 /**
  * 光标进入链接时就地展开 `[文字](地址)`（Typora 行内源码）：
@@ -1092,9 +1162,16 @@ let linkCache: { info: LinkSourceInfo; decos: DecorationSet } | null = null
  */
 export function createLinkSourcePlugin(): Plugin {
   let last: LinkSourceInfo | null = null
+  let pmView: EditorView | null = null
   return new Plugin({
-    view: () => ({
+    view: (editorView) => {
+      pmView = editorView
+      return {
+      destroy: () => {
+        pmView = null
+      },
       update: (view) => {
+        pmView = view
         const info = findLinkSource(view.state)
         const prev = last
         last = info // 先记录再派发：嵌套 update 里 last 已空，不会递归
@@ -1111,7 +1188,8 @@ export function createLinkSourcePlugin(): Plugin {
           }
         }
       }
-    }),
+      }
+    },
     props: {
       handleKeyDown: (view, event) => {
         // 编辑中删除链接文字：删空会让 link mark 随内容消失、地址框直接关闭。
@@ -1136,20 +1214,27 @@ export function createLinkSourcePlugin(): Plugin {
           return null
         }
         if (
-          linkCache &&
-          linkCache.info.from === info.from &&
-          linkCache.info.to === info.to &&
-          linkCache.info.href === info.href
+          !linkCache ||
+          linkCache.info.from !== info.from ||
+          linkCache.info.to !== info.to ||
+          linkCache.info.href !== info.href
         ) {
-          return linkCache.decos
+          linkCache = {
+            info,
+            decos: [
+              Decoration.widget(info.from, () => bracketEl('['), { side: -1 }),
+              Decoration.inline(info.from, info.to, { class: 'luci-link-src-text' }),
+              Decoration.widget(info.to, (view) => buildLinkTail(view, info), { side: 1 })
+            ],
+            freezeDoc: state.doc,
+            freezeDecos: tableFreezeDecos(pmView, state, info)
+          }
+        } else if (linkCache.freezeDoc !== state.doc) {
+          // 文档在别处改动（如右键删行）：表格位置可能变了，按当前锁定态重量
+          linkCache.freezeDoc = state.doc
+          linkCache.freezeDecos = tableFreezeDecos(pmView, state, info)
         }
-        const decos = DecorationSet.create(state.doc, [
-          Decoration.widget(info.from, () => bracketEl('['), { side: -1 }),
-          Decoration.inline(info.from, info.to, { class: 'luci-link-src-text' }),
-          Decoration.widget(info.to, (view) => buildLinkTail(view, info), { side: 1 })
-        ])
-        linkCache = { info, decos }
-        return decos
+        return DecorationSet.create(state.doc, [...linkCache.decos, ...linkCache.freezeDecos])
       }
     }
   })

@@ -1134,6 +1134,21 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   background: var(--surface-2);
 }
 
+/* 表格内链接展开时锁定列宽（wysiwyg-extensions tableFreezeDecos）：外壳带
+   luci-tbl-freeze 与量好的总宽变量，固定布局按首行单元格的 width 分列；
+   !important 压过主题模式的 table-layout:auto / width:100%。
+   地址框限宽在所在列内，长地址在框内横向滚动，不溢出到相邻列 */
+.wysiwyg-host .luci-prose .luci-table-wrap.luci-tbl-freeze > table {
+  table-layout: fixed !important;
+  width: var(--luci-freeze-w) !important;
+  min-width: 0 !important;
+  max-width: none !important;
+}
+
+.wysiwyg-host .luci-prose .luci-tbl-freeze .luci-link-src-url {
+  max-width: var(--luci-link-cap, 60ch);
+}
+
 /* emoji 短代码补全（5.9）：弹层挂 body（fixed），不随编辑器滚动容器移动 */
 .emoji-menu {
   position: fixed;

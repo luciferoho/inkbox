@@ -5,6 +5,7 @@ import {
   runTableMenuAction,
   tableMenu,
   tableMenuGroups,
+  tableMenuTail,
   tableMenuTop,
   type TableMenuGroup,
   type TableMenuItem
@@ -142,7 +143,7 @@ onBeforeUnmount(() => {
       </button>
       <div class="tbl-ctx-sep" />
       <div
-        v-for="group in tableMenuGroups(tableMenu.targetKind)"
+        v-for="group in tableMenuGroups()"
         :key="group.id"
         class="tbl-ctx-item has-sub"
         :class="{ active: openGroup === group.id }"
@@ -152,6 +153,18 @@ onBeforeUnmount(() => {
         <span>{{ group.label }}</span>
         <span class="tbl-arrow">›</span>
       </div>
+      <template v-if="tableMenuTail(tableMenu.targetKind).length">
+        <div class="tbl-ctx-sep" />
+        <button
+          v-for="item in tableMenuTail(tableMenu.targetKind)"
+          :key="item.action"
+          class="tbl-ctx-item"
+          @mouseenter="closeSub()"
+          @click="run(item.action)"
+        >
+          <span>{{ item.label }}</span>
+        </button>
+      </template>
     </div>
   </Teleport>
 
