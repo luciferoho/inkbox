@@ -999,6 +999,19 @@ export function requestLinkSourceFocus(): void {
   linkAutofocus = true
 }
 
+/** 展开门控（模块级，与 linkCache 同生命周期——即显编辑器单实例复用，切标签
+ *  只换内容不换插件实例，闭包变量会让 resetLinkSourceGate 清不掉手势）：
+ *  linkGesture = 编辑器内有过真实点击/按键；linkExpandedOnce = 本次展开已建立 */
+let linkGesture = false
+let linkExpandedOnce = false
+
+/** 整档替换（切标签/重载）后由组件调用：恢复的光标同样不自动展开链接 */
+export function resetLinkSourceGate(): void {
+  linkAutofocus = false
+  linkGesture = false
+  linkExpandedOnce = false
+}
+
 function buildLinkTail(view: EditorView, info: LinkSourceInfo): HTMLElement {
   const wrap = document.createElement('span')
   wrap.className = 'luci-link-src-tail'
@@ -1163,16 +1176,21 @@ function widthsFromRow(row: HTMLTableRowElement): number[] {
 export function createLinkSourcePlugin(): Plugin {
   let last: LinkSourceInfo | null = null
   let pmView: EditorView | null = null
+  // 打开文档/切标签恢复的光标不自动展开链接（否则链接一挂载就锁列宽，之后
+  // 点击别处收起时表格重新分布列宽，表现为「聚焦表格列宽变动」）。展开只在
+  // 用户真实交互（编辑器内按下鼠标/按键，见 resetLinkSourceGate 的调用方）、
+  // 或 Ctrl+K/插入命令建链信号（requestLinkSourceFocus）后发生
   return new Plugin({
     view: (editorView) => {
       pmView = editorView
+      resetLinkSourceGate()
       return {
       destroy: () => {
         pmView = null
       },
       update: (view) => {
         pmView = view
-        const info = findLinkSource(view.state)
+        const info = linkGesture || linkAutofocus || linkExpandedOnce ? findLinkSource(view.state) : null
         const prev = last
         last = info // 先记录再派发：嵌套 update 里 last 已空，不会递归
         // 选区离开被压制的链接范围后，压制自动失效（再次点击/移入可重新编辑）
@@ -1191,7 +1209,14 @@ export function createLinkSourcePlugin(): Plugin {
       }
     },
     props: {
+      handleDOMEvents: {
+        mousedown: () => {
+          linkGesture = true
+          return false
+        }
+      },
       handleKeyDown: (view, event) => {
+        linkGesture = true
         // 编辑中删除链接文字：删空会让 link mark 随内容消失、地址框直接关闭。
         // 与 Typora 一致——至少保留 1 字符占位（继续输入仍在链接内）
         if (event.key !== 'Backspace' && event.key !== 'Delete') return false
@@ -1208,8 +1233,9 @@ export function createLinkSourcePlugin(): Plugin {
         return false
       },
       decorations(state) {
-        const info = findLinkSource(state)
+        const info = linkGesture || linkAutofocus || linkExpandedOnce ? findLinkSource(state) : null
         if (!info) {
+          linkExpandedOnce = false
           linkCache = null
           return null
         }
@@ -1229,6 +1255,7 @@ export function createLinkSourcePlugin(): Plugin {
             freezeDoc: state.doc,
             freezeDecos: tableFreezeDecos(pmView, state, info)
           }
+          linkExpandedOnce = true
         } else if (linkCache.freezeDoc !== state.doc) {
           // 文档在别处改动（如右键删行）：表格位置可能变了，按当前锁定态重量
           linkCache.freezeDoc = state.doc

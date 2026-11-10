@@ -138,6 +138,7 @@ import {
   setHtmlTableDocDir,
   createLinkClickPlugin,
   createLinkSourcePlugin,
+  resetLinkSourceGate,
   requestLinkSourceFocus
 } from '@/editor/wysiwyg-extensions'
 import { footnoteRefView, createFootnoteJumpPlugin } from '@/editor/pm-footnote'
@@ -172,6 +173,7 @@ let pending: string | null = null
 function applyReplace(markdown: string): void {
   applying = true
   try {
+    resetLinkSourceGate() // 恢复的光标不自动展开链接（链接展开会锁列宽）
     editor?.action(replaceAll(toWysiwygSource(markdown)))
   } finally {
     applying = false
