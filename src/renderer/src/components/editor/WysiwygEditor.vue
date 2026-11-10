@@ -84,7 +84,7 @@ import {
   tableKey,
   widthsFromDom,
 } from '@/editor/table-widths'
-import { registerPmTableExecutor, type TableMenuAction } from '@/editor/table-context-menu'
+import { pmTableSpan, registerPmTableExecutor, type TableMenuAction } from '@/editor/table-context-menu'
 import { normalizeTables } from '@/editor/table-utils'
 import { writeClipboard } from '@/editor/code-copy'
 import { createElementToolbar, findTableSelection, type ElToolbarState } from '@/editor/pm-element-toolbar'
@@ -138,6 +138,7 @@ import {
   setHtmlTableDocDir,
   createLinkClickPlugin,
   createLinkSourcePlugin,
+  resetLinkSourceGate,
   requestLinkSourceFocus
 } from '@/editor/wysiwyg-extensions'
 import { footnoteRefView, createFootnoteJumpPlugin } from '@/editor/pm-footnote'
@@ -172,6 +173,7 @@ let pending: string | null = null
 function applyReplace(markdown: string): void {
   applying = true
   try {
+    resetLinkSourceGate() // 恢复的光标不自动展开链接（链接展开会锁列宽）
     editor?.action(replaceAll(toWysiwygSource(markdown)))
   } finally {
     applying = false
@@ -1165,7 +1167,22 @@ function startColDrag(view: EditorView, table: HTMLTableElement, startCol: numbe
 
 /** 表格按下：只管列宽拖拽（列序拖动由表头上方的把手触发，见 syncTableHandles） */
 function onHostMouseDownTable(e: MouseEvent): void {
+  // 右键按在多选单元格上：拦下 Chromium 的原生落光标，否则 DOM 选区变化会把
+  // CellSelection 折叠成光标，菜单里的批量删除就丢了选区（contextmenu 不受影响）
+  if (e.button === 2 && (e.target as HTMLElement).closest?.('.selectedCell')) {
+    e.preventDefault()
+    e.stopPropagation()
+    return
+  }
   onHostMouseDownTableWidths(e)
+}
+
+/** 从已高亮的多选单元格内起拖 = 重新框选。不拦的话 Chromium 会起原生拖拽：
+ *  这次框选失败，松手还会把单元格内容拖走 */
+function onHostDragStartTable(e: DragEvent): void {
+  if (!host.value?.querySelector('.selectedCell')) return
+  e.preventDefault()
+  e.stopPropagation()
 }
 
 /* ---------- 表格行列拖拽把手（悬浮在单元格上方/左侧，单实例复用） ----------
@@ -1867,6 +1884,52 @@ function movePmColumn(
   return true
 }
 
+/** 批量删行（多选矩形覆盖的数据行）：表头不可删，至少留一行数据（schema 要求
+ *  table_row+）。单事务，一次 Ctrl+Z 恢复 */
+function deletePmRows(view: EditorView, tablePos: number, top: number, bottom: number): boolean {
+  const table = view.state.doc.nodeAt(tablePos)
+  if (!table || table.type.name !== 'table') return false
+  const first = Math.max(top, 1)
+  const last = Math.min(bottom, table.childCount)
+  if (first >= last || last - first >= table.childCount - 1) return false
+  let from = tablePos + 1
+  for (let i = 0; i < first; i++) from += table.child(i).nodeSize
+  let to = from
+  for (let i = first; i < last; i++) to += table.child(i).nodeSize
+  view.dispatch(view.state.tr.delete(from, to).scrollIntoView())
+  selectPmTableCell(view, tablePos, Math.min(first, table.childCount - (last - first) - 1), 0)
+  return true
+}
+
+/** 批量删列（多选矩形覆盖的列）：至少留一列；从末行往前删，前面的位置不受影响 */
+function deletePmCols(
+  view: EditorView,
+  tablePos: number,
+  top: number,
+  left: number,
+  right: number
+): boolean {
+  const table = view.state.doc.nodeAt(tablePos)
+  if (!table || table.type.name !== 'table' || table.childCount < 1) return false
+  const colCount = table.child(0).childCount
+  const end = Math.min(right, colCount)
+  if (left >= end || end - left >= colCount) return false
+  const tr = view.state.tr
+  const rowStarts: number[] = []
+  table.forEach((_row, rowOffset) => rowStarts.push(tablePos + 1 + rowOffset + 1))
+  for (let r = table.childCount - 1; r >= 0; r--) {
+    const row = table.child(r)
+    let from = rowStarts[r]
+    for (let c = 0; c < left && c < row.childCount; c++) from += row.child(c).nodeSize
+    let to = from
+    for (let c = left; c < end && c < row.childCount; c++) to += row.child(c).nodeSize
+    if (to > from) tr.delete(from, to)
+  }
+  view.dispatch(tr.scrollIntoView())
+  selectPmTableCell(view, tablePos, top, Math.min(left, colCount - (end - left) - 1))
+  return true
+}
+
 /** 整行交换（行 0 是表头行，from/to 必须 ≥1；从远端往近端替换防位置漂移）。
  *  Typora「上移/下移该行」同语义，Alt+↑/↓ 与右键菜单共用 */
 function movePmRow(
@@ -2091,6 +2154,13 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
       const view = getView()
       const t = view ? findTableSelection(view) : null
       if (!view || !t) return false
+      const span = pmTableSpan(view.state)
+      if (span && action === 'row-delete' && span.bottom - span.top > 1) {
+        return deletePmRows(view, span.pos, span.top, span.bottom)
+      }
+      if (span && action === 'col-delete' && span.right - span.left > 1) {
+        return deletePmCols(view, span.pos, span.top, span.left, span.right)
+      }
       if (action === 'table-delete') elTable(callCommand(selectTableCommand.key))
       else if (action === 'row-delete')
         elTable(callCommand(selectRowCommand.key, { index: t.row, pos: view.state.selection.from }))
@@ -2635,7 +2705,7 @@ watch(
       @replace-all="doReplaceAll"
       @close="closeFind"
     />
-    <div ref="host" class="wysiwyg-host" @mousedown.capture="onHostMouseDownTable">
+    <div ref="host" class="wysiwyg-host" @mousedown.capture="onHostMouseDownTable" @dragstart.capture="onHostDragStartTable">
       <!-- 图片悬浮地址:贴图片下缘内侧的轻提示,pointer-events 不挡交互 -->
       <div v-if="imgTip" class="img-src-tip" :style="imgTipStyle">{{ imgTip.text }}</div>
       <!-- 元素工具条:点击图片/表格时的浮动操作条(与源码模式工具条同按钮集) -->

@@ -22,6 +22,8 @@ export type TableOp =
   | { kind: 'row-above' }
   | { kind: 'row-below' }
   | { kind: 'row-delete' }
+  | { kind: 'rows-delete'; from: number; to: number }
+  | { kind: 'cols-delete'; from: number; to: number }
   | { kind: 'row-up' }
   | { kind: 'row-down' }
   | { kind: 'col-left' }
@@ -106,6 +108,42 @@ export function detectTable(
   return { startLine: start, endLine: end, cursorLine, colIndex, colCount, bodyCount: end - start - 1 }
 }
 
+/** 选区覆盖的表格范围（块内行 0 基、列 0 基，均含端点） */
+export interface TableSpan {
+  rowFrom: number
+  rowTo: number
+  colFrom: number
+  colTo: number
+}
+
+/** 文本选区 → 表格范围：行按选区跨过的行裁到表格块内（止于下一行行首的不算那一行），
+ *  列取两端点所在单元格（与即显 CellSelection 的矩形语义一致）；不相交返回 null */
+export function tableSelectionSpan(
+  lineAt: (n: number) => string,
+  info: TableInfo,
+  from: { line: number; ch: number },
+  to: { line: number; ch: number }
+): TableSpan | null {
+  const colAt = (n: number, ch: number): number => {
+    const pipes = (lineAt(n).slice(0, Math.max(0, ch)).match(/(?<!\\)\|/g) || []).length
+    return Math.min(info.colCount - 1, Math.max(0, pipes - 1))
+  }
+  const endLine = to.ch === 0 && to.line > from.line ? to.line - 1 : to.line
+  const first = Math.max(from.line, info.startLine)
+  const last = Math.min(endLine, info.endLine)
+  if (first > last) return null
+  const c1 = from.line < info.startLine ? 0 : colAt(from.line, from.ch)
+  // 结束端取最后一个被选中的字符：选区止于管道后时不算进下一格
+  const c2 =
+    endLine > info.endLine || endLine !== to.line ? info.colCount - 1 : colAt(to.line, to.ch - 1)
+  return {
+    rowFrom: first - info.startLine,
+    rowTo: last - info.startLine,
+    colFrom: Math.min(c1, c2),
+    colTo: Math.max(c1, c2)
+  }
+}
+
 /** 对表格块应用结构操作；不可执行（如删到无行列）返回 null */
 export function applyTableOp(
   lines: string[],
@@ -146,6 +184,30 @@ export function applyTableOp(
       lines.splice(idx, 1)
       const cl = Math.min(idx, lines.length - 1)
       return { lines, cursorLine: cl, cursorCol: Math.min(info.colIndex, colCount - 1) }
+    }
+    case 'rows-delete': {
+      // 表头/分隔行跳过；至少留一行数据（与即显 schema 的 table_row+ 一致）
+      const from = Math.max(2, op.from)
+      const to = Math.min(lines.length - 1, op.to)
+      if (from > to || to - from + 1 >= lines.length - 2) return null
+      lines.splice(from, to - from + 1)
+      return {
+        lines,
+        cursorLine: Math.min(from, lines.length - 1),
+        cursorCol: Math.min(info.colIndex, colCount - 1)
+      }
+    }
+    case 'cols-delete': {
+      const from = Math.max(0, op.from)
+      const n = Math.min(colCount - 1, op.to) - from + 1
+      if (n <= 0 || n >= colCount) return null
+      for (let i = 0; i < lines.length; i++) {
+        const cells = splitCells(lines[i])
+        while (cells.length < colCount) cells.push(i === 1 ? '---' : '')
+        cells.splice(from, n)
+        lines[i] = joinCells(cells)
+      }
+      return { lines, cursorLine: idx, cursorCol: Math.min(from, colCount - n - 1) }
     }
     case 'row-up': {
       // 与上一数据行整行交换；表头(0)/分隔行(1)不可动，首个数据行(2)上移 = 顶到
@@ -219,7 +281,8 @@ export function applyTableOp(
             filled.push(raw + ' '.repeat(Math.max(0, widths[c] - dispWidth(raw))))
           }
         }
-        return `| ${filled.join(' | ')} |`
+        // 保留行首缩进：列表项内的表格去掉缩进会被挤出列表
+        return `${/^[ \t]*/.exec(lines[i])?.[0] ?? ''}| ${filled.join(' | ')} |`
       })
       lines.splice(0, lines.length, ...out)
       return { lines, cursorLine: idx, cursorCol: Math.min(info.colIndex, colN - 1) }

@@ -189,6 +189,8 @@ export const zh = {
   'table.moveRowUp': '上移该行',
   'table.moveRowDown': '下移该行',
   'table.deleteRow': '删除当前行',
+  'table.deleteRows': '删除选中的 {n} 行',
+  'table.deleteCols': '删除选中的 {n} 列',
   'table.addColLeft': '在左侧插入列',
   'table.addColRight': '在右侧插入列',
   'table.deleteCol': '删除当前列',
