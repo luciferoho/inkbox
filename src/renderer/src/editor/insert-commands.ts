@@ -17,6 +17,7 @@ import { pmViews } from './pm-registry'
 import { requestLinkSourceFocus } from './wysiwyg-extensions'
 import { openLangEditorFor } from './pm-codeblock-chrome'
 import { insertImageFromDisk } from './insert-image'
+import { openEmojiPicker } from './emoji-picker'
 import { openTableGrid } from './table-grid'
 
 /**
@@ -374,7 +375,7 @@ export const INSERT_COMMANDS: InsertCommand[] = [
   both('toc', 'ip.toc', pmInsertToc, (v) => cmInsertTextAtCursor(v, '[TOC]')),
   both('footnote', 'ip.footnote', pmInsertFootnote, cmInsertFootnote),
   both('hr', 'ip.hr', pmInsertHr, cmInsertHr),
-  both('emoji', 'ip.emoji', (v) => pmInsertText(v, '😀'), (v) => cmInsertTextAtCursor(v, '😀')),
+  both('emoji', 'ip.emoji', () => openEmojiPicker('pm'), () => openEmojiPicker('cm')),
   both('date', 'ip.date', (v) => pmInsertText(v, new Date().toISOString().slice(0, 10)), (v) =>
     cmInsertTextAtCursor(v, new Date().toISOString().slice(0, 10))
   )
