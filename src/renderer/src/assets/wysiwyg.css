@@ -1185,7 +1185,13 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
 }
 
 .emoji-menu-char {
-  width: 1.4em;
+  /* 固定槽位不随字号变（JS 按实测宽缩小宽组合塞进槽内，见 pm-emoji-completion） */
+  flex: 0 0 22px;
+  width: 22px;
+  overflow: hidden;
+  /* emoji 字形兜底：代码/正文字体缺 emoji 字形会渲染变形（用户实测） */
+  font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', 'Segoe UI Symbol',
+    sans-serif;
   font-size: 15px;
   line-height: 1;
   text-align: center;

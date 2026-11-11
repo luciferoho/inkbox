@@ -1,7 +1,8 @@
 import { Plugin, PluginKey } from '@milkdown/kit/prose/state'
 import type { EditorState } from '@milkdown/kit/prose/state'
 import type { EditorView } from '@milkdown/kit/prose/view'
-import { EMOJI_DEFS } from './cm-emoji-completion'
+import { matchEmojiNames } from './cm-emoji-completion'
+import { fitFontSize } from './emoji-picker'
 
 /**
  * emoji 短代码补全 · 即显侧（5.9，对齐源码模式 2.11）：
@@ -20,7 +21,7 @@ interface EmojiHit {
 
 interface EmojiPluginState {
   open: boolean
-  /** 文档中 ':' 的位置（替换起点） */
+  /** 替换起点（':' 位置） */
   from: number
   /** 光标位置（替换终点） */
   to: number
@@ -44,7 +45,8 @@ const MAX_ITEMS = 8
 /** 这些块内不弹补全（代码/结构化块里短代码没有语义） */
 const BLOCKED_NODES = new Set(['code_block', 'html_table', 'yaml', 'toc', 'math_block'])
 
-const TRIGGER_RE = /(?:^|\s):([a-zA-Z0-9_+-]*)$/
+/** 行首/空白/emoji 字符后敲 `:前缀` 触发（一行里已有表情时不再要求打空格） */
+const TRIGGER_RE = /(?:^|\s|\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*):([a-zA-Z0-9_+-]*)$/u
 
 interface Ctx {
   from: number
@@ -64,13 +66,15 @@ function detectContext(state: EditorState): Ctx | null {
     return null
   }
   if (!$from.parent.isTextblock) return null
-  // 只看光标前 64 字符：够覆盖任何合理前缀，也避免整段取文本
+  const to = $from.pos
+  // 只看光标前 64 字符：够覆盖任何合理前缀，也避免整段取文本。
+  // 叶子节点（软换行 hard_break）要当换行看：Enter 一次得到的是段内软换行，
+  // 若映射成 \uFFFC 则「行首/空白后」判定失效（用户实测「回车后要换两行才出提示」）
   const start = Math.max(0, $from.parentOffset - 64)
-  const textBefore = $from.parent.textBetween(start, $from.parentOffset, undefined, '\uFFFC')
+  const textBefore = $from.parent.textBetween(start, $from.parentOffset, undefined, '\n')
   const m = TRIGGER_RE.exec(textBefore)
   if (!m) return null
   const query = m[1] ?? ''
-  const to = $from.pos
   return { from: to - query.length - 1, to, query }
 }
 
@@ -80,36 +84,15 @@ const hitsCache = new Map<string, EmojiHit[]>()
 function filterItems(query: string): EmojiHit[] {
   const cached = hitsCache.get(query)
   if (cached) return cached
-  const needle = ':' + query.toLowerCase()
-  const hits: EmojiHit[] = []
-  for (const [name, char] of Object.entries(EMOJI_DEFS)) {
-    const label = ':' + name
-    if (!label.startsWith(needle) && !label.includes(needle)) continue
-    hits.push({ name, char: String(char) })
-  }
-  // 前缀命中优先（`:smile:` 之于 `:smile_cat:`），与源码侧 boost 同语义
-  hits.sort((a, b) => {
-    const la = ':' + a.name.toLowerCase()
-    const lb = ':' + b.name.toLowerCase()
-    const sa = la === needle + ':' ? 0 : la.startsWith(needle) ? 1 : 2
-    const sb = lb === needle + ':' ? 0 : lb.startsWith(needle) ? 1 : 2
-    return sa !== sb ? sa - sb : la.length - lb.length
-  })
-  const out = hits.slice(0, MAX_ITEMS)
+  // 模糊匹配与源码侧共用（`:eyes` 也命中 `:heart_eyes:`）
+  const out = matchEmojiNames(query).slice(0, MAX_ITEMS)
   if (hitsCache.size > 128) hitsCache.clear()
   hitsCache.set(query, out)
   return out
 }
 
 function nextState(state: EditorState, prev: EmojiPluginState, tr: import('@milkdown/kit/prose/state').Transaction): EmojiPluginState {
-  const closed: EmojiPluginState = {
-    open: false,
-    from: 0,
-    to: 0,
-    query: '',
-    active: -1,
-    dismissedQuery: null
-  }
+  const closed: EmojiPluginState = { open: false, from: 0, to: 0, query: '', active: -1, dismissedQuery: null }
   const ctx = detectContext(state)
   const meta = tr.getMeta(emojiCompletionKey) as EmojiMeta | undefined
 
@@ -196,6 +179,8 @@ export function createEmojiCompletionPlugin(): Plugin<EmojiPluginState> {
             const charEl = document.createElement('span')
             charEl.className = 'emoji-menu-char'
             charEl.textContent = hit.char
+            // 宽组合（👨‍👩‍👧‍👦 等）缩进 22px 槽位，不再溢出压到短代码列（变形）
+            charEl.style.fontSize = `${fitFontSize(hit.char, 22, 15).toFixed(1)}px`
             const nameEl = document.createElement('span')
             nameEl.className = 'emoji-menu-name'
             nameEl.textContent = ':' + hit.name + ':'
@@ -268,7 +253,12 @@ export function createEmojiCompletionPlugin(): Plugin<EmojiPluginState> {
       document.addEventListener('keydown', onKeyDown, true)
 
       // 滚动时弹层会飘在旧位置：直接收起（继续输入会重新弹出）
+      // 滚动时弹层会飘在旧位置：收起（继续输入会重新弹出）。
+      // 但输入引起的自动滚动（末尾打字、换行时编辑器把光标滚进视口）不能收——
+      // 那会让弹层刚出就消失。刚有文档变化后的 350ms 内忽略滚动。
+      let lastDocChange = 0
       const onScroll = (): void => {
+        if (Date.now() - lastDocChange < 350) return
         const st = emojiCompletionKey.getState(editorView.state)
         if (st?.open && popup.style.display !== 'none') hide()
       }
@@ -276,7 +266,10 @@ export function createEmojiCompletionPlugin(): Plugin<EmojiPluginState> {
 
       draw(editorView)
       return {
-        update: (view) => draw(view),
+        update: (view, prevState) => {
+          if (view.state.doc !== prevState.doc) lastDocChange = Date.now()
+          draw(view)
+        },
         destroy: () => {
           document.removeEventListener('keydown', onKeyDown, true)
           document.removeEventListener('scroll', onScroll, true)

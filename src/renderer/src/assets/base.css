@@ -477,3 +477,11 @@ html[data-theme-css] .outline .node.has-guide::before {
   background: color-mix(in srgb, var(--border) 60%, transparent);
   pointer-events: none;
 }
+
+
+/* CM 自动补全 detail 列的 emoji 字符：代码字体缺字形会渲染变形（用户实测），
+   detail 是纯展示文本，用 emoji 字体栈兜底 */
+.cm-completionDetail {
+  font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', 'Segoe UI Symbol',
+    sans-serif;
+}

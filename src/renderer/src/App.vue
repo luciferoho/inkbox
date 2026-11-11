@@ -30,6 +30,7 @@ import InsertPanel from '@/components/chrome/InsertPanel.vue'
 import TextContextMenu from '@/components/chrome/TextContextMenu.vue'
 import FormatBar from '@/components/chrome/FormatBar.vue'
 import TableGridPicker from '@/components/chrome/TableGridPicker.vue'
+import EmojiPicker from '@/components/chrome/EmojiPicker.vue'
 // 弹窗类按需加载（exporter 连带 pdf/字体资源链，打开频率低；设置已独立成窗口）
 const UpdateDialog = defineAsyncComponent(() => import('@/components/chrome/UpdateDialog.vue'))
 const ExportDialog = defineAsyncComponent(() => import('@/components/chrome/ExportDialog.vue'))
@@ -468,6 +469,7 @@ async function handleRequestClose(): Promise<void> {
     <TextContextMenu />
     <FormatBar />
     <TableGridPicker />
+    <EmojiPicker />
     <Toast />
     <!-- 外部文档拖入提示：替代系统默认的复制提示，明确「松开即打开」 -->
     <div v-if="dragOverOpen" class="drop-hint">
