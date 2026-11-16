@@ -61,17 +61,24 @@ function spansFor(lang: string, code: string): Span[] {
   return spans
 }
 
-function blockDecorations(node: PMNode, pos: number): Decoration[] {
+function blockDecorations(node: PMNode, pos: number, head: number | null): Decoration[] {
   const base = pos + 1 // 进入节点内容
-  return spansFor(String(node.attrs.language ?? ''), node.textContent).map((s) =>
-    Decoration.inline(base + s.start, base + s.end, { class: s.classes.join(' ') })
-  )
+  return spansFor(String(node.attrs.language ?? ''), node.textContent)
+    .map((s) => Decoration.inline(base + s.start, base + s.end, { class: s.classes.join(' ') }))
+    // 光标邻接压制：光标在 token 内部/右端时不给它上装饰——打字把单词补全成
+    // 关键字的瞬间，PM 在光标前插入包裹 span，Chromium 会把光标挤到词首（实测
+    // 输入 const 跳回 c 前）；光标移开后选区事务触发重建，高亮恢复
+    .filter((d) => head === null || !(d.from < head && head <= d.to))
+}
+
+function blockDecorationsAll(node: PMNode, pos: number): Decoration[] {
+  return blockDecorations(node, pos, null)
 }
 
 function buildAll(doc: PMNode): DecorationSet {
   const decos: Decoration[] = []
   doc.descendants((node, pos) => {
-    if (node.type.name === 'code_block') decos.push(...blockDecorations(node, pos))
+    if (node.type.name === 'code_block') decos.push(...blockDecorationsAll(node, pos))
     return true
   })
   return DecorationSet.create(doc, decos)
@@ -98,9 +105,20 @@ export function createCodeHighlightPlugin(): Plugin<DecorationSet> {
     state: {
       init: (_config, state) => buildAll(state.doc),
       apply(tr, prev, _old, newState) {
-        if (!tr.docChanged) return prev
+        if (!tr.docChanged && !tr.selectionSet) return prev
         let decos = prev.map(tr.mapping, tr.doc)
-        for (const [f, t] of changedRanges(tr)) {
+        // 变更范围：doc 变化取变更区间；纯移动光标则取光标所在块（恢复被压制的邻接高亮）
+        const ranges: [number, number][] = tr.docChanged
+          ? changedRanges(tr)
+          : (() => {
+              const $head = newState.selection.$from
+              for (let d = $head.depth; d >= 0; d--) {
+                if ($head.node(d).type.name === 'code_block') return [[$head.before(d), $head.before(d) + 1]]
+              }
+              return []
+            })()
+        const head = newState.selection.head
+        for (const [f, t] of ranges) {
           // 变更范围扩到相邻边界，命中的代码块整块重建（块被删除时其装饰
           // 塌缩到范围内，同样被 find 清掉，不会留下孤儿高亮）
           const blocks: { node: PMNode; pos: number }[] = []
@@ -116,7 +134,7 @@ export function createCodeHighlightPlugin(): Plugin<DecorationSet> {
           const first = blocks[0]
           const last = blocks[blocks.length - 1]
           const fresh: Decoration[] = []
-          for (const b of blocks) fresh.push(...blockDecorations(b.node, b.pos))
+          for (const b of blocks) fresh.push(...blockDecorations(b.node, b.pos, head))
           decos = decos.remove(decos.find(first.pos, last.pos + last.node.nodeSize)).add(newState.doc, fresh)
         }
         return decos

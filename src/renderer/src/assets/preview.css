@@ -109,27 +109,9 @@ html[data-theme-css] .md-preview pre.luci-code {
   padding: 0;
   font-size: 13px;
   color: inherit;
-}
-
-/* 行号（七.2）：fence 渲染把高亮 HTML 逐行包 <span class="md-cl">（行间以
-   换行文本分隔，pre 白空格保留换行语义），行号是每个行 span 的 ::before——
-   不改变 pre/code 的 display 与白空格，自定义主题的 pre/code 规则零冲突。
-   行号随内容横向滚动（GitHub 行为）；不参与选择/复制（::before 不进
-   textContent，复制与导出按 code 元素取文本天然干净） */
-.md-preview pre code {
-  counter-reset: mdline;
-}
-
-.md-preview pre code .md-cl::before {
-  counter-increment: mdline;
-  content: counter(mdline);
-  display: inline-block;
-  min-width: 2.1em;
-  margin-right: 1.2em;
-  text-align: right;
-  color: var(--code-comment);
-  user-select: none;
-  pointer-events: none;
+  /* 软换行替代横向滚动（与即显一致）；CJK 自然断行，超长英文 token 兜底断词 */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 /* 代码块 chrome：语言标签栏 + 复制按钮（fence 渲染包 .md-code 容器） */
@@ -239,6 +221,14 @@ html[data-theme-css] .md-preview .md-front-matter {
   list-style: none;
   margin-left: -1.4em;
 }
+/* 任务项统一渲染 li > p（对齐 Typora 结构，主题兄弟规则的前提）；
+   紧列表的唯一段落 margin 归零，观感与原先的裸文本一致。
+   :where 压低特异性到 (0,2,1)：压过内置 .md-preview p 边距、又不挡主题
+   自己的 #write p 边距（接管主题的 p 缩进——phycat 的 margin 0 10px
+   正是圆圈与正文的间距来源）；防护主题由管线里的 !important 归零兜底 */
+.md-preview :where(li.task-list-item) > p:only-child {
+  margin: 0;
+}
 .md-preview .task-item-checkbox {
   accent-color: var(--accent);
   margin-right: 7px;
@@ -345,6 +335,8 @@ html[data-theme-css] .md-preview .md-front-matter {
 }
 .md-preview .katex {
   font-size: 1.05em;
+  /* 公式渲染结果是展示层，不可选中（2026-10-31 反馈） */
+  user-select: none;
 }
 .md-preview .math-error {
   color: var(--danger);
@@ -369,6 +361,14 @@ html[data-theme-css] .md-preview .md-front-matter {
 .md-preview .mermaid svg {
   max-width: 100%;
   height: auto;
+  /* 图表/公式渲染结果是展示层，不可选中（源码错误兜底文本仍可复制） */
+  user-select: none;
+}
+/* 边标签裁字防护：htmlLabels 的 foreignObject 尺寸按隐藏态测量，主题/回退
+   字体介入后实际渲染盒可能更宽（phycat 的 JetBrains Mono !important 实测把
+   「即显/预览」边字裁掉半截），放开溢出让标签完整呈现 */
+.md-preview .mermaid svg foreignObject {
+  overflow: visible;
 }
 .md-preview .mermaid-error {
   color: var(--danger);
@@ -480,6 +480,22 @@ html[data-theme-css] .hljs-section {
 .md-preview .md-toc li {
   margin: 2px 0;
   line-height: 1.6;
+}
+/* 扁平条目的层级缩进兜底（:where 零特异性，主题模式下让位主题 margin-left） */
+.md-preview .md-toc :where(.md-toc-h2) {
+  margin-left: 1.4em;
+}
+.md-preview .md-toc :where(.md-toc-h3) {
+  margin-left: 2.8em;
+}
+.md-preview .md-toc :where(.md-toc-h4) {
+  margin-left: 3.6em;
+}
+.md-preview .md-toc :where(.md-toc-h5) {
+  margin-left: 4.2em;
+}
+.md-preview .md-toc :where(.md-toc-h6) {
+  margin-left: 4.8em;
 }
 .md-preview .md-toc a {
   color: var(--text);

@@ -20,6 +20,13 @@ import type { ThemeInfo } from '@shared/types'
  *  主题的表格/代码样式被内置样式盖掉（sonnet 实测）。 */
 const SCOPE = ':is(.md-preview.md-preview.md-preview, .luci-prose.luci-prose.luci-prose)'
 
+/** 剥掉全部块注释：仅用于「分析」通道（变量收集/字号探测/cm 色提取）。
+ *  主题包常用注释保留多套可选配置（phycat 的 --autonum 整段注释），
+ *  裸正则会把注释里的定义当真——Typora 不生效的变量我们也不能生效。 */
+export function stripCssComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, ' ')
+}
+
 /* ---------- 相对路径工具 ---------- */
 
 function dirnameOf(file: string): string {
@@ -123,6 +130,21 @@ function protectComments(css: string): { text: string; restore: (s: string) => s
   return { text, restore: (s) => s.replace(/\u0000C(\d+)\u0000/g, (_, i) => kept[Number(i)]) }
 }
 
+/** 任务勾选态兄弟选择器桥：Typora 的 checkbox 是 li 直接子节点、与段落是兄弟，
+ *  主题用 `input:checked + p` 做「勾选后文字变灰/划线」（phycat 的任务完成态、
+ *  `input[type=checkbox] + p` 的划线生长底）；我们的 checkbox 在段落内部，
+ *  兄弟关系不成立——转成 li:has(input...) 后代判定，声明的落点同为该段落。
+ *  返回 null 表示不匹配（含伪元素/无 task 语境的照原样走通用管线） */
+function bridgeTaskSibling(sel: string): string | null {
+  const inputAt = sel.search(/(^|[^\w-])input(?![\w-])/i)
+  if (inputAt < 0 || !/task-list-item/i.test(sel.slice(0, inputAt))) return null
+  const m = sel.slice(inputAt).match(/^\s*(input(?![\w-])[^{}+~]*?)\s*([+~])\s*([^{}+~][^{}]*)$/i)
+  if (!m) return null
+  const chain = m[3].trim()
+  if (/task-list-item/i.test(chain)) return null
+  return `:is(li.task-list-item, li[data-item-type='task']):has(${m[1].trim()}) ${chain}`
+}
+
 /** 单个选择器 → 作用域化。
  *  选择器里的注释（如 `/*核心变量*​/ :root`）直接剥掉再判定，否则占位符
  *  会破坏 :root/前缀判定，产出永远匹配不到的选择器。
@@ -141,6 +163,10 @@ function scopeSelector(sel: string): string {
     s = s.slice(stateMatch[0].length).trim()
     if (!s) return `${statePrefix} ${SCOPE}`
   }
+  // 任务勾选态兄弟选择器桥（必须在通用替换前：桥产物里 task-list-item 已
+  // 消化成 :is() 形态，不再吃裸类替换）
+  const bridged = bridgeTaskSibling(s)
+  if (bridged) s = bridged
   // :root / html / body / #write / content / .write（Typora 正文容器别名）→ SCOPE；
   // .md-fences（Typora 代码块）→ pre（我们的代码块同样是 pre 元素）；
   // .CodeMirror-lines 是 Typora 围栏内层（字号/行高/字族），映射到 pre code
@@ -148,6 +174,12 @@ function scopeSelector(sel: string): string {
     .replace(
       /(^|[\s>+~(])(:root|html|body|content|#write|\.write)(?![\w-])/gi,
       (_m, pre) => `${pre}${SCOPE}`
+    )
+    // front matter：Typora 是 pre.md-meta-block，即显侧是 div.fm-block——
+    // 复合映射后主题的 YAML 卡样式（虚线框/YAML 角标）两种 DOM 都命中
+    .replace(
+      /(^|[\s>+~(])pre\.md-meta-block(?![\w-])/gi,
+      '$1:is(pre.md-meta-block, .fm-block)'
     )
     // pre.md-fences 复合写法先剥类（night 等官方主题），再于通用替换兜底——
     // 否则 `.md-fences → pre` 会产出非法的 prepre，整条规则作废（底色丢失）。
@@ -248,12 +280,35 @@ function stripContainerDecls(body: string): string {
     .replace(/(^|[;{\n])\s*background(?:-color|-image)?\s*:[^;}]*;?/gi, '$1')
 }
 
+/** 主题容器的 flex 纵向间距（`#write{display:flex;flex-direction:column;gap}`
+ *  是 Typora 主题的常见排版约定，sonnet 即此）：gap 被 stripContainerDecls
+ *  剥离后块间距全丢——sonnet 实测 p margin 全 0、代码块贴正文、标题负 margin
+ *  叠进正文（用户反馈「过于拥挤」）。记下行间距值，由 processThemeCss 在
+ *  CONTENT_FINAL 之后补相邻块 margin-top，语义等同 gap。 */
+let themeFlexGap: string | null = null
+
+function containerRowGap(body: string): string | null {
+  const disp = body.match(/(?:^|[;{\n])\s*display\s*:\s*([^;}]+)/i)
+  if (!disp || !/\bflex\b/i.test(disp[1])) return null
+  const dir = body.match(/(?:^|[;{\n])\s*flex-direction\s*:\s*([^;}]+)/i)
+  if (dir && !/column/i.test(dir[1])) return null // 横向 flex 的 gap 是列间距，不补
+  const row = body.match(/(?:^|[;{\n])\s*row-gap\s*:\s*([^;}]+)/i)
+  if (row) return row[1].trim()
+  const g = body.match(/(?:^|[;{\n])\s*gap\s*:\s*([^;}]+)/i)
+  if (!g) return null
+  const first = g[1].trim().split(/[\s/]+/)[0] ?? ''
+  // normal 等关键字没有长度语义，写进 margin 声明是非法的
+  return /^(normal|initial|inherit|unset|revert)$/i.test(first) ? null : first
+}
+
 /** 注释占位符（protectComments 产物，NUL 包裹的 C<n>）整体剥离。
  *  源码用 fromCharCode 构造，避免转义写法 */
 const commentHolderRe = new RegExp(String.fromCharCode(0) + 'C[0-9]+' + String.fromCharCode(0), 'g')
 
-/** 遍历块结构做作用域化；@font-face/@keyframes 等原样，@media/@supports 递归 */
-function scopeBlocks(css: string): string {
+/** 遍历块结构做作用域化；@font-face/@keyframes 等原样，@media/@supports 递归。
+ *  nested：@media 等内层——gap 捕获只认顶层容器规则（打印媒体里的 gap
+ *  不能决定屏幕排版节奏） */
+function scopeBlocks(css: string, nested = false): string {
   let out = ''
   let i = 0
   while (i < css.length) {
@@ -282,7 +337,7 @@ function scopeBlocks(css: string): string {
     if (at) {
       const name = at[1].toLowerCase()
       if (name === 'media' || name === 'supports' || name === 'container' || name === 'layer' || name === 'scope') {
-        out += headPrefix + headPart + '{' + scopeBlocks(body) + '}'
+        out += headPrefix + headPart + '{' + scopeBlocks(body, true) + '}'
       } else {
         out += headPrefix + headPart + '{' + body + '}' // @font-face/@keyframes/@property 等原样
       }
@@ -290,6 +345,10 @@ function scopeBlocks(css: string): string {
       // 容器本身（html/body/#write/:root/.write）的页面盒模型/布局/底色声明让位；
       // 后代规则（#write p、.write th…）原样保留
       const isContainer = allContainerSubjects(headPart)
+      if (isContainer && !nested) {
+        const gap = containerRowGap(body)
+        if (gap) themeFlexGap = gap
+      }
       const decls = isContainer ? stripContainerDecls(body) : body
       const scopedSel = scopeSelectorList(headPart.trim())
       if (!scopedSel.trim()) {
@@ -687,13 +746,129 @@ function extractCmWrapperStyle(css: string, set: Map<string, string>, defs: Map<
     if (fg && parseColor(fg)) set.set('--code-fg', fg)
     const radius = pick(/(?:^|;)\s*border-radius\s*:\s*([^;!}]+)/i)
     if (radius) set.set('--code-radius', radius)
+    // 围栏内间距/字族/字号：Typora 围栏的 padding 在 CodeMirror 包装层上
+    //（phycat: 20px 12px 12px 20px + CascadiaCode），不提取则代码块贴边、
+    // 字体退回内置默认——与 Typora 同主题观感差一截。行内层（.CodeMirror-lines）
+    // 的字号由别处提取且优先，这里只在缺席时补。
+    // padding 按 CodeMirror 实际展开记每侧：包装层值 + CM 默认内层
+    //（.CodeMirror-lines 4px 上下 + 行 0 4px 左右）才是 Typora 代码文字的真实内距
+    const pad = pick(/(?:^|;)\s*padding\s*:\s*([^;!}]+)/i)
+    if (pad) {
+      const parts = pad.replace(/!important/i, '').trim().split(/\s+/)
+      if (parts.length <= 4 && parts.every((p) => /^[-\d.\w%]+$/.test(p))) {
+        const [t, r = t, b = t, l = r] = parts
+        // 包装层内距全 0（sonnet 的 .CodeMirror pre{padding:0} 会命中这里）：
+        // 没有可搬走的内距，fenceChrome 再把 pre 归零只会丢掉主题写在
+        // .md-fences 上的真实内距（sonnet 14px → 实测内容贴边 1px）——视为缺席，
+        // pre 保留主题自身 padding（与 Typora 一致：fences 内距 + CM 内距本就叠加）
+        const allZero = [t, r, b, l].every((v) => parseFloat(v) === 0)
+        if (!allZero) {
+          const plus4 = (v: string) => `calc(${v} + 4px)`
+          set.set('--code-pad-t', plus4(t))
+          set.set('--code-pad-r', plus4(r))
+          set.set('--code-pad-b', plus4(b))
+          set.set('--code-pad-l', plus4(l))
+        }
+      } else {
+        set.set('--code-pad', pad) // 复杂值原样兜底
+      }
+    }
+    const ff = pick(/(?:^|;)\s*font-family\s*:\s*([^;!}]+)/i)
+    if (ff && !set.has('--code-font-family')) set.set('--code-font-family', ff)
+    const fsz = pick(/(?:^|;)\s*font-size\s*:\s*([^;!}]+)/i)
+    if (fsz && !set.has('--code-font-size')) set.set('--code-font-size', fsz)
   }
 }
 
-export function typoraValueBridge(css: string, polarity?: 'light' | 'dark'): string {
+/** 主题围栏盒内距（.md-fences/pre 本体规则；简写/长手按文档序后者覆盖前者，
+ *  与级联同向）。top/sides 缺省 null；sides 取左右较小值（更贴边的一侧决定
+ *  下限）。单位原样返回（rem 已过 convertRem，em 运行时按元素字号解析）。
+ *  两道过滤（2026-11-05 全主题审计实测）：
+ *  ① 只认「末段主体就是围栏/pre 本身」的分组——`.md-fences .CodeMirror-line`
+ *     这类后代规则的 padding 属于子元素，算进来会污染真值；
+ *  ② 跳过我们 DOM 永不出现的状态（Typora 预览态 .md-fences-with-preview、
+ *     focus 态 .md-focus、行元素 .CodeMirror-line、语言限定 [lang=…]、子态
+ *     :has(…)）——lightmind 的 `.md-fences-with-preview{padding:0}` 曾按
+ *     “后写胜”把 48px 顶距盖成 0、触发误判贴边。`:not(…)` 里的同名条件是
+ *     反状态（我们正属该态），必须保留。 */
+function fenceBoxPadding(css: string): { top: string | null; sides: string | null } {
+  const norm = (v: string): string => (/^[-\d.]+$/.test(v) ? v + 'px' : v)
+  const px = (v: string): number => {
+    const n = parseFloat(v)
+    if (!Number.isFinite(n)) return 0
+    return /rem|em/i.test(v) ? n * 16 : n
+  }
+  const stateful =
+    /(?<!:not\()(?<!:has\()(?:\.md-fences-with-preview|\.md-focus|\.CodeMirror-line|\.md-diagram-panel|:has\(|\[[\w-]+(?==))/
+  const subjectOk = (part: string): boolean => {
+    const seg = part.split(/[\s>+~]+/).filter(Boolean).pop() ?? ''
+    if (/::?(?:before|after)\b/i.test(seg)) return false // 伪元素段
+    if (/^pre(?![\w.-])/.test(seg)) {
+      // pre 本体：裸 pre 或 #write pre（Typora 围栏）。`.md-fences pre` /
+      // `.CodeMirror pre` 是围栏内层的 CodeMirror pre（主题用它 padding:0
+      // 归零，sonnet 实测会把 .md-fences 的 0.875rem 盖掉），不算主体
+      if (/\.md-fences\s/.test(part)) return false
+      return !/[\s>+~]/.test(part) || /^#write[\s>+~]/.test(part)
+    }
+    return /^\.md-fences(?![\w-])/.test(seg)
+  }
+  let t: string | null = null
+  let l: string | null = null
+  let r: string | null = null
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const parts = m[1].split(',').map((s) => s.trim())
+    if (!parts.some((p) => subjectOk(p) && !stateful.test(p))) continue
+    const body = m[2]
+    const sh = body.match(/(?:^|[;{\n])\s*padding\s*:\s*([^;!}]+)/i)
+    if (sh) {
+      const p = sh[1].trim().split(/\s+/)
+      const [pt, pr = pt, , pl = pr] = p
+      t = norm(pt)
+      l = norm(pl)
+      r = norm(pr)
+    }
+    const hit = (re: RegExp): string | null => {
+      const v = body.match(re)
+      return v ? norm(v[1].trim()) : null
+    }
+    const pt = hit(/(?:^|[;{\n])\s*padding-top\s*:\s*([^;!}]+)/i)
+    if (pt) t = pt
+    const pl = hit(/(?:^|[;{\n])\s*padding-left\s*:\s*([^;!}]+)/i)
+    if (pl) l = pl
+    const pr = hit(/(?:^|[;{\n])\s*padding-right\s*:\s*([^;!}]+)/i)
+    if (pr) r = pr
+  }
+  const sides =
+    l === null && r === null ? null : l === null ? (r as string) : r === null ? l : px(l) <= px(r) ? l : r
+  return { top: t, sides }
+}
+
+/** 主题给围栏画了流内头部条带（phycat 的语言条：.md-fences::before 实高
+ *  且非 absolute）——条带本身撑起头部空间，浮层标签落在条带里，无需再补
+ *  预留带（补了反而把条带压下去、标签浮到条带上方）。 */
+function themeHasInFlowStrip(css: string): boolean {
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const parts = m[1].split(',').map((s) => s.trim())
+    const isFencePseudo = parts.some((p) => /^\.md-fences\b[^ >+~]*::?(?:before|after)$/i.test(p))
+    if (!isFencePseudo) continue
+    const body = m[2]
+    if (/content\s*:\s*none\b/i.test(body)) continue // content:none 不生成盒
+    if (/position\s*:\s*(?:absolute|fixed)/i.test(body)) continue // 绝对定位不吃流内高度
+    const h = body.match(/(?:^|[;{\n])\s*height\s*:\s*([-\d.]+)(px|rem|em)?/i)
+    if (!h) continue
+    const px = parseFloat(h[1]) * (/^(?:rem|em)$/i.test(h[2] ?? 'px') ? 16 : 1)
+    if (px >= 24) return true
+  }
+  return false
+}
+
+export function typoraValueBridge(inputCss: string, polarity?: 'light' | 'dark'): string {
   // 主题里全部变量定义（首现优先）：桥接值为 var() 引用时就地解析，
   // 解析不到（变量定义在非全局选择器上）就跳过该条，绝不能把未定义引用
-  // 写进我们的令牌（会把 --bg 变成空值，整应用丢底色）
+  // 写进我们的令牌（会把 --bg 变成空值，整应用丢底色）。
+  // 分析在剥注释的副本上做：注释掉的可选配置不能泄漏成真样式
+  //（phycat 注释掉的 --autonum 曾让标题凭空编号，Typora 无此现象）
+  const css = stripCssComments(inputCss)
   const defs = new Map<string, string>()
   for (const m of css.matchAll(/(--[\w-]+)\s*:\s*([^;}]+)/g)) {
     if (!defs.has(m[1])) defs.set(m[1], m[2].trim())
@@ -920,9 +1095,68 @@ html[data-theme-css] .sidebar-wrap .panel .node.active {
   rules.unshift(`color-scheme: ${light ? 'light' : 'dark'};`)
   // 选择器带上 [data-theme]：特异性高于 base.css 的 [data-theme='dark'] 调色板，
   // 主题配色才能真正接管（对齐 Typora：选主题即整窗换肤）
+  // 围栏外形补充（仅在主题确实给了包装层参数时输出）：Typora 围栏的
+  // 内边距在 CodeMirror 包装层上，对应我们的【code 内容】而不是 pre 容器——
+  // pre 的 ::before 是主题圆点条（.md-fences::before），padding 若留在 pre 上
+  // 会变成「圆点条上方多一截、圆点条与代码贴死」（与 Typora 相反，实测）。
+  // 正确分布：pre padding 归零（圆点条贴顶），code 拿到整套 padding
+  //（20px 顶 = 圆点条与代码的间距）。字族仍在 pre 上向下继承。
+  // 绝不能无条件输出，否则主题只写 .md-fences padding 时会被我们的回退值覆盖
+  let fenceChrome = ''
+  const hasPad = set.has('--code-pad-t')
+  if (hasPad || set.has('--code-pad') || set.has('--code-font-family')) {
+    const preDecls = [
+      hasPad || set.has('--code-pad') ? 'padding: 0;' : '',
+      set.has('--code-font-family') ? 'font-family: var(--code-font-family);' : ''
+    ]
+      .filter(Boolean)
+      .join(' ')
+    const codePad = hasPad
+      ? `padding: var(--code-pad-t) var(--code-pad-r) var(--code-pad-b) var(--code-pad-l) !important;`
+      : set.has('--code-pad')
+        ? `padding: var(--code-pad) !important;`
+        : ''
+    fenceChrome = `
+/* 围栏包装层外形（.cm-s-inner.CodeMirror 的 padding/font——Typora 围栏实际观感） */
+${SCOPE} pre:not(.md-meta-block):not(.md-mermaid) { ${preDecls} }
+${SCOPE} pre:not(.md-meta-block):not(.md-mermaid) > code {
+  ${codePad}
+  /* code 默认 inline：inline 盒的 padding-left 只作用第一行，后续行全部贴边 */
+  display: block;
+}
+`
+  }
+  // 头部预留带 + 最小左右内距（2026-11-05 全主题审计）：
+  // 浮层语言栏占代码块顶部固定 28px（wysiwyg.css 等高配平）。主题自带流内
+  // 条带（phycat 语言条）的条带本身就是头部→跳过；其余主题首行会钻到工具栏
+  // 底下（vue/eyes-green/claude-like/kiro/sonnet/orangeheart 实测重叠）→按主题
+  // 自身顶距补足到 28px，fenceChrome 把内距搬去 code 的主题按 code 顶距扣减
+  //（max 里减 var，避免顶距叠高）。左右内距 <14px 的（vue 0/eyes-green 4/
+  // newsprint 7）抬到 14px——只在未启用内距搬运（!hasPad）时做，搬运主题的
+  // 内距在 code 层（morandigarden 14/orangeheart 12）本就正常。
+  const fencePad = fenceBoxPadding(css)
+  const sidesPx = fencePad.sides
+    ? parseFloat(fencePad.sides) * (/rem|em/i.test(fencePad.sides) ? 16 : 1)
+    : 0
+  const headerFix: string[] = []
+  if (!themeHasInFlowStrip(css)) {
+    headerFix.push(
+      `${SCOPE} pre:not(.md-meta-block):not(.md-mermaid) {\n  padding-top: max(${fencePad.top ?? '0px'}, calc(28px - var(--code-pad-t, 0px))) !important;\n}`
+    )
+  }
+  if (!hasPad && sidesPx < 14) {
+    headerFix.push(
+      `${SCOPE} pre:not(.md-meta-block):not(.md-mermaid) {\n  padding-inline: max(${fencePad.sides ?? '0px'}, 14px) !important;\n}`
+    )
+  }
+  const headerFixCss = headerFix.length
+    ? `\n/* 代码块头部预留带 / 最小左右内距（见上注） */\n${headerFix.join('\n')}\n`
+    : ''
   return (
     (rules.length ? `\n/* Typora 变量 → 应用令牌 */\n:root[data-theme] { ${rules.join(' ')} }\n` : '') +
-    panelSkin
+    panelSkin +
+    fenceChrome +
+    headerFixCss
   )
 }
 
@@ -1036,6 +1270,45 @@ ${SCOPE} li {
 ${SCOPE} blockquote.md-alert::before {
   content: none;
 }
+/* 目录标题让位主题：Typora 的「目录」标题来自主题 .md-toc::before（phycat），
+   我们自带的 md-toc-title 文本在主题模式下隐藏，避免主题 ::before + 内置
+   标题双标题；主题没画标题时与 Typora 同样无标题 */
+${SCOPE} .md-toc-title {
+  display: none;
+}
+/* 目录内部结构对齐 Typora：缩进交给主题 .md-toc-hN margin-left，
+   我们的 ul 缩进/li 间距让位（否则双重缩进）；Typora 的 [TOC] 条目是
+   span 不是 li，主题的 #write li:before 列表连接线（绿竖线）碰不到它，
+   我们是真 ul/li 会被连带——目录内排除 */
+${SCOPE} .md-toc ul {
+  padding-left: 0 !important;
+  margin: 0 !important;
+}
+${SCOPE} .md-toc li {
+  /* 只收纵向间距；margin-left 是主题 .md-toc-hN 的层级缩进，不能拦 */
+  margin-block: 0 !important;
+}
+${SCOPE} .md-toc li::before {
+  content: none;
+}
+/* 目录条目颜色：Typora 里 #write a{color:主色} 的 ID 特异性 (1,0,1) 压过
+   .md-toc-item a{color:inherit}，条目呈链接主色（phycat 实测绿）；作用域化
+   把 ID 特异性抹平成 (0,3,1) 后 inherit（muted 灰绿）反赢，再乘主题按级
+   递减的 opacity，四五六级几乎不可读（用户实测）。按 Typora 实观补齐主色，
+   并撤销自带 a:hover 变色——主题 hover 是整行底色/缩进滑动/辉光，链接色不动 */
+${SCOPE} .md-toc-item a,
+${SCOPE} .md-toc-item a:hover {
+  color: var(--primary-color, inherit) !important;
+}
+/* 脚注定义区对齐 Typora 实际观感：主题 .footnote-item em 的 display:block
+   会把定义里的行内格式拆成整行（phycat 实测「格式」「代码」各占一行），
+   Typora 里它们是行内的；对齐一律左起（配 :has(img) 分隔符排除使用） */
+${SCOPE} .footnote-item em {
+  display: inline !important;
+}
+${SCOPE} .footnote-item p {
+  text-align: left;
+}
 `
 
 /** 主题样式之后的兜底：Typora 的 #write 由 base 居中（max-width + margin auto），
@@ -1109,6 +1382,192 @@ ${SCOPE} .md-mermaid-render {
 }
 `
 
+/* ---------- 任务复选框：防护 / 交还主题（按主题内容二选一注入） ---------- */
+
+/** 主题是否自绘任务复选框：Typora 主机的 checkbox 是去原生化基底，主题用
+ *  ::before/::after 或显式 appearance 自绘形状（phycat 圆形辉光/night √ 框/
+ *  newsprint 按钮 √）。剥注释后扫描：task-list 语境（.md-task-list-item /
+ *  .task-list-item）的 input 规则或通用 input[type=checkbox]，且带伪元素或
+ *  appearance 声明才算自绘——只微调位置（top/left）的规则不接管，保留防护 */
+function themeDrawsTaskCheckbox(css: string): boolean {
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const appearanceDecl = /(?:^|;)\s*(?:-[a-z]+-)?appearance\s*:/i.test(m[2])
+    for (const part of splitTopLevel(m[1])) {
+      const sel = part.replace(/\u0000C\d+\u0000/g, '').trim()
+      // Typora 界面壳（偏好面板/对话框/菜单）里的 checkbox 不是内容复选框
+      // （eyes-green 的 .ty-preferences input[type=checkbox] 实测）
+      if (/\.ty-|#typora|\.modal|dialog|\.menu-/i.test(sel)) continue
+      const hasCheckbox =
+        (/task-list-item/i.test(sel) && /(^|[^\w-])input(?![\w-])/i.test(sel)) ||
+        /(^|[^\w-])input\[type\s*=\s*(['"]?)checkbox\2\]/i.test(sel)
+      if (!hasCheckbox) continue
+      if (appearanceDecl || /::?(before|after)\s*$/i.test(sel)) return true
+    }
+  }
+  return false
+}
+
+/** 自绘复选框是「流内伪元素 + input 未给宽高」型（newsprint 的 √ 盒大于 UA
+ *  的 13×13）：必须去原生化并按伪元素收缩，否则原生面只露顶边、√ 吊在盒下。
+ *  有显式宽高的主题（sonnet/morandi/phycat/lightmind）盒子由主题自己定，不进
+ *  此分支（避免动到已验收的外观）。返回是否需要内容收缩。
+ *  调用方传入 stripCssComments 后的 css，无注释占位符，无需再剥 */
+function themeTaskCheckboxContentSizing(css: string): boolean {
+  let staticPseudo = false
+  let inputSized = false
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    for (const part of splitTopLevel(m[1])) {
+      const sel = part.trim()
+      if (/\.ty-|#typora|\.modal|dialog|\.menu-/i.test(sel)) continue
+      const hasCheckbox =
+        (/task-list-item/i.test(sel) && /(^|[^\w-])input(?![\w-])/i.test(sel)) ||
+        /(^|[^\w-])input\[type\s*=\s*["']?checkbox["']?\]/i.test(sel)
+      if (!hasCheckbox) continue
+      if (/::?(before|after)\s*$/i.test(sel)) {
+        if (!/(?:^|[;{\n])\s*position\s*:\s*(?:absolute|fixed)/i.test(m[2])) staticPseudo = true
+      } else if (/(?:^|[;{\n])\s*(?:width|height)\s*:/i.test(m[2])) {
+        inputSized = true
+      }
+    }
+  }
+  return staticPseudo && !inputSized
+}
+
+/** newsprint 型（流内伪元素自绘 + input 无显式宽高）。主题把可见形状整个画在
+ *  input::before 上：content:'√'、未勾选 #ddd、背景 #F3F2EE——背景与纸色相同，
+ *  盒子不可见，只剩一个「幽灵勾」，未勾选态几乎看不清（内置 newsprint 的原始
+ *  设计如此，非渲染缺陷；Typora 里同样是淡勾）。这里按主题自己声明的输入框
+ *  边框色 (#aaa) 把伪元素做成可见方框：未勾选空框、勾选墨色勾。宽度沿用主题
+ *  的 1.25rem，高度由 1.6rem 收到 1.25rem——主题那 1.6rem 是给隐形底座的，
+ *  做成可见框后必须方正。
+ *  Chromium 只有 appearance:none 才把 checkbox 当普通盒子渲染伪元素（实测
+ *  13×13→22×29），同时压过主题作用域的 appearance:button。
+ *  只在本分支注入——sonnet/lightmind/phycat/morandi 显式定尺寸、自己画边框，
+ *  不进此分支，不受影响 */
+const TASK_CHECKBOX_CONTENT_SIZE = `
+html[data-theme-css] :is(.md-preview.md-preview.md-preview, .luci-prose.luci-prose.luci-prose)
+  .task-item-checkbox {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  box-sizing: border-box !important;
+  width: 1.25rem !important;
+  height: 1.25rem !important;
+  border: none !important;
+  color: inherit !important;
+}
+html[data-theme-css] :is(.md-preview.md-preview.md-preview, .luci-prose.luci-prose.luci-prose)
+  .task-item-checkbox::before {
+  box-sizing: border-box;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 100% !important;
+  height: 100% !important;
+  border: 1px solid #aaa !important;
+  background: transparent !important;
+  color: transparent !important;
+  /* 勾形比正文小一档：Times 的 √ 在 20px 方框里贴角，收到 14px 才有留白 */
+  font-size: .875em !important;
+}
+html[data-theme-css] :is(.md-preview.md-preview.md-preview, .luci-prose.luci-prose.luci-prose)
+  .task-item-checkbox:checked::before {
+  color: inherit !important;
+}
+`
+
+/** 自绘复选框的「圆形逃逸量」：个别主题把可见圆画在 input 盒外（::before
+ *  position:absolute + 正 left 偏移，phycat 亮色基座 left:18px），而 left 值
+ *  仍按「圆应悬在沟槽」设计——实际渲染圆心右移、盖住正文（该选择器在真实
+ *  Typora 里因 md- 前缀缺失不命中，作者从未见过实际效果）。返回逃逸 px，
+ *  由接管块把 input 整体左移同等距离补回。无逃逸返回 null */
+function themeTaskCircleEscape(css: string): string | null {
+  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const sel = m[1].replace(/\u0000C\d+\u0000/g, '').trim()
+    if (!/(^|[^\w-])input(?![\w-])[^{}]*::?(before|after)\s*$/i.test(sel)) continue
+    if (!/task-list-item/i.test(sel) && !/input\[type\s*=\s*(['"]?)checkbox\1\]/i.test(sel)) continue
+    if (!/position\s*:\s*absolute/i.test(m[2])) continue
+    const left = m[2].match(/(?:^|;)\s*left\s*:\s*(\d*\.?\d+)px/i)
+    if (left && Number(left[1]) > 4) return `${left[1]}px` // ≤4px 视为居中微调，不算逃逸
+  }
+  return null
+}
+
+/** 主题未自绘任务复选框时的防护：复选框是功能件不是内容。部分主题的通用
+ *  input 规则（全局边框、appearance:button 巨形控件）会落到内联复选框上——
+ *  统一恢复原生外观与尺寸，仅保留主题强调色（accent-color 由 preview/wysiwyg
+ *  的默认规则提供）。主题自绘时整段不发（见 TASK_CHECKBOX_TAKEOVER） */
+const TASK_CHECKBOX_GUARD = `
+/* 主题模式：任务复选框防护（主题未自绘复选框时才注入） */
+html[data-theme-css] .task-item-checkbox {
+  -webkit-appearance: checkbox !important;
+  appearance: checkbox !important;
+  width: 13px !important;
+  height: 13px !important;
+  margin: 0 7px 0 0 !important;
+  border: 0 !important;
+  border-radius: 3px !important;
+  background: none !important;
+  vertical-align: -1.5px !important;
+}
+html[data-theme-css] .task-item-checkbox::before {
+  content: none !important;
+}
+/* 任务项统一渲染 li > p 后（对齐 Typora 结构），紧列表的唯一段落不吃主题
+   的通用 #write p 边距（防护主题下它原本作用于裸文本，等效无边距） */
+html[data-theme-css] :is(li.task-list-item, li[data-item-type='task']) > p:only-child {
+  margin: 0 !important;
+}
+`
+
+/** 主题自绘任务复选框时的主机职责：Typora 里 checkbox 默认就是去原生化
+ *  （appearance:none），主题的 ::before/::after 自绘才能着色（本 Chromium 的
+ *  appearance 初值即 none，主题写的 -webkit-appearance:initial 无需改写）。
+ *  仅补主机基底，形状/几何/配色交主题自己的规则——作用域化后恒为 (0,4,x)，
+ *  压过这里的 (0,2,0)，主题写没写 appearance 都不受影响。
+ *  li 的负 margin 同时收回：那是给内联复选框腾位的补偿，主题的 checkbox 是
+ *  绝对定位悬挂在列表缩进沟槽里（Typora 几何），叠加负 margin 会把圆圈推出
+ *  ul 盒子、贴死正文（radiation/vampire 实测） */
+const TASK_CHECKBOX_TAKEOVER = `
+/* 主题自绘任务复选框：主机去原生化（Typora 行为），外观交主题 */
+html[data-theme-css] .task-item-checkbox {
+  -webkit-appearance: none;
+  appearance: none;
+}
+/* 恢复 Typora 几何：任务项不吃内联复选框的负 margin 补偿，圆圈悬在沟槽。
+   (0,3,1) 严格压过内置 li 负 margin 规则 (0,2,1)（不靠样式表顺序），又低于
+   主题作用域化规则的地板 (0,4,1)——主题想自己设任务项 margin 时仍可覆盖 */
+html[data-theme-css] :is(.md-preview, .luci-prose) :is(li.task-list-item, li[data-item-type='task']) {
+  margin-left: 0;
+}
+/* checkbox 的锚点对齐 Typora：主题常给任务段落 position:relative（phycat），
+   绝对定位的 checkbox 会锚到段落盒——段落自身的缩进（phycat #write p 的
+   margin 0 10px）会把圆圈一起右移、贴死正文（实测间距 -1px，Typora 9px）。
+   Typora 里 checkbox 的锚是 li，段内取消定位即可，定位值仍由主题给出 */
+html[data-theme-css] :is(.md-preview.md-preview.md-preview, .luci-prose.luci-prose.luci-prose)
+  :is(li.task-list-item, li[data-item-type='task']) > p {
+  position: static;
+  margin-top: 0;
+}
+/* 纵向对齐由主机接管：主题的 top 值（phycat 9px）按 Typora 行盒度量调的，
+   在我们的行高/字号体系里圆心比文字中心低 ~5px。top 取首行行盒中心
+   （1lh 跟随继承行高=内容字号×行距），translate 上移自身半高——圆心精确
+   对齐行中心且适配任意主题圆圈尺寸；translate 是独立属性，与主题自己的
+   transform（morandi 的微调）叠加不互覆盖。
+   font:inherit 必须带：input 的 UA 默认字体不随内容（13.33px/normal），
+   lh 单位会失真成 15px（内容行盒实为 27px，实测 dy -4.5）。
+   (0,5,0) 压过主题作用域化地板 (0,4,1)——主题残留的 !important 旧坐标
+   （morandi top:3px、sonnet margin-top）同特异性下靠它作废 */
+html[data-theme-css] :is(.md-preview.md-preview.md-preview, .luci-prose.luci-prose.luci-prose)
+  .task-item-checkbox {
+  position: absolute !important;
+  font: inherit;
+  top: 0.5lh !important;
+  translate: 0 -50%;
+  transform: none !important; /* morandi 的 -5px 纵向微调随旧坐标系作废（实测 dy -4.4） */
+  margin-block: 0 !important;
+}
+`
+
 /* ---------- 入口 ---------- */
 
 /** 主题条目：ThemeInfo 已含 name/file/family/variant */
@@ -1164,13 +1623,109 @@ export async function processThemeCss(
       ? raw.replace(exportOnly, '@import $1;')
       : raw.replace(exportOnly, '')
   // 根字号 ≠ 16px 的主题（blubook 14px / nord 18px）：rem 先按主题基准换算成
-  // 等值 px，再走作用域化——html 规则已不作用于真实根元素，不换算会整体偏大/偏小
-  raw = convertRem(raw, themeRootFontSize(raw) ?? 16)
+  // 等值 px，再走作用域化——html 规则已不作用于真实根元素，不换算会整体偏大/偏小。
+  // 字号探测同样在剥注释后做，注释掉的 html 字号不能决定 rem 基准
+  raw = convertRem(raw, themeRootFontSize(stripCssComments(raw)) ?? 16)
   // 标题级别角标（blubook：#write>hN::before{content:'H1'..'H6'}，绝对定位在
   // 标题左侧的 Typora 页边距区）——我们的内容列没有页边距区，角标与折叠箭头
   // 叠挤还被裁（用户确认不显示）。剥掉 content 声明：::before 无内容即不生成
   // （esther 等的 hN::before 空内容装饰线不带 HN 字面量，不受影响）
   raw = raw.replace(/content\s*:\s*(['"])H[1-6]\1\s*;?/gi, '')
+  // 主题自绘语言徽标（lightmind 的 .md-fences::after{content:attr(lang)} 左上角
+  // 常驻语言名）：与我们可编辑的右上角浮层标签重复显示（用户实测「两处语言」）。
+  // 只清空文本保留盒——徽标若带底色/条带设计不破坏；语言显示与编辑统一归浮层
+  raw = raw.replace(/content\s*:\s*attr\(\s*(?:lang|data-language)\s*\)\s*;?/gi, "content: '';")
+  // phycat 类「标题行内图标片」：hN::after 的 inline-block 图标块（实高 height:
+  // 2em）在流内把行盒撑到图标高——文字被基线锁在盒顶，而标题条 top:50% 与折叠
+  // 箭头 top:0.5lh 按整盒/行高排 → 三者相差 6-7px（用户实测「没有垂直居中对齐」）。
+  // 给同批标题补 line-height: 图标高：行盒=图标高、文字半行距居中，条中心=箭头
+  // 中心=文字中心（h3 实测 14→20 全部同心）。三重防线防误伤：只认 inline-block/
+  // inline-flex（block 的是换行下划线，补 line-height 无效且 2px 条会把行高压烂）、
+  // 高度要撑行量级（图标片 2em/40px；2-4px 的线条排除）、流内（absolute/fixed
+  // 不进流不撑盒）
+  const chipHeadings: string[] = []
+  raw = raw.replace(/([^{}]+)\{([^{}]*)\}/g, (whole, sel: string, body: string) => {
+    const parts = sel
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    const isChip =
+      parts.length > 0 &&
+      parts.every((p) => /::?after\s*$/i.test(p) && /(?:h[1-6]\b|\.md-heading)/i.test(p))
+    if (!isChip) return whole
+    if (/(?:^|[;{\n])\s*position\s*:\s*(?:absolute|fixed)/i.test(body)) return whole
+    const disp = body.match(/(?:^|[;{\n])\s*display\s*:\s*([^;!}]+)/i)
+    if (!disp || !/inline-(?:block|flex)/i.test(disp[1])) return whole
+    const h = body.match(/(?:^|[;{\n])\s*height\s*:\s*([^;!}]+)/i)
+    if (!h) return whole
+    const hv = h[1].trim()
+    const em = /^([\d.]+)(?:r?em)$/i.exec(hv)
+    const px = /^([\d.]+)px$/i.exec(hv)
+    const tallEnough = em ? parseFloat(em[1]) >= 1.4 : px ? parseFloat(px[1]) >= 20 : false
+    if (!tallEnough) return whole
+    chipHeadings.push(
+      `${parts.map((p) => p.replace(/::?after\s*$/i, '').trim()).join(', ')} {\n    line-height: ${hv} !important;\n}`
+    )
+    return whole
+  })
+  if (chipHeadings.length) raw += '\n' + chipHeadings.join('\n') + '\n'
+  // lang → data-language 属性桥：Typora 围栏 pre 用 lang 属性（[lang=mermaid]、
+  // attr(lang)），我们用 data-language。不改写时主题的语言判别全部落空——
+  // phycat 的 .md-fences:not([lang=mermaid])::before 会把圆点条画到图表上，
+  // 徽标文本 attr(lang) 也取不到值（实测）。纯属性名改写，值/运算符原样
+  raw = raw
+    .replace(/\[\s*lang(\s*[~^|*$]?=|\s*\])/gi, '[data-language$1')
+    .replace(/attr\(\s*lang\s*\)/gi, 'attr(data-language)')
+  // :has(img) 排除 PM 分隔符：即显 DOM 里每个 void 节点旁都有 .ProseMirror-separator
+  // 空 img（caret 实现），主题的 #write p:has(img){text-align:center}（图片段落居中，
+  // Typora 本意）会把不含图的段落（脚注定义实测）误判成图片段落居中+折行
+  raw = raw.replace(/:has\(([^()]*)\)/gi, (whole, inner: string) => {
+    if (/(^|[\s>+~(])img(?![\w-])/i.test(inner)) {
+      return `:has(${inner.replace(/(^|[\s>+~(])(img)(?![\w-])/gi, '$1$2:not(.ProseMirror-separator)')})`
+    }
+    return whole
+  })
+  // .md-task-list-item > input 子代连接符桥：Typora 的 checkbox 是 li 直接
+  // 子节点，我们包在段落里（即显侧 widget 同样挂在段首），子代选择器会整体
+  // 落空（night/newsprint 的复选框规则全部失效）——降级为后代选择器
+  raw = raw.replace(/(\.md-task-list-item\s*)>(\s*input\b)/gi, '$1 $2')
   const withUrls = await rewriteUrls(raw, dir, mode)
-  return ALIAS_BLOCK + THEME_RESET + scopeThemeCss(withUrls) + CONTENT_FINAL + typoraValueBridge(withUrls, entry.variant === 'dark' ? 'dark' : 'light')
+  // 任务复选框按主题内容二选一：主题自绘（phycat/night/newsprint）→ 主机去
+  // 原生化、外观交主题；未自绘 → 防护原生外观（通用 input 规则不污染复选框）
+  const taskDrawn = themeDrawsTaskCheckbox(stripCssComments(withUrls))
+  // 圆形逃逸补偿：可见圆画在 input 盒外的主题（phycat 亮色基座），把 input
+  // 左移同等距离让圆回到沟槽
+  const circleEscape = taskDrawn ? themeTaskCircleEscape(stripCssComments(withUrls)) : null
+  // 流内伪元素自绘且 input 无显式宽高（newsprint 型）：补去原生化+内容收缩
+  const contentSizing = taskDrawn && themeTaskCheckboxContentSizing(stripCssComments(withUrls))
+  const takeoverCss =
+    TASK_CHECKBOX_TAKEOVER +
+    (contentSizing ? TASK_CHECKBOX_CONTENT_SIZE : '') +
+    (circleEscape
+      ? `\n/* 圆形逃逸补偿（::before 右偏 ${circleEscape} 逃出 input 盒盖住正文）：input 等距左移 */\nhtml[data-theme-css] .task-item-checkbox { margin-left: -${circleEscape}; }\n`
+      : '')
+  // flex gap 补距：捕获与读取必须同处同步段（themeFlexGap 是模块级单槽，
+  // 中间隔 await 会被并发的 processThemeCss 串扰）
+  themeFlexGap = null
+  const scoped = scopeThemeCss(withUrls)
+  const gap = themeFlexGap
+  const gapFix = gap
+    ? `\n/* 主题靠 #write{display:flex;column;gap} 排版（Typora 惯例），容器级 flex/gap
+   已被 stripContainerDecls 剥离——块间距以相邻块 margin-top 补回（flex 不折叠
+   margin，正负 margin 折叠结果与 gap+自身 margin 等价）。!important 压过主题的
+   普通 margin 规则；主题常带 .md-fences{margin:0!important}（三重作用域 (0,4,1)），
+   pre 单独补一条同特异度后代规则（预览侧代码块有包装层，直接子选择器会落空）、
+   靠本块在主题之后序位取胜 */
+${SCOPE} > * + * { margin-top: ${gap} !important; }
+${SCOPE} pre:not(.md-meta-block) { margin-top: ${gap} !important; }\n`
+    : ''
+  return (
+    ALIAS_BLOCK +
+    THEME_RESET +
+    scoped +
+    CONTENT_FINAL +
+    gapFix +
+    typoraValueBridge(withUrls, entry.variant === 'dark' ? 'dark' : 'light') +
+    (taskDrawn ? takeoverCss : TASK_CHECKBOX_GUARD)
+  )
 }

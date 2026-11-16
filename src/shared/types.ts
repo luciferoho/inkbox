@@ -18,6 +18,8 @@ export interface AppConfig {
     typographer?: boolean
     /** 拼写检查：编辑器内英文拼写红线（Chromium 内置词典），默认关 */
     spellcheck?: boolean
+    /** 选区浮动格式条（即显选中文字浮现，5.5），默认开 */
+    formatBar?: boolean
   }
   autosave: {
     enabled: boolean
@@ -187,6 +189,7 @@ export type MenuCommand =
   | 'file:insertImage'
   | 'file:uploadImages'
   | 'file:quickOpen'
+  | 'file:insertPanel'
   | 'view:toggleSidebar'
   | 'view:toggleTheme'
   | 'view:toggleFocus'
@@ -264,6 +267,14 @@ export interface DirEntry {
   name: string
   path: string
   isDir: boolean
+}
+
+/** 系统文件关联状态（注册表实况，设置「系统集成」组展示） */
+export interface AssocStatus {
+  /** 「在 Inkbox 中打开」右键菜单已注册（全部受支持扩展名） */
+  contextMenu: boolean
+  /** 各扩展名（如 '.md'）当前是否默认用 Inkbox 打开 */
+  defaults: Record<string, boolean>
 }
 
 /** 应用运行信息（关于页展示 + 反馈 Issue 时附带的诊断信息） */

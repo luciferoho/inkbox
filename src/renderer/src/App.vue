@@ -7,6 +7,9 @@ import { isOpenablePath } from '@/services/openable'
 import { useUiStore } from '@/stores/ui'
 import { initImageContextMenu } from '@/editor/image-context-menu'
 import { initTableContextMenu } from '@/editor/table-context-menu'
+import { initTextContextMenu } from '@/editor/text-context-menu'
+import { initFloatingFormatBar } from '@/editor/format-bar'
+import { initCodeCommentShortcut } from '@/editor/code-comment'
 import { insertImageFromDisk, uploadAllLocalImages } from '@/editor/insert-image'
 import { useDocumentsStore, samePath } from '@/stores/documents'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -23,6 +26,11 @@ import TableContextMenu from '@/components/chrome/TableContextMenu.vue'
 import ConfirmDialog from '@/components/chrome/ConfirmDialog.vue'
 import Toast from '@/components/chrome/Toast.vue'
 import QuickOpen from '@/components/chrome/QuickOpen.vue'
+import InsertPanel from '@/components/chrome/InsertPanel.vue'
+import TextContextMenu from '@/components/chrome/TextContextMenu.vue'
+import FormatBar from '@/components/chrome/FormatBar.vue'
+import TableGridPicker from '@/components/chrome/TableGridPicker.vue'
+import EmojiPicker from '@/components/chrome/EmojiPicker.vue'
 // 弹窗类按需加载（exporter 连带 pdf/字体资源链，打开频率低；设置已独立成窗口）
 const UpdateDialog = defineAsyncComponent(() => import('@/components/chrome/UpdateDialog.vue'))
 const ExportDialog = defineAsyncComponent(() => import('@/components/chrome/ExportDialog.vue'))
@@ -65,6 +73,9 @@ function dispatch(cmd: MenuCommand): void {
       break
     case 'file:quickOpen':
       ui.toggleQuickOpen()
+      break
+    case 'file:insertPanel':
+      ui.toggleInsertPanel()
       break
     case 'file:closeTab':
       docs.closeActive()
@@ -121,6 +132,12 @@ onMounted(() => {
   initImageContextMenu()
   // 表格右键菜单的全局识别（即显 table 元素 / 源码坐标处表格语法）
   initTableContextMenu()
+  // 正文右键菜单（5.8）：剪贴板/段落转换/插入子菜单
+  initTextContextMenu()
+  // 选区浮动格式条（5.5）：即显选中文本浮现（开关在设置-写作辅助）
+  initFloatingFormatBar()
+  // Ctrl+/：代码块内切换注释，其余位置开关快捷键面板（主进程已放行该加速键）
+  initCodeCommentShortcut()
   // 开屏兜底：恢复流程万一卡住，8 秒后强制进入应用
   window.setTimeout(dismissSplash, 8000)
   // 启动编排：偏好 → 初始载荷（窗口键/拖出文档/崩溃标志）→ 备份恢复 → 会话恢复
@@ -169,10 +186,17 @@ onMounted(() => {
       restoreFolders: ui.restoreFolders,
       crashed: init.crashed
     })
+    // 命令行带起的文件（右键「在 Inkbox 中打开」/双击关联文件）：会话恢复后打开并激活
+    for (const p of await window.api.app.takeLaunchFiles()) await docs.openPath(p)
     if (freshEntries.length > 0) ui.showToast(t('app.draftsRestored', { n: freshEntries.length }))
     // 更新重装的启动：提示已升级 + 未保存内容已恢复（draftsRestored 提示可能已同时出现）
     const restartVersion = await window.api.update.restartVersion()
     if (restartVersion) ui.showToast(t('app.updatedRestored', { v: restartVersion }))
+    // 主题/字体旧位置自动迁移（安装版升级首启）：toast 单槽，只在无更高优先提示时展示
+    const migrated = await window.api.theme.migrationReport()
+    if (migrated && migrated.moved > 0 && freshEntries.length === 0 && !restartVersion) {
+      ui.showToast(t('app.themesMigrated', { n: migrated.moved }))
+    }
     // 恢复完成：淡出开屏页，进入应用（用户看到的直接是恢复后的界面）
     await nextTick()
     dismissSplash()
@@ -204,6 +228,10 @@ onMounted(() => {
     prevUpdatePhase = s.phase
   })
   window.api.onMenuCommand(dispatch)
+  // 二次启动（右键「在 Inkbox 中打开」/双击关联文件）：投递到本窗口打开
+  window.api.app.onExternalOpen((files) => {
+    for (const p of files) void docs.openPath(p)
+  })
   // 任一窗口改了全局配置（主题/语言/字号等）：本窗口即时跟随
   // （纸宽/侧栏宽是窗口私有偏好，不在广播里，各窗口互不干扰）
   window.api.app.onConfigChanged((cfg) => ui.applyConfig(cfg))
@@ -437,6 +465,11 @@ async function handleRequestClose(): Promise<void> {
     <ExportDialog />
     <ConfirmDialog />
     <QuickOpen />
+    <InsertPanel />
+    <TextContextMenu />
+    <FormatBar />
+    <TableGridPicker />
+    <EmojiPicker />
     <Toast />
     <!-- 外部文档拖入提示：替代系统默认的复制提示，明确「松开即打开」 -->
     <div v-if="dragOverOpen" class="drop-hint">

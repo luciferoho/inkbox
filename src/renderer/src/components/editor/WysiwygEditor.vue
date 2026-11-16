@@ -19,10 +19,14 @@ import {
   createCodeBlockCommand,
   wrapInBlockquoteCommand,
   wrapInBulletListCommand,
-  wrapInOrderedListCommand
+  wrapInOrderedListCommand,
+  toggleInlineCodeCommand,
+  toggleStrongCommand,
+  toggleEmphasisCommand
 } from '@milkdown/kit/preset/commonmark'
 import {
   gfm,
+  toggleStrikethroughCommand,
   addRowBeforeCommand,
   addRowAfterCommand,
   addColBeforeCommand,
@@ -38,7 +42,7 @@ import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { history } from '@milkdown/kit/plugin/history'
 import { replaceAll, $prose, callCommand } from '@milkdown/kit/utils'
 import { NodeSelection, TextSelection, type EditorState } from '@milkdown/kit/prose/state'
-import { Fragment, type Node as PMNode, type NodeType } from '@milkdown/kit/prose/model'
+import { Fragment, type Node as PMNode } from '@milkdown/kit/prose/model'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { lift } from '@milkdown/kit/prose/commands'
 import { liftListItem, sinkListItem } from '@milkdown/kit/prose/schema-list'
@@ -55,12 +59,16 @@ import {
   findReplaceAll
 } from '@/editor/pm-find'
 import { createCenterPlugin } from '@/editor/pm-center'
+import { curHeadingLevel, pmSetHeading as pmSetHeadingLine } from '@/editor/pm-heading'
 import { createGhAlertsPlugin } from '@/editor/gh-alerts'
 import { findState, sameQuery } from '@/editor/find-state'
 import { saveViewProgress, loadView, clearViewAnchor } from '@/editor/tab-view-state'
 import { applyCachedImageSizes, rememberImgSize } from '@/editor/img-size-cache'
 import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createPasteLinkPlugin } from '@/editor/paste-link'
+import { openTableGrid } from '@/editor/table-grid'
+import { createEmojiCompletionPlugin } from '@/editor/pm-emoji-completion'
+import { createLinkHoverTipPlugin } from '@/editor/pm-link-hover-tip'
 import { createHeadingFoldPlugin } from '@/editor/pm-heading-fold'
 import {
   beginColResize,
@@ -76,10 +84,11 @@ import {
   tableKey,
   widthsFromDom,
 } from '@/editor/table-widths'
-import { registerPmTableExecutor, type TableMenuAction } from '@/editor/table-context-menu'
+import { pmTableSpan, registerPmTableExecutor, type TableMenuAction } from '@/editor/table-context-menu'
+import { normalizeTables } from '@/editor/table-utils'
 import { writeClipboard } from '@/editor/code-copy'
 import { createElementToolbar, findTableSelection, type ElToolbarState } from '@/editor/pm-element-toolbar'
-import { createCodeblockChromePlugin } from '@/editor/pm-codeblock-chrome'
+import { createCodeblockChromePlugin, openLangEditorFor } from '@/editor/pm-codeblock-chrome'
 import { createSpellcheckPlugin } from '@/editor/pm-spellcheck'
 import { createCodeHighlightPlugin } from '@/editor/pm-code-highlight'
 import { createQuoteEscapePlugin } from '@/editor/pm-quote-escape'
@@ -128,8 +137,11 @@ import {
   createHtmlBlockKeyPlugin,
   setHtmlTableDocDir,
   createLinkClickPlugin,
-  createLinkSourcePlugin
+  createLinkSourcePlugin,
+  resetLinkSourceGate,
+  requestLinkSourceFocus
 } from '@/editor/wysiwyg-extensions'
+import { footnoteRefView, createFootnoteJumpPlugin } from '@/editor/pm-footnote'
 // remark 解析插件序列（单一来源；等价比较共用同一序列）
 import { wysiwygRemarkPlugins } from '@/editor/wysiwyg-remark-pipeline'
 // 专注/打字机（ROADMAP 1.8）：与源码侧共用 ui 开关
@@ -161,6 +173,7 @@ let pending: string | null = null
 function applyReplace(markdown: string): void {
   applying = true
   try {
+    resetLinkSourceGate() // 恢复的光标不自动展开链接（链接展开会锁列宽）
     editor?.action(replaceAll(toWysiwygSource(markdown)))
   } finally {
     applying = false
@@ -255,15 +268,6 @@ function milkCmd(action: Parameters<Editor['action']>[0]): boolean {
   }
 }
 
-/** 光标当前所在标题级别（不在标题内为 null） */
-function curHeadingLevel(state: EditorState): number | null {
-  const { $from } = state.selection
-  for (let d = $from.depth; d >= 1; d--) {
-    if ($from.node(d).type.name === 'heading') return Number($from.node(d).attrs.level ?? 1)
-  }
-  return null
-}
-
 /** 多软行块（段落/标题内含硬换行）按行拆成独立段落，返回是否拆过。
  *  markdown 标题是行级块，整块转标题会把软行全部卷进去（下面的文字样式
  *  跟着变，序列化还会吞行）；源码侧 Ctrl+N 是按行改写——拆齐语义 */
@@ -289,82 +293,15 @@ function splitHardbreakLines(view: EditorView): boolean {
   return true
 }
 
-/** 块内是否含硬换行（软行） */
-function hasHardbreaks(node: PMNode): boolean {
-  let found = false
-  node.forEach((child) => {
-    if (child.type.name === 'hardbreak') found = true
-  })
-  return found
-}
-
-/** 设标题级别；同级再按退回正文（与源码 setHeading 的 toggle 语义一致） */
+/** 设标题级别；同级再按退回正文（与源码 setHeading 的 toggle 语义一致）。
+ *  实现收口在 pm-heading（快捷键与右键菜单同一条路径），这里只传
+ *  milkdown 命令 fallback（列表项外等边界维持原行为） */
 function pmSetHeading(view: EditorView, level: number): boolean {
-  const { state } = view
-  const { from, to, $from } = state.selection
-  const parent = $from.parent
-  const headingT = state.schema.nodes.heading
-  const paraT = state.schema.nodes.paragraph
-  if (!headingT || !paraT) return false
-  if (parent.type.name !== 'paragraph' && parent.type.name !== 'heading') {
-    // 列表项/引用内等场景：维持 milkdown 命令路径
-    if (curHeadingLevel(state) === level) return milkCmd(callCommand(turnIntoTextCommand.key))
-    return milkCmd(callCommand(wrapInHeadingCommand.key, level))
-  }
-  if (!hasHardbreaks(parent)) {
-    // 单行块：toggle（同级 → 正文）
-    if (parent.type.name === 'heading' && Number(parent.attrs.level ?? 1) === level) {
-      return milkCmd(callCommand(turnIntoTextCommand.key))
-    }
-    return milkCmd(callCommand(wrapInHeadingCommand.key, level))
-  }
-  // 多软行块：拆行 + 与选区相交的行设级、其余行退回正文（一次事务）
-  const start = $from.start()
-  const hbs: number[] = []
-  parent.forEach((child, offset) => {
-    if (child.type.name === 'hardbreak') hbs.push(start + offset)
-  })
-  const tr = state.tr
-  for (let i = hbs.length - 1; i >= 0; i--) {
-    const p = hbs[i]
-    tr.split(p)
-    // split 在 p 处插入闭合/开启 token，硬换行随映射移到 p+2：按 mapping 取真实位置删除
-    const hp = tr.mapping.map(p, 1)
-    tr.delete(hp, hp + 1)
-  }
-  const mappedFrom = tr.mapping.map(from)
-  const mappedTo = tr.mapping.map(to)
-  const lineCount = hbs.length + 1
-  const lines: { pos: number; node: PMNode }[] = []
-  let pos = tr.mapping.map($from.before())
-  for (let i = 0; i < lineCount; i++) {
-    const node = tr.doc.nodeAt(pos)
-    if (!node) break
-    lines.push({ pos, node })
-    pos += node.nodeSize
-  }
-  // 光标所在行：行尾归属当前行（首个「行尾 ≥ 光标」的行）
-  const caretIdx = Math.max(
-    0,
-    lines.findIndex((l) => mappedFrom <= l.pos + l.node.nodeSize)
+  return pmSetHeadingLine(view, level, (st, lv) =>
+    curHeadingLevel(st) === lv
+      ? milkCmd(callCommand(turnIntoTextCommand.key))
+      : milkCmd(callCommand(wrapInHeadingCommand.key, lv))
   )
-  let touched = false
-  lines.forEach((l, i) => {
-    const lineTo = l.pos + l.node.nodeSize
-    // 范围选区：与选区相交的行都设级；纯光标：只设所在行
-    const hit = from !== to ? mappedTo > l.pos && mappedFrom < lineTo : i === caretIdx
-    if (hit) {
-      tr.setNodeMarkup(l.pos, headingT, { level })
-      touched = true
-    } else if (l.node.type.name !== 'paragraph') {
-      tr.setNodeMarkup(l.pos, paraT)
-    }
-  })
-  if (!touched && lines[caretIdx]) {
-    tr.setNodeMarkup(lines[caretIdx].pos, headingT, { level })
-  }
-  view.dispatch(tr.scrollIntoView())
-  return true
 }
 
 /** 标题升级/降级（与源码 shiftHeading 一致）：无标题按方向落到 h1/h2，封顶 h1/h6 */
@@ -414,27 +351,54 @@ function pmToggleList(view: EditorView, ordered: boolean): boolean {
   return true
 }
 
-/** 插入两列表格骨架（列1/列2 表头 + 空数据行），光标落首个表头单元格。
- *  与源码 cmdInsertTable 的骨架一致；插在当前顶层块之后 */
-function pmInsertTable(view: EditorView): boolean {
+
+/** 插入块级公式：空段落原地替换、否则插到当前文本块之后；落 NodeSelection
+ *  让 MathNodeView 进入嵌套源码编辑态（与 $$ 输入规则同款行为，Ctrl+Shift+M） */
+function pmInsertMathBlock(view: EditorView): boolean {
   const { state } = view
-  const tableT = state.schema.nodes.table
-  const rowT = state.schema.nodes.table_row
-  const headerT = state.schema.nodes.table_header
-  const cellT = state.schema.nodes.table_cell
-  const paraT = state.schema.nodes.paragraph
-  if (!tableT || !rowT || !headerT || !cellT || !paraT) return false
+  const mathT = state.schema.nodes.math_block
+  if (!mathT || !(state.selection instanceof TextSelection)) return false
   const { $from } = state.selection
-  const at = $from.after(1)
-  const cell = (type: NodeType, text: string): PMNode =>
-    type.create(null, paraT.create(null, text ? state.schema.text(text) : null))
-  const table = tableT.create(null, [
-    rowT.create(null, [cell(headerT, '列1'), cell(headerT, '列2')]),
-    rowT.create(null, [cell(cellT, ''), cell(cellT, '')])
-  ])
-  const tr = state.tr.insert(at, table)
-  tr.setSelection(TextSelection.near(tr.doc.resolve(at + 4)))
-  view.dispatch(tr)
+  const tr = state.tr
+  let at: number
+  if ($from.parent.type.name === 'paragraph' && $from.parent.content.size === 0) {
+    at = $from.before()
+    tr.replaceWith(at, $from.after(), mathT.create())
+  } else {
+    at = $from.after($from.depth)
+    tr.insert(at, mathT.create())
+  }
+  tr.setSelection(NodeSelection.create(tr.doc, at))
+  view.dispatch(tr.scrollIntoView())
+  return true
+}
+
+/** 切换链接（Ctrl+K）：已有链接 → 去链；无选区 → 插入占位文字建链；
+ *  有选区 → 选区转链接。两种创建路径都把 href 置空并就地展开地址输入框
+ *  （复用 linkSource 装饰，autofocus 聚焦；空地址离开时自动去链兜底） */
+function pmToggleLink(view: EditorView): boolean {
+  const { state } = view
+  const linkT = state.schema.marks.link
+  if (!linkT || !(state.selection instanceof TextSelection)) return false
+  const { from, to, empty } = state.selection
+  const tr = state.tr
+  if (state.doc.rangeHasMark(from, to, linkT)) {
+    tr.removeMark(from, to, linkT)
+    view.dispatch(tr.scrollIntoView())
+    return true
+  }
+  if (empty) {
+    const text = '链接'
+    tr.insertText(text, from, to)
+    tr.addMark(from, from + text.length, linkT.create({ href: '' }))
+    // 光标落链接内最后一个字符后（to-1）：末尾边界 to 已归属「离开」不再展开
+    tr.setSelection(TextSelection.create(tr.doc, Math.max(from, to - 1)))
+  } else {
+    tr.addMark(from, to, linkT.create({ href: '' }))
+    tr.setSelection(TextSelection.create(tr.doc, Math.max(from, to - 1)))
+  }
+  requestLinkSourceFocus()
+  view.dispatch(tr.scrollIntoView())
   return true
 }
 
@@ -445,10 +409,15 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   /* 结构类格式化快捷键（键位与源码/双栏 formattingKeymap 完全一致，Typora 习惯）：
      Mod-1..6 标题（同级再按退回正文）/ Mod-0 正文 / Ctrl+= Ctrl+- 标题升降级 /
      Ctrl+Shift+K 代码块 / Ctrl+T 表格 / Ctrl+Shift+Q 引用 /
-     Ctrl+Shift+{ } 有序/无序列表。处理到的一律 preventDefault。 */
+     Ctrl+Shift+{ } 有序/无序列表 / Ctrl+Shift+X 删除线 / Ctrl+Shift+C 行内码 /
+     Ctrl+Shift+M 公式块 / Ctrl+K 链接。处理到的一律 preventDefault。 */
   const ctrl = event.ctrlKey || event.metaKey
   if (ctrl && !event.altKey && event.key !== 'Tab') {
     const key = event.key
+    if (!event.shiftKey && key.toLowerCase() === 'k') {
+      event.preventDefault()
+      return pmToggleLink(view)
+    }
     if (!event.shiftKey && /^[0-6]$/.test(key)) {
       event.preventDefault()
       const level = Number(key)
@@ -466,11 +435,25 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     }
     if (event.shiftKey && key === 'K') {
       event.preventDefault()
-      return milkCmd(callCommand(createCodeBlockCommand.key))
+      const ok = milkCmd(callCommand(createCodeBlockCommand.key))
+      if (ok) {
+        // 与插入面板同款：新代码块光标落块内后先选语言
+        const { $from } = view.state.selection
+        for (let d = $from.depth; d >= 0; d--) {
+          const n = $from.node(d)
+          if (n.type.name === 'code_block') {
+            if (!String(n.attrs.language ?? '')) openLangEditorFor(view, $from.before(d))
+            break
+          }
+        }
+      }
+      return ok
     }
     if (!event.shiftKey && key.toLowerCase() === 't') {
       event.preventDefault()
-      return pmInsertTable(view)
+      // 5.6：弹 5×5 行列网格选择器（锚在光标处，落点即显）
+      openTableGrid('pm', view)
+      return true
     }
     if (event.shiftKey && key === 'Q') {
       event.preventDefault()
@@ -480,6 +463,60 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
       event.preventDefault()
       return pmToggleList(view, key === '{')
     }
+    if (event.shiftKey && key === 'X') {
+      event.preventDefault()
+      return milkCmd(callCommand(toggleStrikethroughCommand.key))
+    }
+    if (event.shiftKey && key === 'C') {
+      event.preventDefault()
+      return milkCmd(callCommand(toggleInlineCodeCommand.key))
+    }
+    if (event.shiftKey && key === 'M') {
+      event.preventDefault()
+      return pmInsertMathBlock(view)
+    }
+  }
+
+  /* 表格内 Alt+方向键：整行/整列移动（Typora 同键位，与右键菜单同语义） */
+  if (event.altKey && !event.ctrlKey && !event.metaKey && inTable(state)) {
+    const meta = findTableSelection(view)
+    if (meta) {
+      let moved = false
+      if (event.key === 'ArrowUp' && meta.row >= 2) {
+        moved = movePmRow(view, meta.pos, meta.row, meta.row - 1)
+      } else if (event.key === 'ArrowDown') {
+        moved = movePmRow(view, meta.pos, meta.row, meta.row + 1)
+      } else if (event.key === 'ArrowLeft' && meta.col > 0) {
+        moved = movePmColumn(view, meta.pos, meta.col, meta.col - 1)
+      } else if (event.key === 'ArrowRight') {
+        moved = movePmColumn(view, meta.pos, meta.col, meta.col + 1)
+      }
+      if (moved) {
+        event.preventDefault()
+        const toRow =
+          event.key === 'ArrowUp' ? meta.row - 1 : event.key === 'ArrowDown' ? meta.row + 1 : meta.row
+        const toCol =
+          event.key === 'ArrowLeft' ? meta.col - 1 : event.key === 'ArrowRight' ? meta.col + 1 : meta.col
+        // 行移动用带落点验证的精确定位（collapseTableSelection 的复合偏移在行交换后
+        // 会滑出表格——连续 Alt+↑/↓ 就错行）；列移动不改变行列地址，沿用原实现
+        if (toRow !== meta.row) selectPmTableCell(view, meta.pos, toRow, toCol)
+        else collapseTableSelection(view, toRow, toCol)
+        return true
+      }
+    }
+  }
+
+  /* 表格内 Ctrl+Enter：下方插入一行（Typora 同键位） */
+  if (event.ctrlKey && !event.altKey && !event.shiftKey && event.key === 'Enter' && inTable(state)) {
+    event.preventDefault()
+    elTable(callCommand(addRowAfterCommand.key))
+    return true
+  }
+
+  /* 表格内 Ctrl+Shift+Backspace：删除当前行（Typora 同键位） */
+  if (event.ctrlKey && event.shiftKey && event.key === 'Backspace' && inTable(state)) {
+    event.preventDefault()
+    return executeTableMenuAction('row-delete')
   }
 
   if (event.key === 'Tab') {
@@ -770,7 +807,9 @@ function fromWysiwygSource(md: string): string {
       .map((seg) => (seg.startsWith('`') ? seg : seg.replace(/\\([$~])/g, '$1')))
       .join('')
   }
-  let out = lines.join('\n')
+  // 表格源码归一化：milkdown 的 gfm 序列化器会把整表重排（按显示宽度补空格、
+  // 分隔行缩到 1-2 个连字符 → 存盘后不再是合法 GFM 表格），写回前压回紧凑形态
+  let out = normalizeTables(lines.join('\n'))
   if (!docDir) return out
   return out.replace(/\]\(luci-img:\/\/([^)\s]+)\)/g, (_whole, enc: string) => {
     let abs: string
@@ -1017,23 +1056,13 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
   window.addEventListener('mouseup', onUp)
 }
 
-/** 表头按下横向拖动 → 实时移动列（跨列时逐相邻步交换，跟手）。
- *  - 列宽边界命中时列宽拖拽优先（先注册且已 preventDefault，defaultPrevented 短路）
- *  - 拖动超过阈值才启动：纯点击表头仍可编辑表头文字
- *  - 高亮是挂在 body 上的 overlay（fixed），完全不碰 PM 管理的表格 DOM
- *    （外部属性写入会被 DOM 观察器当成文档变更，实测会卡死渲染） */
-function onHostMouseDownTableDrag(e: MouseEvent): void {
-  if (e.button !== 0 || e.defaultPrevented) return
-  const el = e.target as HTMLElement | null
-  const table = el?.closest?.('table')
-  if (!(table instanceof HTMLTableElement)) return
+/** 表头拖拽把手：从第 startCol 列开始横向拖动 → 实时移动列（跨列时逐相邻步交换，跟手）。
+ *  - 入口只有表头上方的把手按钮（不再拖表头单元格本身：避免与选中/编辑表头文字冲突）
+ *  - 拖动超过阈值才启动；高亮是挂在 body 上的 overlay（fixed），完全不碰 PM 管理的
+ *    表格 DOM（外部属性写入会被 DOM 观察器当成文档变更，实测会卡死渲染） */
+function startColDrag(view: EditorView, table: HTMLTableElement, startCol: number, startX: number): void {
   const header = table.rows[0]
-  if (!header || !el?.closest?.('th') || !header.contains(el)) return // 只在表头行启动
-  if (hitColumnBoundary(table, e.clientX) !== null) return // 边界让位列宽拖拽
-  const view = getView()
-  if (!view) return
-  const startCol = Array.from(header.cells).findIndex((c) => c.contains(el as Node))
-  if (startCol < 0) return
+  if (!header || startCol < 0 || startCol >= header.cells.length) return
   // DOM 表头单元格 → PM 表格文档位置（交换事务按文档位置寻址）
   let tablePos = -1
   try {
@@ -1052,8 +1081,8 @@ function onHostMouseDownTableDrag(e: MouseEvent): void {
   // 让「拖一次」= 恰好一个撤销步（undo 回拖拽前、redo 恢复结果）
   const startNode = view.state.doc.nodeAt(tablePos)
   if (!startNode || startNode.type.name !== 'table') return
+  tblDragging = true
 
-  const startX = e.clientX
   let active = false
   let moved = false
   let cur = startCol
@@ -1083,6 +1112,7 @@ function onHostMouseDownTableDrag(e: MouseEvent): void {
     document.body.classList.remove('inkbox-col-dragging')
     indicator?.remove()
     indicator = null
+    tblDragging = false
   }
   const onMove = (ev: MouseEvent): void => {
     // PM 重绘制换了 table 节点（拖拽中标签切换等）：静默终止
@@ -1135,30 +1165,238 @@ function onHostMouseDownTableDrag(e: MouseEvent): void {
   window.addEventListener('mouseup', onUp)
 }
 
-/** 表格按下统一入口（Vue 模板不允许同名事件修饰符写两遍）：
- *  先列宽（命中边界即接管并 preventDefault），未命中再看表头列拖拽 */
+/** 表格按下：只管列宽拖拽（列序拖动由表头上方的把手触发，见 syncTableHandles） */
 function onHostMouseDownTable(e: MouseEvent): void {
+  // 右键按在多选单元格上：拦下 Chromium 的原生落光标，否则 DOM 选区变化会把
+  // CellSelection 折叠成光标，菜单里的批量删除就丢了选区（contextmenu 不受影响）
+  if (e.button === 2 && (e.target as HTMLElement).closest?.('.selectedCell')) {
+    e.preventDefault()
+    e.stopPropagation()
+    return
+  }
   onHostMouseDownTableWidths(e)
-  onHostMouseDownTableDrag(e)
+}
+
+/** 从已高亮的多选单元格内起拖 = 重新框选。不拦的话 Chromium 会起原生拖拽：
+ *  这次框选失败，松手还会把单元格内容拖走 */
+function onHostDragStartTable(e: DragEvent): void {
+  if (!host.value?.querySelector('.selectedCell')) return
+  e.preventDefault()
+  e.stopPropagation()
+}
+
+/* ---------- 表格行列拖拽把手（悬浮在单元格上方/左侧，单实例复用） ----------
+ *  只显示「当前悬浮的那一列 / 那一行」的把手：多把手同时出现既干扰阅读，
+ *  也让表头空间拥挤。把手是 body 层 fixed 元素，不碰 PM 管理的表格 DOM。 */
+
+const TBL_HANDLE_W = 30
+const TBL_HANDLE_H = 22
+
+/** 列把手图标：两列点，暗示左右拖 */
+const GRIP_V =
+  '<svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true">' +
+  '<circle cx="3.5" cy="4" r="1.2" /><circle cx="6.5" cy="4" r="1.2" />' +
+  '<circle cx="3.5" cy="8" r="1.2" /><circle cx="6.5" cy="8" r="1.2" />' +
+  '<circle cx="3.5" cy="12" r="1.2" /><circle cx="6.5" cy="12" r="1.2" />' +
+  '</svg>'
+/** 行把手图标：两行点，暗示上下拖 */
+const GRIP_H =
+  '<svg viewBox="0 0 16 10" width="16" height="10" aria-hidden="true">' +
+  '<circle cx="4" cy="3.5" r="1.2" /><circle cx="8" cy="3.5" r="1.2" /><circle cx="12" cy="3.5" r="1.2" />' +
+  '<circle cx="4" cy="6.5" r="1.2" /><circle cx="8" cy="6.5" r="1.2" /><circle cx="12" cy="6.5" r="1.2" />' +
+  '</svg>'
+
+let colHandleLayer: HTMLDivElement | null = null
+let colHandleBtn: HTMLButtonElement | null = null
+let colHandleTable: HTMLTableElement | null = null
+let colHandleIndex = -1
+
+let rowHandleLayer: HTMLDivElement | null = null
+let rowHandleBtn: HTMLButtonElement | null = null
+let rowHandleTable: HTMLTableElement | null = null
+let rowHandleIndex = -1
+
+function buildHandleLayer(cls: string, btnCls: string, icon: string, title: string): [HTMLDivElement, HTMLButtonElement] {
+  const layer = document.createElement('div')
+  layer.className = `luci-tbl-layer ${cls}`
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = `luci-tbl-handle ${btnCls}`
+  btn.title = title
+  btn.innerHTML = icon
+  layer.appendChild(btn)
+  // 指针进入把手：撤销「离开表格就收起」的待收定时器，否则刚移到手上就消失
+  layer.addEventListener('mouseenter', cancelHandleHide)
+  // 从把手回到编辑器时保留（位置由宿主 mousemove 接着维护），其余情况延迟收起
+  layer.addEventListener('mouseleave', (e) => {
+    const rt = e.relatedTarget as Node | null
+    if (rt && host.value?.contains(rt)) return
+    scheduleHideTableHandles()
+  })
+  btn.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    cancelHandleHide()
+    const view = getView()
+    if (cls.includes('col') && colHandleTable && colHandleIndex >= 0) {
+      const table = colHandleTable
+      const col = colHandleIndex
+      hideTableHandles()
+      if (view) startColDrag(view, table, col, e.clientX)
+    } else if (rowHandleTable && rowHandleIndex >= 1) {
+      const table = rowHandleTable
+      const row = rowHandleIndex
+      hideTableHandles()
+      if (view) startRowDrag(view, table, row, e.clientY)
+    }
+  })
+  document.body.appendChild(layer)
+  return [layer, btn]
+}
+
+function hideColHandle(): void {
+  colHandleTable = null
+  colHandleIndex = -1
+  if (colHandleLayer) colHandleLayer.style.display = 'none'
+}
+
+function hideRowHandle(): void {
+  rowHandleTable = null
+  rowHandleIndex = -1
+  if (rowHandleLayer) rowHandleLayer.style.display = 'none'
+}
+
+function hideTableHandles(): void {
+  hideColHandle()
+  hideRowHandle()
+}
+
+/* 把手与表头之间有几像素空隙，指针从表格移向把手时必然先「离开单元格」。
+ * 立即收起会让把手在指尖前消失（用户反馈「太难选中」），改为延迟收起 +
+ * 指针进入把手即取消；拖拽进行中一律不显示把手。 */
+let handleHideTimer = 0
+let tblDragging = false
+
+function cancelHandleHide(): void {
+  if (!handleHideTimer) return
+  window.clearTimeout(handleHideTimer)
+  handleHideTimer = 0
+}
+
+function scheduleHideTableHandles(): void {
+  if (handleHideTimer) return
+  handleHideTimer = window.setTimeout(() => {
+    handleHideTimer = 0
+    hideTableHandles()
+  }, 350)
+}
+
+/** 指针离开编辑器：移向把手时保留，否则延迟收起 */
+function onHostLeaveForHandles(e: MouseEvent): void {
+  const rt = e.relatedTarget as Node | null
+  if (rt && (colHandleLayer?.contains(rt) || rowHandleLayer?.contains(rt))) {
+    cancelHandleHide()
+    return
+  }
+  scheduleHideTableHandles()
+}
+
+/** 只在「当前列」表头上方显示列把手 */
+function showColHandle(table: HTMLTableElement, index: number): void {
+  const header = table.rows[0]
+  if (!header || index < 0 || index >= header.cells.length) {
+    hideColHandle()
+    return
+  }
+  const r = header.cells[index].getBoundingClientRect()
+  const hostRect = host.value?.getBoundingClientRect()
+  // 横向滚动后跑出可视区的列不给把手（点到看不见的地方会拖错列）
+  if (hostRect && (r.right <= hostRect.left + 2 || r.left >= hostRect.right - 2)) {
+    hideColHandle()
+    return
+  }
+  if (!colHandleLayer || !colHandleBtn) {
+    const [layer, btn] = buildHandleLayer('luci-col-handles', 'luci-col-handle', GRIP_V, t('table.dragCol'))
+    colHandleLayer = layer
+    colHandleBtn = btn
+  }
+  colHandleTable = table
+  colHandleIndex = index
+  colHandleLayer.style.display = ''
+  colHandleBtn.dataset.col = String(index)
+  colHandleBtn.style.left = `${Math.round(r.left + r.width / 2 - TBL_HANDLE_W / 2)}px`
+  // 表头贴近编辑区顶时把手别飘到编辑区外（工具条/标签栏上）
+  const top = r.top - TBL_HANDLE_H - 4
+  colHandleBtn.style.top = `${Math.round(hostRect ? Math.max(hostRect.top + 2, top) : top)}px`
+}
+
+/** 只在「当前行」左侧显示行把手（表头行 0 不给：表头不可移动） */
+function showRowHandle(table: HTMLTableElement, index: number): void {
+  const row = table.rows[index]
+  if (!row || index < 1) {
+    hideRowHandle()
+    return
+  }
+  const r = row.getBoundingClientRect()
+  const tableRect = table.getBoundingClientRect()
+  const hostRect = host.value?.getBoundingClientRect()
+  if (hostRect && (r.bottom <= hostRect.top + 2 || r.top >= hostRect.bottom - 2)) {
+    hideRowHandle()
+    return
+  }
+  if (!rowHandleLayer || !rowHandleBtn) {
+    const [layer, btn] = buildHandleLayer('luci-row-handles', 'luci-row-handle', GRIP_H, t('table.dragRow'))
+    rowHandleLayer = layer
+    rowHandleBtn = btn
+  }
+  rowHandleTable = table
+  rowHandleIndex = index
+  rowHandleLayer.style.display = ''
+  rowHandleBtn.dataset.row = String(index)
+  // 贴表格左侧，空间不足时钳在编辑区内侧（不越出内容区）
+  const left = tableRect.left - TBL_HANDLE_W - 6
+  rowHandleBtn.style.left = `${Math.round(hostRect ? Math.max(hostRect.left + 2, left) : left)}px`
+  rowHandleBtn.style.top = `${Math.round(r.top + r.height / 2 - TBL_HANDLE_H / 2)}px`
+}
+
+/** 宿主 mousemove：按当前悬浮单元格刷新列/行把手（各只保留一个） */
+function syncTableHandles(target: HTMLElement | null): void {
+  // 拖拽过程中不显示把手（指针扫过单元格会不断触发本函数）
+  if (tblDragging) {
+    hideTableHandles()
+    return
+  }
+  const table = target?.closest?.('table')
+  const cell = target?.closest?.('td, th')
+  if (!(table instanceof HTMLTableElement) || !(cell instanceof HTMLTableCellElement)) {
+    // 延迟收起：指针走向把手时要路过表格外的一小段空白
+    scheduleHideTableHandles()
+    return
+  }
+  cancelHandleHide()
+  showColHandle(table, cell.cellIndex)
+  const rowEl = cell.parentElement
+  showRowHandle(table, rowEl instanceof HTMLTableRowElement ? rowEl.rowIndex : -1)
 }
 
 /** 表头列边界 hover：光标变 col-resize（el-table 手感）；rAF 节流避免每次移动查布局 */
 let cursorRaf = 0
 function onHostMouseMoveTableCursor(e: MouseEvent): void {
-  if (cursorRaf) return
   const x = e.clientX
   const target = e.target as HTMLElement | null
+  const table = target?.closest?.('table')
+  // 把手同步：不挂 rAF——窗口被遮挡/后台时 rAF 会暂停，把手就永远不出现
+  syncTableHandles(target)
+  if (!(table instanceof HTMLTableElement)) {
+    host.value?.style.removeProperty('cursor')
+    return
+  }
+  if (cursorRaf) return
   cursorRaf = window.requestAnimationFrame(() => {
     cursorRaf = 0
-    const table = target?.closest?.('table')
-    if (!(table instanceof HTMLTableElement)) {
-      host.value?.style.removeProperty('cursor')
-      return
-    }
     const col = hitColumnBoundary(table, x)
     if (col !== null) host.value?.style.setProperty('cursor', 'col-resize')
-    // 表头单元格非边界处提示可拖拽整列
-    else if (target?.closest?.('th')) host.value?.style.setProperty('cursor', 'grab')
     else host.value?.style.removeProperty('cursor')
   })
 }
@@ -1646,6 +1884,229 @@ function movePmColumn(
   return true
 }
 
+/** 批量删行（多选矩形覆盖的数据行）：表头不可删，至少留一行数据（schema 要求
+ *  table_row+）。单事务，一次 Ctrl+Z 恢复 */
+function deletePmRows(view: EditorView, tablePos: number, top: number, bottom: number): boolean {
+  const table = view.state.doc.nodeAt(tablePos)
+  if (!table || table.type.name !== 'table') return false
+  const first = Math.max(top, 1)
+  const last = Math.min(bottom, table.childCount)
+  if (first >= last || last - first >= table.childCount - 1) return false
+  let from = tablePos + 1
+  for (let i = 0; i < first; i++) from += table.child(i).nodeSize
+  let to = from
+  for (let i = first; i < last; i++) to += table.child(i).nodeSize
+  view.dispatch(view.state.tr.delete(from, to).scrollIntoView())
+  selectPmTableCell(view, tablePos, Math.min(first, table.childCount - (last - first) - 1), 0)
+  return true
+}
+
+/** 批量删列（多选矩形覆盖的列）：至少留一列；从末行往前删，前面的位置不受影响 */
+function deletePmCols(
+  view: EditorView,
+  tablePos: number,
+  top: number,
+  left: number,
+  right: number
+): boolean {
+  const table = view.state.doc.nodeAt(tablePos)
+  if (!table || table.type.name !== 'table' || table.childCount < 1) return false
+  const colCount = table.child(0).childCount
+  const end = Math.min(right, colCount)
+  if (left >= end || end - left >= colCount) return false
+  const tr = view.state.tr
+  const rowStarts: number[] = []
+  table.forEach((_row, rowOffset) => rowStarts.push(tablePos + 1 + rowOffset + 1))
+  for (let r = table.childCount - 1; r >= 0; r--) {
+    const row = table.child(r)
+    let from = rowStarts[r]
+    for (let c = 0; c < left && c < row.childCount; c++) from += row.child(c).nodeSize
+    let to = from
+    for (let c = left; c < end && c < row.childCount; c++) to += row.child(c).nodeSize
+    if (to > from) tr.delete(from, to)
+  }
+  view.dispatch(tr.scrollIntoView())
+  selectPmTableCell(view, tablePos, top, Math.min(left, colCount - (end - left) - 1))
+  return true
+}
+
+/** 整行交换（行 0 是表头行，from/to 必须 ≥1；从远端往近端替换防位置漂移）。
+ *  Typora「上移/下移该行」同语义，Alt+↑/↓ 与右键菜单共用 */
+function movePmRow(
+  view: EditorView,
+  tablePos: number,
+  from: number,
+  to: number,
+  opts: { scroll?: boolean; recordHistory?: boolean } = {}
+): boolean {
+  const { scroll = true, recordHistory = true } = opts
+  const table = view.state.doc.nodeAt(tablePos)
+  if (!table || table.type.name !== 'table') return false
+  if (from < 1 || to < 1 || from === to || from >= table.childCount || to >= table.childCount) {
+    return false
+  }
+  const rowPos = (idx: number): number => {
+    let p = tablePos + 1
+    for (let i = 0; i < idx; i++) p += table.child(i).nodeSize
+    return p
+  }
+  const rowFrom = table.child(from)
+  const rowTo = table.child(to)
+  const posFrom = rowPos(from)
+  const posTo = rowPos(to)
+  const tr = view.state.tr
+  if (to > from) {
+    tr.replaceWith(posTo, posTo + rowTo.nodeSize, rowFrom)
+    tr.replaceWith(posFrom, posFrom + rowFrom.nodeSize, rowTo)
+  } else {
+    tr.replaceWith(posFrom, posFrom + rowFrom.nodeSize, rowTo)
+    tr.replaceWith(posTo, posTo + rowTo.nodeSize, rowFrom)
+  }
+  if (!recordHistory) tr.setMeta('addToHistory', false)
+  view.dispatch(scroll ? tr.scrollIntoView() : tr)
+  return true
+}
+
+/** 行序拖拽（行把手）：从第 startRow 行开始上下拖动，跨行时逐相邻步交换。
+ *  与列拖拽同语义——逐帧交换不入历史，松手回滚后以单一历史项重放。 */
+function startRowDrag(view: EditorView, table: HTMLTableElement, startRow: number, startY: number): void {
+  const rows = table.rows
+  if (!rows[startRow] || startRow < 1 || startRow >= rows.length) return
+  let tablePos = -1
+  try {
+    const $cell = view.state.doc.resolve(view.posAtDOM(rows[startRow].cells[0] ?? rows[startRow], 0))
+    for (let d = $cell.depth; d > 0; d--) {
+      if ($cell.node(d).type.name === 'table') {
+        tablePos = $cell.before(d)
+        break
+      }
+    }
+  } catch {
+    /* DOM 与文档失配：放弃本次拖拽 */
+  }
+  if (tablePos < 0) return
+  const startNode = view.state.doc.nodeAt(tablePos)
+  if (!startNode || startNode.type.name !== 'table') return
+  tblDragging = true
+
+  let active = false
+  let moved = false
+  let cur = startRow
+  let indicator: HTMLDivElement | null = null
+
+  /** 指针 y 落在哪一行（按实时 rects；交换后行位置已变，必须重算） */
+  const rowAtY = (y: number): number => {
+    const trs = table.rows
+    for (let i = 1; i < trs.length; i++) {
+      if (y < trs[i].getBoundingClientRect().bottom) return i
+    }
+    return trs.length - 1
+  }
+  const moveIndicator = (): void => {
+    if (!indicator) return
+    const row = table.rows[Math.min(cur, table.rows.length - 1)]
+    if (!row) return
+    const r = row.getBoundingClientRect()
+    indicator.style.left = `${r.left}px`
+    indicator.style.top = `${r.top}px`
+    indicator.style.width = `${r.width}px`
+    indicator.style.height = `${r.height}px`
+  }
+  const cleanup = (): void => {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    document.body.classList.remove('inkbox-col-dragging')
+    indicator?.remove()
+    indicator = null
+    tblDragging = false
+  }
+  const onMove = (ev: MouseEvent): void => {
+    if (!table.isConnected) {
+      cleanup()
+      return
+    }
+    if (!active) {
+      if (Math.abs(ev.clientY - startY) < 6) return
+      active = true
+      document.body.classList.add('inkbox-col-dragging')
+      window.getSelection()?.removeAllRanges()
+      indicator = document.createElement('div')
+      indicator.className = 'inkbox-col-drag-indicator'
+      document.body.appendChild(indicator)
+    }
+    ev.preventDefault()
+    window.getSelection()?.removeAllRanges()
+    const hover = rowAtY(ev.clientY)
+    if (hover < 1 || hover === cur) {
+      moveIndicator()
+      return
+    }
+    while (cur !== hover && cur >= 1 && table.isConnected) {
+      const dir: -1 | 1 = hover > cur ? 1 : -1
+      if (cur + dir < 1) break
+      if (!movePmRow(view, tablePos, cur, cur + dir, { recordHistory: false, scroll: false })) break
+      cur += dir
+      moved = true
+    }
+    moveIndicator()
+  }
+  const onUp = (): void => {
+    if (active && moved && cur !== startRow) {
+      const curNode = view.state.doc.nodeAt(tablePos)
+      if (curNode && curNode.type.name === 'table' && curNode.nodeSize === startNode.nodeSize) {
+        const back = view.state.tr
+        back.replaceWith(tablePos, tablePos + curNode.nodeSize, startNode)
+        back.setMeta('addToHistory', false)
+        view.dispatch(back)
+        movePmRow(view, tablePos, startRow, cur, { recordHistory: true, scroll: false })
+      }
+    }
+    cleanup()
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
+/** 行移动后把光标精确放进目标行/列的单元格（带落点验证：near 若滑出该表格
+ *  则不动光标——collapseTableSelection 的复合偏移在行交换后实测会落到表外，
+ *  连续快捷键移动就错行） */
+function selectPmTableCell(
+  view: EditorView,
+  tablePos: number,
+  row: number,
+  col: number
+): void {
+  const table = view.state.doc.nodeAt(tablePos)
+  if (!table || row < 0 || row >= table.childCount) return
+  const rowNode = table.child(row)
+  if (col < 0 || col >= rowNode.childCount) return
+  let rowOff = -1
+  let cellOff = -1
+  table.forEach((rNode, rOff2, rIdx) => {
+    if (rIdx === row) {
+      rowOff = rOff2
+      rNode.forEach((_c, cOff2, cIdx) => {
+        if (cIdx === col) cellOff = cOff2
+      })
+    }
+  })
+  if (rowOff < 0 || cellOff < 0) return
+  // table开口 → 行开口 → 单元格开口 → 段落内容
+  const $pos = view.state.doc.resolve(tablePos + 1 + rowOff + 1 + cellOff + 2)
+  if (!$pos.parent.isTextblock) return
+  const sel = TextSelection.near($pos)
+  // 落点验证：必须在同一张表内（near 滑出则放弃，保持原光标）
+  let inside = false
+  for (let d = sel.$from.depth; d > 0; d--) {
+    if (sel.$from.node(d).type.name === 'table' && sel.$from.before(d) === tablePos) {
+      inside = true
+      break
+    }
+  }
+  if (!inside) return
+  view.dispatch(view.state.tr.setSelection(sel).scrollIntoView())
+}
+
 /* ---------- 表格右键菜单（2.3）：菜单动作 → Milkdown gfm 命令 ----------
    contextmenu 已把光标落到点击单元格（Chromium 原生行为），行列定位用
    findTableSelection 按当前选区复算，不依赖浮层工具条的状态。 */
@@ -1657,6 +2118,23 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
     return true
   }
   switch (action) {
+    /* 常用格式（Typora 表格右键同样提供；表格单元格内也能就地加粗/链接） */
+    case 'cut':
+    case 'copy':
+    case 'paste':
+      return false // 剪贴板走 table-context-menu 的通用路径
+    case 'bold':
+      return milkCmd(callCommand(toggleStrongCommand.key))
+    case 'italic':
+      return milkCmd(callCommand(toggleEmphasisCommand.key))
+    case 'inline-code':
+      return milkCmd(callCommand(toggleInlineCodeCommand.key))
+    case 'strike':
+      return milkCmd(callCommand(toggleStrikethroughCommand.key))
+    case 'link': {
+      const v = getView()
+      return v ? pmToggleLink(v) : false
+    }
     case 'row-above': {
       // 表头之上不可插入（菜单已禁用；命令层同样拒绝）
       const view = getView()
@@ -1676,6 +2154,13 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
       const view = getView()
       const t = view ? findTableSelection(view) : null
       if (!view || !t) return false
+      const span = pmTableSpan(view.state)
+      if (span && action === 'row-delete' && span.bottom - span.top > 1) {
+        return deletePmRows(view, span.pos, span.top, span.bottom)
+      }
+      if (span && action === 'col-delete' && span.right - span.left > 1) {
+        return deletePmCols(view, span.pos, span.top, span.left, span.right)
+      }
       if (action === 'table-delete') elTable(callCommand(selectTableCommand.key))
       else if (action === 'row-delete')
         elTable(callCommand(selectRowCommand.key, { index: t.row, pos: view.state.selection.from }))
@@ -1692,6 +2177,16 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
       if (!view || !meta) return false
       const to = meta.col + (action === 'col-move-left' ? -1 : 1)
       return movePmColumn(view, meta.pos, meta.col, to)
+    }
+    case 'row-move-up':
+    case 'row-move-down': {
+      const view = getView()
+      const meta = view ? findTableSelection(view) : null
+      if (!view || !meta) return false
+      const to = meta.row + (action === 'row-move-up' ? -1 : 1)
+      const ok = movePmRow(view, meta.pos, meta.row, to)
+      if (ok) selectPmTableCell(view, meta.pos, to, meta.col)
+      return ok
     }
     case 'align-left':
     case 'align-center':
@@ -1739,6 +2234,9 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
       view.dispatch(tr)
       return true
     }
+    case 'format-table':
+      // 源码层面的排版（对齐源码列宽），即显/预览没有源码可排版——菜单只发给 CM
+      return false
   }
 }
 registerPmTableExecutor(executeTableMenuAction)
@@ -1766,8 +2264,10 @@ onMounted(() => {
   })
   // 点击即显区域任意位置都要让编辑器拿到焦点，避免"点了但打不了字"
   host.value.addEventListener('mousedown', onHostMousedown)
-  // 表格列边界 hover 光标（el-table 手感）
+  // 表格列边界 hover 光标（el-table 手感）+ 表头上方列序把手
   host.value.addEventListener('mousemove', onHostMouseMoveTableCursor, { passive: true })
+  host.value.addEventListener('mouseleave', onHostLeaveForHandles)
+  host.value.addEventListener('scroll', hideTableHandles, { passive: true })
   // 图片悬浮地址提示（mouseover/out 冒泡委托）;滚动即收起避免提示漂移
   host.value.addEventListener('mouseover', onHostOver)
   host.value.addEventListener('mouseout', onHostOut)
@@ -1842,6 +2342,8 @@ onMounted(() => {
     .use(footnoteReferenceSchema)
     .use(footnoteDefinitionSchema)
     .use(footnoteReferenceInputRule)
+    .use(footnoteRefView)
+    .use(createFootnoteJumpPlugin)
     // front matter + [TOC]
     .use(yamlSchema)
     .use(tocSchema)
@@ -1865,6 +2367,10 @@ onMounted(() => {
     .use(centerProsePlugin)
     .use(wysiwygImagePlugin)
     .use(pasteLinkPlugin)
+    // emoji 短代码补全（5.9）：`:smi` 弹候选，对齐源码模式 2.11
+    .use($prose(() => createEmojiCompletionPlugin()))
+    // 链接悬浮提示条（5.10）：hover 显示地址 + 复制/打开
+    .use($prose(() => createLinkHoverTipPlugin()))
     // 标题折叠箭头（2.9）：纯装饰器，折叠区段不影响序列化
     .use(headingFoldPlugin)
     // 表格列宽记忆恢复（2.2）
@@ -1981,6 +2487,11 @@ onBeforeUnmount(() => {
   pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   host.value?.removeEventListener('mousedown', onHostMousedown)
   host.value?.removeEventListener('mousemove', onHostMouseMoveTableCursor)
+  host.value?.removeEventListener('mouseleave', onHostLeaveForHandles)
+  host.value?.removeEventListener('scroll', hideTableHandles)
+  colHandleLayer?.remove()
+  colHandleLayer = null
+  colHandleTable = null
   host.value?.removeEventListener('mouseover', onHostOver)
   host.value?.removeEventListener('mouseout', onHostOut)
   host.value?.removeEventListener('scroll', onHostScroll)
@@ -2004,7 +2515,48 @@ onBeforeUnmount(() => {
   editor = null
 })
 
-function onHostMousedown(): void {
+/** 文档尾部聚焦（Typora 语义，2026-10-31 反馈）：点击最后一块下方的空白
+ *  （luci-prose 40vh 底部 padding）也要能落下光标。尾部是代码块/图表/公式/
+ *  表格这类块时先补一个空段落再落进去——否则从图表编辑态点下方退不出去，
+ *  只有点图表上方才有效 */
+function focusDocEnd(view: EditorView, clientY: number): boolean {
+  let endBottom: number
+  try {
+    endBottom = view.coordsAtPos(view.state.doc.content.size).bottom
+  } catch {
+    return false
+  }
+  if (clientY <= endBottom) return false
+  const { state } = view
+  const tr = state.tr
+  const last = state.doc.lastChild
+  // 尾部非段落/标题块：没有可直接落光标的位置，补空段落（near() 只会落回块内）
+  if (last && last.type.name !== 'paragraph' && last.type.name !== 'heading') {
+    const paraT = state.schema.nodes.paragraph
+    if (!paraT) return false
+    tr.insert(state.doc.content.size, paraT.create())
+  }
+  tr.setSelection(TextSelection.near(tr.doc.resolve(tr.doc.content.size), -1))
+  view.dispatch(tr)
+  view.focus()
+  return true
+}
+
+function onHostMousedown(e: MouseEvent): void {
+  const target = e.target as HTMLElement | null
+  // 仅内容区下方空白（点击落在 .luci-prose/.wysiwyg-host 自身，不在任何子元素上）；
+  // 其余点击交给 PM 常规定位。顶部/两侧 padding 由 clientY 阈值排除
+  if (target && (target.classList.contains('luci-prose') || target === host.value)) {
+    try {
+      const view = editor?.action((ctx) => ctx.get(editorViewCtx))
+      if (view && focusDocEnd(view, e.clientY)) {
+        e.preventDefault()
+        return
+      }
+    } catch {
+      /* 编辑器未就绪时忽略 */
+    }
+  }
   try {
     const view = editor?.action((ctx) => ctx.get(editorViewCtx))
     if (view && !view.hasFocus) view.focus()
@@ -2153,7 +2705,7 @@ watch(
       @replace-all="doReplaceAll"
       @close="closeFind"
     />
-    <div ref="host" class="wysiwyg-host" @mousedown.capture="onHostMouseDownTable">
+    <div ref="host" class="wysiwyg-host" @mousedown.capture="onHostMouseDownTable" @dragstart.capture="onHostDragStartTable">
       <!-- 图片悬浮地址:贴图片下缘内侧的轻提示,pointer-events 不挡交互 -->
       <div v-if="imgTip" class="img-src-tip" :style="imgTipStyle">{{ imgTip.text }}</div>
       <!-- 元素工具条:点击图片/表格时的浮动操作条(与源码模式工具条同按钮集) -->

@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { createMainWindow } from './window'
 import { createMenu, setShortcutOverrides } from './menu'
 import { registerIpcHandlers } from './ipc'
-import { registerThemeResourceProtocol } from './ipc/themes'
+import { migrateLegacyThemesDir, registerThemeResourceProtocol } from './ipc/themes'
+import { deliverFiles, filesFromArgv, pushLaunchFiles } from './shellAssoc'
 import { registerImageContextMenu } from './ipc/contextMenu'
 import { createTray, markQuitting, resetQuitting, showMainWindow } from './tray'
 import { initUpdateController } from './updater'
@@ -30,7 +31,13 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => showMainWindow())
+  // 右键「在 Inkbox 中打开」/双击关联文件带起的命令行文件：冷启动暂存，
+  // 渲染层就绪后经 app:takeLaunchFiles 取走打开
+  pushLaunchFiles(filesFromArgv(process.argv))
+  app.on('second-instance', (_e, argv: string[]) => {
+    // 已有实例在跑：文件投递给唤起的编辑窗口打开
+    deliverFiles(showMainWindow(), filesFromArgv(argv))
+  })
 
   // 主题资源协议（M3）：standard + fetchable，CSS url()/导出管线 fetch 都能用；
   // 必须在 app ready 前注册
@@ -80,6 +87,8 @@ if (!gotLock) {
 
   app.whenReady().then(async () => {
     migrateLegacyConfig()
+    // 主题/字体旧位置（C 盘 userData/themes）→ 安装目录/themes 自动迁移
+    migrateLegacyThemesDir()
     // 拼写检查（4.2）：session 级开关与词典串行启用（异步乱序会让词典
     // 下载不被触发）；锁定英文——只标英文错词，中文经脚本检测直接跳过
     // （不加载 zh 词典 = 中文永不被标红，规避满屏误报）

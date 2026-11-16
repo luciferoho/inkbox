@@ -5,6 +5,9 @@ import { Decoration, DecorationSet } from '@milkdown/kit/prose/view'
  * 即显任务列表：milkdown 以 list_item.checked 属性携带任务状态但无内置样式/交互。
  * 用 widget 装饰在项首插入原生 checkbox（与预览 .task-item-checkbox 同款样式），
  * 点击切换 checked 属性，序列化随 [ ]/[x] 更新。
+ * 另以 node 装饰给任务 li 补 task-list-item 类：主题（phycat 等用无前缀
+ * .task-list-item 选择器）与预览侧同款样式才能命中即显 DOM（milkdown 的
+ * nodeView 只打 data-item-type 属性不打类）。
  */
 export function createTaskTogglePlugin(): Plugin {
   return new Plugin({
@@ -18,6 +21,9 @@ export function createTaskTogglePlugin(): Plugin {
             node.attrs.checked !== undefined
           ) {
             const itemPos = pos
+            decorations.push(
+              Decoration.node(itemPos, itemPos + node.nodeSize, { class: 'task-list-item' })
+            )
             // 复选框放进项内段落的首字符前（内联位置）——放在 li 与段落之间会独占一行
             const firstChild = state.doc.nodeAt(itemPos + 1)
             const widgetPos = firstChild && firstChild.type.name === 'paragraph' ? itemPos + 2 : itemPos + 1

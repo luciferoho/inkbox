@@ -184,7 +184,10 @@ export function installBrowserMock(): void {
         const cur = await window.api.app.getWindowPrefs(key)
         localStorage.setItem(`mock-winprefs-${key}`, JSON.stringify({ ...cur, ...patch }))
       },
-      onConfigChanged: () => () => undefined
+      onConfigChanged: () => () => undefined,
+      // 浏览器 mock：无命令行/二次启动文件载荷
+      takeLaunchFiles: async () => [],
+      onExternalOpen: () => () => undefined
     },
     image: {
       // 浏览器 mock：没有图床可传，统一回退本地（mock FS）
@@ -206,9 +209,18 @@ export function installBrowserMock(): void {
       readCss: async () => null,
       listFonts: async () => [],
       openDir: async () => undefined,
+      dir: async () => 'mock://themes',
+      migrationReport: async () => null,
       userCssPath: async () => 'mock://base.user.css',
       readUserCss: async () => '',
       openUserCss: async () => undefined
+    },
+    assoc: {
+      // 浏览器 mock：无注册表，状态恒未注册、操作恒失败
+      status: async () => ({ contextMenu: false, defaults: {} }),
+      setContextMenu: async () => ({ ok: false }),
+      setDefault: async () => ({ ok: false }),
+      openDefaultSettings: async () => undefined
     },
     update: (() => {
       // 浏览器 mock：模拟完整更新流程（available → downloading → downloaded）

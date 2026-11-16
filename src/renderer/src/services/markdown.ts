@@ -235,7 +235,8 @@ md.core.ruler.push('luci_toc', (state: StateCore) => {
       const level = Number(toks[i].tag.slice(1)) || 1
       const id = `luci-h-${++n}`
       toks[i].attrSet('id', id)
-      if (level <= 3) headings.push({ level, text: toks[i + 1]?.content ?? '', id })
+      // Typora [TOC] 收全部 1-6 级（只收 1-3 会缺四五级，用户实测）
+      if (level <= 6) headings.push({ level, text: toks[i + 1]?.content ?? '', id })
     }
   }
   for (let i = 1; i < toks.length - 1; i++) {
@@ -251,25 +252,16 @@ md.core.ruler.push('luci_toc', (state: StateCore) => {
   }
 })
 
-/** 目录块 HTML：按标题层级递归嵌套 <ul>（内部生成，文本已转义） */
+/** 目录块 HTML：扁平列表（Typora 同款，条目平级 + md-toc-hN 缩进交给主题
+ *  margin-left；嵌套结构会让 ：hover 沿祖先链整链点亮）。内部生成，文本已转义 */
 function buildTocHtml(headings: { level: number; text: string; id: string }[]): string {
   if (headings.length === 0) return ''
-  let i = 0
-  const buildLevel = (level: number): string => {
-    let html = '<ul>'
-    while (i < headings.length && headings[i].level >= level) {
-      if (headings[i].level === level) {
-        const h = headings[i++]
-        html += `<li><a href="#${h.id}">${escapeHtml(h.text)}</a>`
-        if (i < headings.length && headings[i].level > level) html += buildLevel(level + 1)
-        html += '</li>'
-      } else {
-        html += buildLevel(level + 1) // 跳级标题归入更深层
-      }
-    }
-    return html + '</ul>'
+  let html = '<ul>'
+  for (const h of headings) {
+    html += `<li class="md-toc-item md-toc-h${h.level}"><a href="#${h.id}">${escapeHtml(h.text)}</a></li>`
   }
-  return `<nav class="md-toc"><p class="md-toc-title">目录</p>${buildLevel(headings[0].level)}</nav>`
+  html += '</ul>'
+  return `<nav class="md-toc"><p class="md-toc-title">目录</p>${html}</nav>`
 }
 
 md.renderer.rules.luci_toc_block = (tokens, idx) => {
@@ -390,6 +382,19 @@ md.core.ruler.push('luci_task_lists', (state: StateCore) => {
     }disabled tabindex="-1"> `
     toks[i].children!.unshift(box)
     toks[i - 2].attrJoin('class', 'task-list-item')
+    // Typora 的任务项永远是 li > input + p 结构（主题的 input:checked+p 等
+    // 兄弟规则、input+p 几何规则全以此为前提），紧列表也要渲染出 p；
+    // 间距由 preview.css 的 p:only-child margin 归零补偿，观感与裸文本一致
+    if (toks[i - 1].hidden) {
+      toks[i - 1].hidden = false
+      for (let j = i + 1; j < toks.length; j++) {
+        if (toks[j].type === 'paragraph_close') {
+          toks[j].hidden = false
+          break
+        }
+        if (toks[j].type === 'list_item_open' || toks[j].type === 'list_item_close') break
+      }
+    }
   }
 })
 
@@ -1072,56 +1077,23 @@ const defaultFence: RendererRule =
   md.renderer.rules.fence ??
   ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
 
-/** 按换行拆分高亮 HTML 为行数组：跨行的未闭合标签在每行首尾补齐/闭合
- *  （hljs 输出的标签全部是 span，跨行 span——多行注释/字符串——逐行复制开启标签、
- *  逆序补闭合标签，浏览器解析后与原 HTML 等价，且每行有了独立的开头供 ::before 行号附着） */
-function splitHtmlLines(html: string): string[] {
-  const tokens = html.split(/(<[^>]+>)/)
-  const openStack: string[] = []
-  const lines: string[] = []
-  let cur = ''
-  for (const tk of tokens) {
-    if (!tk) continue
-    if (tk.startsWith('<')) {
-      if (tk.startsWith('</')) openStack.pop()
-      else if (!tk.endsWith('/>')) openStack.push(tk)
-      cur += tk
-      continue
-    }
-    const parts = tk.split('\n')
-    parts.forEach((part, i) => {
-      if (i > 0) {
-        lines.push(cur + '</span>'.repeat(openStack.length))
-        cur = openStack.join('')
-      }
-      cur += part
-    })
-  }
-  lines.push(cur)
-  return lines
-}
-
 md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const tok = tokens[idx]
   const info = tok.info.trim()
   if (info.split(/\s+/)[0] !== 'mermaid') {
-    // 代码块 chrome：语言标签栏 + 复制按钮（导出走 Preview DOM 剥离，见 ExportDialog）
+    // 代码块 chrome：语言标签栏 + 复制按钮（导出走 Preview DOM 剥离，见 ExportDialog）。
+    // 行号（七.2）已按用户要求移除（对齐 Typora，2026-10-31）；长行软换行由 CSS 承担。
+    // pre 注入 data-language：即显侧一直带该属性，主题的徽标
+    // ::before{content:attr(data-language)} 与 [data-language=…] 语言判别在预览侧同样生效
     const lang = escapeHtml(info.split(/\s+/)[0].toLowerCase())
     ensureCodeCopyHandler()
-    // 行号（七.2）：高亮 HTML 逐行包 <span class="md-cl">，行号由 CSS counter
-    // 在每个行 span 开头渲染（::before）——不改变 pre/code 的 display，
-    // 与自定义主题的 pre/code 规则零冲突（grid/sticky 方案在 phycat 等主题下碎裂）
-    const inner0 = defaultFence(tokens, idx, options, env, self)
-    const inner = inner0.replace(/<code([^>]*)>([\s\S]*)<\/code>/, (_m, attrs: string, body: string) => {
-      const lines = splitHtmlLines(body.replace(/\n$/, ''))
-      return `<code${attrs}>${lines.map((l) => `<span class="md-cl">${l}</span>`).join('\n')}\n</code>`
-    })
+    const inner = defaultFence(tokens, idx, options, env, self)
     const label = escapeHtml(t('code.copy'))
     return (
       `<div class="md-code"><div class="md-code-bar">` +
       `<span class="md-code-lang">${lang}</span>` +
       `<button type="button" class="md-code-copy" title="${label}" aria-label="${label}">${COPY_ICON}</button>` +
-      `</div>${inner}</div>`
+      `</div>${inner.replace('<pre>', `<pre data-language="${lang}">`)}</div>`
     )
   }
   const line = tok.attrGet('data-source-line')

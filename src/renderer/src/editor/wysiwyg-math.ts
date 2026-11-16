@@ -179,8 +179,10 @@ class MathNodeView implements NodeView {
       }
     }
 
-    // 编辑中保持源码态不闪渲染
-    if (!this.editing) this.renderMath()
+    // 编辑中同样实时重渲染（Typora 语义）：块级公式编辑态源码与实时预览
+    // 同屏（渲染区在源码下方，见 wysiwyg.css），行内公式编辑态渲染区隐藏、
+    // 离开编辑态时呈现
+    this.renderMath()
     return true
   }
 

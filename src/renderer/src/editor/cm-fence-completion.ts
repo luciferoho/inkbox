@@ -50,6 +50,7 @@ const LANGS: LangDef[] = [
   { label: 'less' },
   { label: 'sql' },
   { label: 'markdown', aliases: ['md'] },
+  { label: 'mermaid' },
   { label: 'dockerfile', aliases: ['docker'] },
   { label: 'makefile' },
   { label: 'lua' },
@@ -66,6 +67,9 @@ const LANGS: LangDef[] = [
   { label: 'diff' },
   { label: 'plaintext', aliases: ['text', 'txt'] }
 ]
+
+/** 语言词表（即显代码块 chrome 的语言选择器复用同一份） */
+export const FENCE_LANGS: LangDef[] = LANGS
 
 /** 本行是否 ```开栏 形态（可带缩进/语言字符）；返回捕获的语言片段 */
 function fenceLine(text: string): string | null {
@@ -100,13 +104,31 @@ function closeFence(view: EditorView, lang: string): void {
   })
 }
 
+/** 已有收尾围栏（骨架已存在/改语言）：只换语言词，光标移到围栏行之后（块内首行）。
+ *  必须自己 dispatch 才能控制光标落点——候选 apply 返回字符串时 CM 只把光标
+ *  放在 from+label.length（即围栏行尾），用户还得手动按方向键进块 */
+function setFenceLang(view: EditorView, label: string): void {
+  const { state } = view
+  const line = state.doc.lineAt(state.selection.main.head)
+  const from = line.from + 3
+  if (from > line.to) return
+  // 新文档坐标：围栏行终点 = from + label.length；原行后若有换行则落到下一行行首
+  const newLineEnd = from + label.length
+  const hasNewline = line.to < state.doc.length && state.doc.sliceString(line.to, line.to + 1) === '\n'
+  view.dispatch({
+    changes: { from, to: line.to, insert: label },
+    selection: { anchor: hasNewline ? newLineEnd + 1 : newLineEnd },
+    userEvent: 'input.complete'
+  })
+}
+
 /** 围栏语言补全源（导出供测试直接调用） */
 export const fenceLangSource = (context: CompletionContext): CompletionResult | null => {
   const m = context.matchBefore(/[ \t]*```([a-zA-Z0-9+#._-]*)$/)
   if (!m) return null
   const lineNo = context.state.doc.lineAt(context.pos).number
   if (!opensNewBlock(context.state, lineNo)) return null
-  // 已有收尾围栏（改语言场景）：只替换语言词，不重复补 ```（防双重收尾）
+  // 已有收尾围栏（骨架已存在/改语言）：只替换语言词，不重复补 ```
   const closed = hasClosingFenceAfter(context.state, lineNo)
   const typed = /^[ \t]*```([a-zA-Z0-9+#._-]*)$/.exec(m.text)?.[1] ?? ''
   const options = LANGS.filter(
@@ -117,11 +139,10 @@ export const fenceLangSource = (context: CompletionContext): CompletionResult | 
   ).map((l): Completion => ({
     label: l.label,
     type: 'text',
-    apply: closed
-      ? l.label
-      : (view: EditorView): void => {
-          closeFence(view, l.label)
-        }
+    apply: (view: EditorView): void => {
+      if (closed) setFenceLang(view, l.label)
+      else closeFence(view, l.label)
+    }
   }))
   if (options.length === 0) return null
   return {

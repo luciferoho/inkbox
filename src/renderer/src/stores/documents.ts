@@ -408,6 +408,16 @@ export const useDocumentsStore = defineStore('documents', {
         // 已脏标签的等价回推同样只采纳内容、不动脏标记（真实编辑保留）
         if (contentEquivalent(content, tab.content)) {
           tab.content = content
+          // markDirty 的风格改动被撤销回磁盘原文：脏标记跟随清除
+          if (
+            tab.dirty &&
+            tab.savedContent != null &&
+            content.replace(/\r\n?/g, '\n') === tab.savedContent.replace(/\r\n?/g, '\n')
+          ) {
+            tab.dirty = false
+            useUiStore().saveState = 'clean'
+            this.scheduleDraftFlush()
+          }
           return
         }
         tab.content = content
@@ -424,6 +434,15 @@ export const useDocumentsStore = defineStore('documents', {
         useUiStore().saveState = 'dirty'
         this.scheduleDraftFlush() // 停止输入 800ms 后草稿即最新（修"退出后草稿不是最新"）
       }
+    },
+
+    /** 只改风格的显式操作（格式化表格）：内容与磁盘等价，updateContent 不会标脏 */
+    markDirty(id: number): void {
+      const tab = this.tabs.find((t) => t.id === id)
+      if (!tab || tab.isHome) return
+      tab.dirty = true
+      useUiStore().saveState = 'dirty'
+      this.scheduleDraftFlush()
     },
 
     activate(id: number): void {

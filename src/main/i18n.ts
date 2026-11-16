@@ -21,6 +21,7 @@ const zh = {
   menuInsertImage: '插入图片…',
   menuUploadImages: '上传本文档全部图片',
   menuQuickOpen: '快速打开…',
+  menuInsertPanel: '插入面板…',
   menuCloseTab: '关闭标签页',
   menuNextTab: '下一标签',
   menuPrevTab: '上一标签',
@@ -75,7 +76,11 @@ const zh = {
   dlgUntitledPng: '未命名.png',
   // 更新通知
   updateTitle: '墨匣 Inkbox',
-  updateBody: '新版本已就绪，退出应用后自动安装'
+  updateBody: '新版本已就绪，退出应用后自动安装',
+  // 系统文件关联（右键菜单/默认应用）
+  ctxOpenInkbox: '在 Inkbox 中打开',
+  assocDocType: 'Inkbox 文档',
+  assocAppDesc: '墨匣纸面 Markdown 编辑器'
 }
 
 const en: typeof zh = {
@@ -89,6 +94,7 @@ const en: typeof zh = {
   menuInsertImage: 'Insert Image…',
   menuUploadImages: 'Upload All Local Images',
   menuQuickOpen: 'Quick Open…',
+  menuInsertPanel: 'Insert Panel…',
   menuCloseTab: 'Close Tab',
   menuNextTab: 'Next Tab',
   menuPrevTab: 'Previous Tab',
@@ -140,7 +146,10 @@ const en: typeof zh = {
   dlgUntitledPdf: 'Untitled.pdf',
   dlgUntitledPng: 'Untitled.png',
   updateTitle: 'Inkbox',
-  updateBody: 'A new version is ready — it will install when you quit the app'
+  updateBody: 'A new version is ready — it will install when you quit the app',
+  ctxOpenInkbox: 'Open with Inkbox',
+  assocDocType: 'Inkbox Document',
+  assocAppDesc: 'Inkbox paper-style Markdown editor'
 }
 
 const dicts: Record<Locale, typeof zh> = { 'zh-CN': zh, en }

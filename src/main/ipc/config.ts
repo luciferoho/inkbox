@@ -111,7 +111,12 @@ function load(): AppConfig {
             CONTENT_WIDTH_MIN,
             Math.round(Number(rawEditor.contentWidth) || defaultConfig.editor.contentWidth)
           )
-        )
+        ),
+        // 可选布尔项缺省 = 各自默认（typographer/spellcheck 关、formatBar 开）。
+        // 此前只保留三个数值字段，重启后拼写检查/智能标点的开关会静默回退
+        typographer: rawEditor.typographer === true,
+        spellcheck: rawEditor.spellcheck === true,
+        formatBar: rawEditor.formatBar !== false
       },
       autosave: { ...defaultConfig.autosave, ...raw.autosave },
       // 旧配置无此键视为开；非布尔垃圾值同样落回默认

@@ -107,9 +107,6 @@ const EXPORT_FALLBACK_LAYOUT = `
 .md-preview pre { overflow: visible !important; max-width: 100%; }
 .md-preview pre code { white-space: pre-wrap !important; word-break: break-word; }
 .md-preview .md-code-bar { display: none !important; }
-/* 行号是应用内的编辑辅助（::before 计数列），导出产物不携带——且行号列
-   会造成 ~15px 横向溢出，让代码块出滚动条（长图被裁/PDF 出横滚） */
-.md-preview pre code .md-cl::before { display: none !important; }
 /* hover 态在源头已剥（previewCss/主题 CSS 注入前经 stripInteractiveCss），
    静态产物无任何鼠标反馈 */
 .md-preview * { cursor: default !important; }

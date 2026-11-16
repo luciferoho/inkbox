@@ -74,6 +74,7 @@ export function createMenu(win: BrowserWindow): void {
         item('file:insertImage', m('menuInsertImage')),
         item('file:uploadImages', m('menuUploadImages')),
         item('file:quickOpen', m('menuQuickOpen')),
+        item('file:insertPanel', m('menuInsertPanel')),
         item('file:closeTab', m('menuCloseTab')),
         item('file:nextTab', m('menuNextTab')),
         item('file:prevTab', m('menuPrevTab')),

@@ -71,13 +71,55 @@ Inkbox 已覆盖 Typora 主干：四模式编辑（即显/源码/双栏/预览�
 - [ ] **4.4 PlantUML / flowchart.js**（M）评估后维持延后：Mermaid 已覆盖 sequence/gantt/class/state，引入第二渲染引擎徒增体积
 - [ ] **4.5 MathJax 可选后端**（M）评估后维持延后：KaTeX 覆盖绝大多数场景，双引擎收益不抵体积与维护成本
 
-## 六、设计边界（不做）
+## 六、M5 · 即显编辑体验增强（提案，2026-10-30 修订，待评审）
+
+> 目标：参照 Typora 把「创建类入口」补齐——格式化能力（输入规则/快捷键）已基本对齐，缺的是 Ctrl+K 链接、语言切换、插入菜单这类**不背语法也能插入东西**的入口。交互总原则：**能就地编辑的不弹对话框、能按需浮现的不占常驻界面**；插入面板用快捷键/菜单唤起，**不做 `/` 字符触发**——`/` 是正文常用字符（网址、路径、代码都会用到），Typora 也不依赖字符触发，靠菜单+快捷键。
+
+- [x] **5.1 Ctrl+K 插入/编辑链接**（M）有选区：选区转链接并复用既有就地地址展开（linkSource 装饰）；无选区：光标处插入链接并立即展开地址输入。即显/源码两端注册（快捷键面板已宣称 Ctrl+K，即显当前无实现）✓ 即显 pmToggleLink：建链置空 href + 地址框自动聚焦（requestLinkSourceFocus 一次性信号），空地址光标离开自动去链（防 `[文字]()` 脏语法，嵌套 dispatch 已防递归）；源码 cmdLink 改为包后选区落在 URL 占位上直接输入覆盖。CDP 真窗口验证（创建/提交/去链/无选区/Esc 放弃/源码占位选中）
+- [x] **5.1a 用户实测反馈修复（Ctrl+K 退不出去）** ①`findLinkSource` 补末尾归属规则——光标在链接末尾且后面不是同一链接时视为已离开（原先 Enter 提交后光标落链接后方仍展开地址框，永远退不出）；②Enter/Esc 统一走 `settleToBody`：光标落链接末尾边界 + 清 storedMarks（否则接着打字会把新文字并进链接）+ view.focus 交回正文；③创建/插入链接时光标落链接内最后一个字符（末尾边界已归属「离开」）；④地址框宽度按实际字符数（`style.width = Nch`）而非 `size` 属性——原实现按 8 字符保底分配，`)` 前留白
+- [x] **5.1c 三轮反馈修复（尾部点击语义）** 展开态下点击链接文字（含末字符右侧贴近处）**保持编辑**（原先落末尾边界即退出，用户点不到最后一个字母后面）；点击右括号「)」/其右侧才退出。实现：`expandSuppress` 一次性压制标志（settleToBody 设置=不展开；handleClick 按点击坐标清除/设置；选区离开链接范围自动失效）
+- [x] **5.8c 三轮反馈修复（子菜单点击无反应）** 子菜单 Teleport 到 body 后，text-context-menu.ts 里旧的 mousedown 关闭监听只认 `.ctx-menu`——点子菜单项时菜单先被关闭、按钮随 v-if 移除、**click 事件丢失**（「右键标题没反应/右键插入没反应」的共同根因）。修复：关闭检查改为 `closest('.ctx-menu, .ctx-submenu')`
+- [x] **5.10a 快捷键设标题误伤相邻段** 光标在「111」末尾按 Ctrl+2 会把「222」设为标题——`pmSetHeading` 单行分支原先走 milkdown `wrapInHeadingCommand`（边界行为怪异），改为直接 `setNodeMarkup` 与右键「段落转换」同语义。CDP 验证：111 末尾 Ctrl+2 → 只转 111
+- [x] **5.10b 列表项内转标题无效** 有序/无序列表项内的段落：`setNodeMarkup(paragraph→heading)` 会被列表结构吞掉（按键/右键都「没反应」）→ 两个入口都先 `liftListItem` 整项提升出列表再设级别（快捷键 pmSetHeading 与右键 runParaAction 统一）。CDP 验证：`1. 111` 光标末尾 Ctrl+2 / 右键标题 2 → `## 111` 且 222/333 保持列表
+- [x] **5.11a 右键全选按上下文限定** 代码块/公式/HTML 表格/frontmatter 内右键「全选」原先选整篇文档 → 只选块内容（PM 取 node 内容区间；CM 取围栏体）。CDP 验证：代码块内全选 + Ctrl+C 剪贴板只有代码两行；源码围栏内同样只选围栏体
+- [x] **5.11b 链接编辑三修** ①点击地址框区域（`](` 与 `)` 之间）时事件穿透到 PM、光标被放到链接文字后 → 地址尾栏加 mousedown 拦截：拦下并聚焦输入框全选，不让 PM 接管；②编辑时把文字删空会让 link mark 随内容消失、地址框直接关闭 → Backspace/Delete 在「将删空」或「已仅剩 1 字符」时吞键保留占位（Typora 语义），继续输入仍在链接内
+- [x] **5.3e 输入关键词时光标跳位（压制邻接高亮）** 输入把单词补全成关键字的瞬间，高亮插件在光标前插入包裹 span，Chromium 把 contenteditable 光标挤到词首（用户实测输入 const 跳回 c 前）。修法：**光标邻接的 token 不上装饰**（apply 里按 `newState.selection.head` 过滤 `from < head <= to` 的 span；纯光标移动事务也重算所在块，移开后高亮恢复）。CDP 真实键击逐字符验证：const x 输入全程光标稳定
+- [x] **5.3f 鼠标样式** 代码块行号留白区（.pm-code-ln 含 padding）悬停显示 text 光标（原 pointer-events:none 继承 pre 的 default）；pre/code/token/正文等内置样式复核：pre=default（滚动条区域需要）、code/token=text、正文族继承 text、链接/图片 pointer
+- [x] **5.2 代码块语言选择器**（M）即显代码块 chrome 的语言标签可点击 → 原地输入框 + 语言名补全（词表与源码模式 cm-fence-completion 同源，FENCE_LANGS 导出复用并补 mermaid 词条）；mermaid 块切语言由节点视图重建自动重绘；Esc/失焦取消不落盘 ✓ CDP 真窗口验证（预填当前语言过滤/Enter 提交/Esc 取消/点选提交/mermaid 出图）
+- [x] **5.2a 二轮反馈修复** ①**行号与光标重叠**：行号 widget 的留白从 `margin-right` 改 `padding-right`——inline-block 的 margin 落在光标位置之前，行首光标会压在数字右侧；padding 计入盒宽，光标落在文本起点（叠加 widget `side:-1` 保证排在内容最前）；②主题模式下语言栏 `display:none` 导致输入框 0×0 不可聚焦 → `:has(.md-code-lang-input)` 临时亮出 + 主题模式 !important 收回 input/菜单样式；③插入代码块自动开语言编辑、提交后光标落块内首行
+- [x] **5.2b 代码块内 Ctrl+/ 切换注释**（S）主进程 `before-input-event` 原本拦截所有已注册加速键（含 view:toggleShortcuts），代码块内按 Ctrl+/ 会误开快捷键面板 → 主窗口对该命令放行，渲染层 `editor/code-comment.ts` 按上下文分流：代码块内按语言加/去注释（`//` `#` `--` `%%` `%` 行注释，html/xml `<!-- -->`、css 家族 `/* */` 块注释，纯文本吞键不弹面板），其余位置照旧开关面板；快捷键面板补「代码块内：切换注释」说明行 ✓ CDP 验证（即显 js 加/去注释、源码 python `#`、正文仍开面板）
+- [x] **5.3 快捷键一致性**（S）即显补注册 Ctrl+Shift+X 删除线、Ctrl+Shift+C 行内码（快捷键面板已宣称但仅源码侧有），补 Ctrl+Shift+M 公式块（Typora 键位）；核对面板宣称与两编辑器实际键位全表一致 ✓ 即显走 toggleStrikethrough/toggleInlineCodeCommand，公式块 pmInsertMathBlock 落 NodeSelection 自动进嵌套编辑态；源码侧 cmdInsertMathBlock 插 $$ 围栏光标落空行；面板新增公式块行（sc.mathBlock）。CDP 真窗口验证（X/C 开关、M 空段/非空段、源码 Mod-M）
+- [x] **5.4 插入面板（快捷键唤起）**（M-L）过滤式插入命令面板：表格/代码块/公式/Mermaid/图片/链接/引用/列表/任务列表/TOC/脚注/分隔线/emoji/日期。入口两个，共用同一命令层（editor/insert-commands.ts，即显/源码双实现、纯 PM 不依赖 Milkdown ctx；深层容器放不下时自动退到顶层块之后插入）：Ctrl+Shift+P（走既有菜单加速键注册表 file:insertPanel，支持设置页改键）+ 右键「插入」子菜单（5.8 承载）✓ CDP 真窗口验证（打开聚焦/过滤/Enter 执行：表格+mermaid+分隔线+脚注+任务列表/源码侧公式块/Esc 关闭；加速键已注册 debugMenuAccels，dispatch 链路 debugMenuInvoke 全通）
+- [x] **5.4a 用户实测反馈修复（代码块插入）** ①行号 widget 加 `side:-1`——此前光标画在行号左侧；②插入代码块后自动进入语言编辑（`openLangEditorFor` 按 pos 取 chrome 标签直接调起，不依赖 decorations 重建时序；ESC 交回焦点、提交后光标落块内首行）；③Ctrl+Shift+K（即显/源码）与插入面板同款先选语言，源码侧光标落 ``` 之后；④`runInsertCommand` 对 codeBlock 例外不回焦 PM（PM 持焦时 input.focus 会被选区重占顶掉）；⑤**主题模式下 `.md-code-bar` 是 display:none，语言输入框 0×0 不可聚焦**——补 `:has(.md-code-lang-input)` 临时亮出，并给输入框/菜单出主题模式 !important 收口（防主题 input 规则撑成胶囊）；⑥源码围栏补全走 closed 分支时只换语言词、光标留在行尾——新增 `setFenceLang` 自己 dispatch 把光标移到块内首行
+- [x] **5.5 选区浮动格式条**（M）即显选中文本浮现微型工具条：粗体/斜体/删除线/行内码/高亮/链接/标题级切换（正文+H1-H6 菜单，同级 toggle 语义与快捷键一致）。纯按需浮现：选区塌陷/点条外/Esc/焦点离开即收，滚动跟随重定位，顶部空间不足落选区下方；代码块/公式/HTML 块/yaml/TOC 内选区不弹；设置「写作辅助」可关（`editor.formatBar` 默认开）✓ CDP 真窗口验证 25 项（浮现几何/七按钮/mark 开关与按钮高亮态/链接就地展开收条/标题菜单/正文回退/收条三路/代码块屏蔽/设置开关/配置写盘）。
+  - 顺带修复：主进程 `config.load()` 重建 editor 对象时丢了可选布尔字段——拼写检查/智能标点开关重启后静默回退（同批修复，formatBar 依赖同一持久化路径）。
+  - 实现要点：`editor/format-bar.ts` 全局 selectionchange 触发（**refresh 推迟一个宏任务**——事件触发时 PM 内部选区尚未消化 DOM 选区，同步读会拿到旧空选区导致条不出现/按过期选区误开）；条容器 `mousedown.prevent` 保住 PM 选区；动作复用 `pmInsertLink`（与 Ctrl+K 同语义）与 `pmSetHeading`。
+- [x] **5.6 表格行列选择器**（S）Ctrl+T（即显/源码）/ 插入面板 / 右键「插入→表格」时弹 5×5 网格 hover 选择（替代固定 2 列）：hover 出子矩形高亮 + 「N 行 × M 列」表头，点格插入 N×M 表格（首行表头 列1..列N）。轻量 popover 锚在光标处，下方空间不足上翻；打开不抢焦点（容器 mousedown.prevent），Esc/点外/失焦取消 ✓ CDP 真窗口验证 13 项（浮现几何/25 格/hover 3×4=12 格高亮/即显插 2×3 表结构/源码插 3×2 内容/双端 Ctrl+T/面板命令路径/关闭三路）。
+  - 实现：`editor/table-grid.ts`（状态与锚点）+ `TableGridPicker.vue`；尺寸化插入 `pmInsertTableDims`/`cmInsertTableDims`（insert-commands `insertTableDims` 双端分发），原固定 2×2 的 `pmInsertTable`/`cmdInsertTable` 删除。
+- [x] **5.7 脚注引用/定义互跳**（S）随 `f70fb6a` 落地：Ctrl+单击正文角标滚动定位到文末定义并高亮闪烁；定义行尾 ↩ 按钮跳回正文同名引用（平滑滚动+落光标角标后）。单击角标=就地编辑（对齐 Typora 1.15）。✓ CDP 复验（跳转定义可见/↩ 存在/回跳生效）。
+- [x] **5.8 通用文本右键菜单**（M）正文右键：剪贴板操作 + 段落转换（正文/标题1-3/有序/无序/任务/引用/代码块，PM 单块 setNodeMarkup+wrapIn、CM 逐行前缀改写）+ 「插入」子菜单（复用 5.4 命令层）；与既有图片/表格右键菜单同一自绘体系（TextContextMenu.vue，图片/表格命中时不弹）✓ CDP 真窗口验证（菜单条目/h2 转换/TOC 插入/源码侧引用转换/Esc 关闭）
+- [x] **5.8a 用户实测反馈修复（右键菜单）** ①段落转换顺序改为 标题1-6 → 正文 → 无序/有序/任务/引用/代码块；②每项右侧显示快捷键（固定键写自定义键位如 Ctrl+1；可改键命令读 `effectiveShortcuts(ui.shortcuts)` 显示实际设置，如图片 Ctrl+Alt+I）；③未选中时剪切/复制禁用（buildItems 按 selection.empty 判定）；④**右键不再折叠已有选区**（原先无条件 posAtCoords 落光标，导致选中文本右键后剪切/复制变禁用）；⑤**动态裁剪**：光标在代码块/公式/HTML 块/TOC/frontmatter（CM：FencedCode/HTMLBlock/FrontMatter）内时只出剪贴板组，不进段落转换与插入；⑥行高 26→32px、menbg 8px、子菜单间距与强调色对齐 Typora；⑦修 `.has-sub .ctx-accel` 选择器误伤子菜单快捷键（改 `>` 直子）
+- [x] **5.8b 二轮反馈修复（窄窗口裁切）** 子菜单改为 **Teleport 到 body 的 fixed 浮层**（原先嵌在菜单内绝对定位：菜单矮时要内部滚动，绝对定位子菜单既被裁切又把 `scrollWidth` 撑出横向滚动条）→ 独立浮层可贴边：右侧不够翻到左侧、下方空间不足先限高滚动（保持与触发项对齐）、空间 <160px 才整体上移；主菜单 `overflow-x: hidden` + `overflow-y: auto`。子菜单 hover 加 160ms 关闭缓冲，方便斜向移入
+- [x] **5.9 emoji 补全覆盖即显**（S）即显敲 `:名称前缀`（行首或空白后）弹候选条：字符 + `:名字:` 双列、最多 8 项、上下键循环、Enter/Tab 或点选插入、Esc 关闭且同前缀不再自动弹回（继续输入重开）。词表与源码模式同源（`markdown-it-emoji` full，1903 条，`EMOJI_DEFS` 导出复用）；代码块/HTML 表格/frontmatter/TOC/公式块与行内代码内不补全；冒号前无空白（如 `a:smi`）不触发 ✓ CDP 真窗口验证 17 项。
+  - 关键坑：**键位必须走 document 捕获阶段**——放进 `props.handleKeyDown` 时 Milkdown 预设 keymap 注册更早，PM `someProp` 遇到 Enter 已被 splitBlock 认领就短路，弹层开着按 Enter 仍会落段（实测）。捕获监听 + `stopPropagation` 后 PM 不再消费。弹层挂 body fixed 定位，滚动即收起。
+- [x] **5.10 链接 hover 提示**（S）即显鼠标停链接 400ms 浮出地址条（等宽字体显示完整 URL）+「复制地址」「打开链接」；复制后 toast 提示，打开走与 Ctrl+单击同一链路（window.open → 主进程转系统浏览器/相对链接交给文档目录解析）。移出链接/滚动/按下鼠标/切窗即收；正文已就地展开编辑时不弹（地址就在眼前）✓ CDP 真窗口验证 14 项。
+  - 实现：`editor/pm-link-hover-tip.ts`（插件 view 内挂 mouseover 监听，弹层挂 body fixed 定位）。
+- [x] **5.12 表格多选批量删除**（S）即显框选单元格 / 源码文本多选后右键，「删除选中的 N 行 / N 列」单事务可撤销；选区含表头时只删数据行，全部数据行或全部列被选中时禁用。右键按在已选单元格上保留多选，从已选单元格内起拖按重新框选处理 ✓ CDP 真实鼠标验证
+- [x] **5.13 格式化表格入口**（S）「格式化表格源码」提到源码/双栏右键一级菜单；格式化后标记未保存（只改空白，等价判定不会自动标脏），撤销回原文清脏；保留列表内表格的缩进。列宽记忆按表头文本取键，格式化不影响手动列宽与「自适应宽度」✓ CDP 真实鼠标验证
+- [x] **5.14 表格内链接展开不再挤动列宽**（S，缺陷）光标进入表格内链接时就地展开的 `[文字](地址)` 在 auto 布局下撑宽所在列、挤窄其他列（用户反馈「表格聚焦时列宽整体变一下」）。修法：链接展开装饰同批加列宽锁定——decorations 在 DOM 更新前计算，量到展开前的列宽，首行单元格 node 装饰定宽 + 外壳 `luci-tbl-freeze` 类经 CSS 变量把表格切为固定布局（表格 nodeView 外壳是 div，node 装饰属性落在外壳上）；地址框限宽在所在列内、长地址框内滚动；离开链接装饰撤除即恢复自动分配 ✓ CDP 真实鼠标验证（展开/换链接/输入长地址/提交/离开/表外链接不锁表）
+  - **打开文档/切标签恢复的光标不自动展开链接**（用户实测「打开时最后下载链接已展开，聚焦主题名称表头收起，列宽变动」）：恢复即展开会锁定打开瞬间的列宽，收起时表格按当前布局重新分布 → 跳动。修法：展开加门控——只在编辑器内真实交互（mousedown/keydown）或建链信号（requestLinkSourceFocus，Ctrl+K/插入面板路径）后生效，挂载与整档替换（applyReplace）时重置；收起恢复正常，无手势路径（插入面板建链）CDP 验证不受影响。**门控变量必须模块级**：即显编辑器单实例复用、切标签只 replaceAll 换内容不换插件实例，闭包变量让 applyReplace 侧的 reset 清不掉残留手势（第一版漏网路径：点过任意单元格 → 切标签回来光标进链接仍自动展开）；展开状态下切标签回来同样收起不锁定（对齐 Typora）✓ CDP 验证（重启打开/点击后切回/光标程序化进链接/展开中切回/聚焦表头零变动/无手势建链 11 项 + 链接锁宽回归 19 项）
+- [x] **5.15 表情选择器**（M）插入面板/右键「插入→Emoji 表情」不再插入固定 😀，改为打开表情选择器：gemoji 词表网格（**canvas 缺字检测**：与未分配码位 U+10FFFE 的缺字方框逐像素比较，相同即视为系统字体画不出并剔除——覆盖旗帜、Emoji 13+ 新表情等，比维护码位版本表可靠；实测保留 1791/1903 项，抽样 359 项零方框）+ 短代码**模糊搜索**（去首尾冒号、按 `_`/`-`/空格分词，每词子串命中：`:eyes` 也能搜到 `:heart_eyes:`，前缀命中优先）+ 最近使用（按面板列数封顶两排，localStorage 跨会话，悬浮显示 `:短代码:`）+ 键盘导航（←→↑↓ 循环/Enter/Esc，点选即插）。**选了直接插入**（不做替换）；**不做「输入表情后弹同类」**（用户反馈聚焦表情后面弹框是干扰）。网格用等分轨道（`minmax(30px,1fr)`）避免 auto-fill 固定轨道多出一列撑出横向滚动条。即显/源码双端，锚在光标处、下方空间不足上翻
+  - **排版**：**所有格子统一等宽 36px**（`repeat(8,36px)`，列数打开时按主网格内容宽扣滚动条后算一次内联覆盖，「最近使用」与主网格同列数且**左对齐**——两区各自居中会因滚动条宽度差错位 5px 实测），行行、列列对齐。宽组合（👨‍👩‍👧‍👦 等 ZWJ 序列，Segoe UI Emoji 步进 ≈1.35em/字形）不再按宽度占多列——占列让每行个数参差、`dense` 回填还会把后面的单字挪上来填洞（顺序跳动，用户实测截图「太乱」），改为按 canvas 实测 advance **缩小留在自己格子里**（`fitFontSize` 只缩不放、下限 6px：单字形 20px、二字形 ≈12px；家庭组合 Segoe 会连字成单字形保持原大）✓ CDP 验证 11 项（等宽等高/零溢出/有缩有放/行内数一致（末行除外）/行首列对齐/顺序不跳/无横向溢出/双区列对齐/最近两排封顶/即显弹层槽位零溢出）。**两个提示框**（即显 `.emoji-menu-char` 22px 固定槽位 + 同款缩小、源码 CM `.cm-completionDetail`）指定 emoji 字体栈——代码/正文字体缺字形会把 emoji 渲染变形
+  - **`:短代码` 补全稳健性**：触发边界为行首/空白/**emoji 字符**（一行里已有表情时不再要求打空格——用户实测）；即显侧触发判定把叶子节点（软换行 hard_break）当 `\n` 而非 `\uFFFC`——一按 Enter 未分段时曾是软换行，导致行首判定失效、要换两行才出提示（用户实测）；滚动收起加 350ms 输入缓冲（输入引起的自动滚动不能把弹层刚出就关掉）。源码 CM 侧结果加 `filter: false`（默认按 from..pos 文本模糊匹配 label，会二次滤掉 `eyes`→`:heart_eyes:` 这类子串命中）。**候选与网格共用 canvas 缺字检测**（`supportedEmojiChars`，`matchEmojiNames` 按可渲染集合过滤）——提示框不再出现方框候选（用户实测截图一）✓ CDP 验证 13 项（缺字抽样/无横向滚动/模糊搜索三态含带冒号与多词/emoji 后免空格触发双端/候选无方框/聚焦不弹/软换行与分段补全）
+  - 实现：`editor/emoji-picker.ts`（状态/锚定/最近使用/`emojiNameByChar`/`advance20` 实测）+ `components/chrome/EmojiPicker.vue`（挂 App.vue）；模糊匹配 `matchEmojiNames` 与缺字检测 `supportedEmojiChars` 在 `cm-emoji-completion.ts`，**选择器网格与两侧补全候选共用同一份**；插入命令层 emoji 命令改为打开选择器（插入面板与右键「插入」子菜单共用命令层）
+
+## 七、设计边界（不做）
 
 - **任意 inline HTML 全量支持**：与安全基线冲突，坚持白名单（见 1.9）。
 - **MathML 渲染**：场景极少，KaTeX/MathJax 已覆盖。
 - **云同步/账号体系**：偏离本地纯工具定位。
 
-## 七、随 M1 顺手处理的待修项
+## 八、随 M1 顺手处理的待修项
 
 1. 预览管线会把 YAML front matter 按正文渲染（对应 1.7）。
 2. ~~预览代码块无行号~~（已实现：fence 渲染注入行号列，pre grid 双列 + sticky 左贴，复制/导出自动剥离）。
