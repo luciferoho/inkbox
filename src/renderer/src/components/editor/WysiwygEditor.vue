@@ -67,6 +67,10 @@ import { applyCachedImageSizes, rememberImgSize } from '@/editor/img-size-cache'
 import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createPasteLinkPlugin } from '@/editor/paste-link'
 import { openTableGrid } from '@/editor/table-grid'
+import { pmMoveListItem, pmMoveBlock } from '@/editor/list-move'
+import { pmPasteTsv } from '@/editor/tsv-paste'
+import { pmFormatCodeBlock } from '@/editor/code-format'
+import { pmDuplicate } from '@/editor/duplicate'
 import { createEmojiCompletionPlugin } from '@/editor/pm-emoji-completion'
 import { createLinkHoverTipPlugin } from '@/editor/pm-link-hover-tip'
 import { createHeadingFoldPlugin } from '@/editor/pm-heading-fold'
@@ -85,7 +89,7 @@ import {
   widthsFromDom,
 } from '@/editor/table-widths'
 import { pmTableSpan, registerPmTableExecutor, type TableMenuAction } from '@/editor/table-context-menu'
-import { normalizeTables } from '@/editor/table-utils'
+import { normalizeTables, cellSortCmp } from '@/editor/table-utils'
 import { writeClipboard } from '@/editor/code-copy'
 import { createElementToolbar, findTableSelection, type ElToolbarState } from '@/editor/pm-element-toolbar'
 import { createCodeblockChromePlugin, openLangEditorFor } from '@/editor/pm-codeblock-chrome'
@@ -506,8 +510,51 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     }
   }
 
-  /* 表格内 Ctrl+Enter：下方插入一行（Typora 同键位） */
-  if (event.ctrlKey && !event.altKey && !event.shiftKey && event.key === 'Enter' && inTable(state)) {
+  /* Ctrl+Shift+↑/↓：列表项内=整项移动（6.1）；表格内不接管；其余=顶层块移动（6.2） */
+  if (
+    event.ctrlKey &&
+    event.shiftKey &&
+    !event.altKey &&
+    (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+  ) {
+    const dir = event.key === 'ArrowUp' ? -1 : 1
+    if (inListItem(state)) {
+      event.preventDefault()
+      return pmMoveListItem(view, dir)
+    }
+    if (!inTable(state)) {
+      event.preventDefault()
+      return pmMoveBlock(view, dir)
+    }
+  }
+
+  /* 代码块内 Shift+Alt+F：就地格式化（6.3，与源码同键位；失败 toast 在模块内） */
+  if (
+    event.altKey &&
+    event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    (event.key.toLowerCase() === 'f' || event.code === 'KeyF') &&
+    inCodeBlock(state)
+  ) {
+    event.preventDefault()
+    const v = getView()
+    if (v) void pmFormatCodeBlock(v)
+    return true
+  }
+
+  /* Ctrl+D：重复当前块/列表项（6.5，与源码同键位） */
+  if (
+    event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey &&
+    (event.key.toLowerCase() === 'd' || event.code === 'KeyD')
+  ) {
+    event.preventDefault()
+    return pmDuplicate(view)
+  }
+
+  /* 表格内 Ctrl+Enter：下方插入一行（Typora 同键位） */  if (event.ctrlKey && !event.altKey && !event.shiftKey && event.key === 'Enter' && inTable(state)) {
     event.preventDefault()
     elTable(callCommand(addRowAfterCommand.key))
     return true
@@ -522,12 +569,28 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   if (event.key === 'Tab') {
     // 始终拦截:普通段落放行 Tab 会被浏览器抢走焦点(跳到状态栏按钮)
     event.preventDefault()
-    // 表格单元格：Tab/Shift+Tab 跳到下/上一个单元格（prosemirror-tables 命令）
+    // 表格单元格：Tab/Shift+Tab 跳到下/上一个单元格（prosemirror-tables 命令）；
+    // 尾格 Tab = 追加一行并跳进新行首格（6.4d，Typora 行为）
     if (inTable(state)) {
       if (editor) {
-        elTable(
-          callCommand((event.shiftKey ? goToPrevTableCellCommand : goToNextTableCellCommand).key)
-        )
+        if (event.shiftKey) {
+          elTable(callCommand(goToPrevTableCellCommand.key))
+          return true
+        }
+        const view = getView()
+        const meta = view ? findTableSelection(view) : null
+        const t = view && meta ? view.state.doc.nodeAt(meta.pos) : null
+        const isLastCell =
+          !!t &&
+          !!meta &&
+          meta.row === t.childCount - 1 &&
+          meta.col === (t.child(meta.row)?.childCount ?? 0) - 1
+        if (view && meta && isLastCell) {
+          elTable(callCommand(addRowAfterCommand.key))
+          selectPmTableCell(view, meta.pos, meta.row + 1, 0)
+        } else {
+          elTable(callCommand(goToNextTableCellCommand.key))
+        }
       }
       return true
     }
@@ -1544,6 +1607,22 @@ async function copyImgSrc(): Promise<void> {
 
 const imgTip = ref<{ x: number; y: number; w: number; text: string } | null>(null)
 
+/** TSV 粘贴建表/填格（6.4a）：剪贴板 text/plain 含制表符即视为表格数据——
+ *  表格内从光标格起填充、表格外自动建表。代码块内不接管（原样文本） */
+function onHostPasteTsv(e: ClipboardEvent): void {
+  const view = getView()
+  if (!view || !e.clipboardData) return
+  const el = e.target as HTMLElement | null
+  if (!el || !view.dom.contains(el)) return
+  if (inCodeBlock(view.state)) return
+  const text = e.clipboardData.getData('text/plain')
+  if (!text || !text.includes('\t')) return
+  if (pmPasteTsv(view, text)) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+}
+
 function onHostOver(e: MouseEvent): void {
   const target = e.target
   if (!(target instanceof HTMLImageElement) || !target.closest('.luci-prose')) return
@@ -2201,6 +2280,49 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
     }
     case 'auto-width':
       return run(() => resetWysiwygTableWidths())
+    case 'copy-tsv': {
+      // 复制为 TSV（6.4b）：单元格文本逐行制表符连接，Excel 可直接贴
+      const view = getView()
+      const t = view ? findTableSelection(view) : null
+      if (!view || !t) return false
+      const node = view.state.doc.nodeAt(t.pos)
+      if (!node) return false
+      const rows: string[] = []
+      node.forEach((row) => {
+        const cells: string[] = []
+        row.forEach((cell) => cells.push(cell.textContent.trim()))
+        rows.push(cells.join('\t'))
+      })
+      void writeClipboard(rows.join('\n'))
+      return true
+    }
+    case 'col-sort-asc':
+    case 'col-sort-desc': {
+      // 按列排序（6.4c）：数据行按右键列单元格文本重排（数值感知），表头不动，
+      // 光标/选区跟随；整表节点一次替换 = 单事务可撤销
+      const view = getView()
+      const meta = view ? findTableSelection(view) : null
+      if (!view || !meta) return false
+      const table = view.state.doc.nodeAt(meta.pos)
+      if (!table || table.childCount < 2) return false
+      const col = Math.min(meta.col, table.child(0).childCount - 1)
+      const text = (row: PMNode, c: number): string =>
+        row.child(Math.min(c, row.childCount - 1))?.textContent.trim() ?? ''
+      const data: PMNode[] = []
+      table.forEach((row, _off, i) => {
+        if (i > 0) data.push(row)
+      })
+      const mul = action === 'col-sort-asc' ? 1 : -1
+      data.sort((a, b) => mul * cellSortCmp(text(a, col), text(b, col)))
+      const tr = view.state.tr
+      tr.replaceWith(
+        meta.pos,
+        meta.pos + table.nodeSize,
+        table.copy(Fragment.fromArray([table.child(0), ...data]))
+      )
+      view.dispatch(tr.scrollIntoView())
+      return true
+    }
     case 'copy-table':
     case 'to-text': {
       const view = getView()
@@ -2276,6 +2398,8 @@ onMounted(() => {
   host.value.addEventListener('load', onHostImgLoad, { capture: true, passive: true })
   // 图片加载失败：标记破图占位（缺文件时 0×0 隐身，用户无从察觉），成功后由 load 摘除
   host.value.addEventListener('error', onHostImgError, { capture: true })
+  // TSV 粘贴建表/填格（6.4a）：捕获层先于 milkdown 剪贴板插件接管
+  host.value.addEventListener('paste', onHostPasteTsv, { capture: true })
   // 用户滚轮即接管：停用切签锚点的自动重对齐
   host.value.addEventListener(
     'wheel',
@@ -2495,6 +2619,7 @@ onBeforeUnmount(() => {
   host.value?.removeEventListener('mouseover', onHostOver)
   host.value?.removeEventListener('mouseout', onHostOut)
   host.value?.removeEventListener('scroll', onHostScroll)
+  host.value?.removeEventListener('paste', onHostPasteTsv, { capture: true })
   host.value?.removeEventListener('load', onHostImgLoad, { capture: true })
   host.value?.removeEventListener('error', onHostImgError, { capture: true })
   host.value?.removeEventListener(

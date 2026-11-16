@@ -11,6 +11,9 @@ import { cmViews } from './cm-registry'
 import { pmViews } from './pm-registry'
 import { INSERT_COMMANDS, runInsertCommand } from './insert-commands'
 import { pmSetHeading } from './pm-heading'
+import { cmListBlockAt, cmMoveListItem } from './cm-commands'
+import { pmInList, pmMoveListItem } from './list-move'
+import { cmFormatCodeBlock, cmInFence, pmFormatCodeBlock } from './code-format'
 import { useUiStore } from '@/stores/ui'
 
 /**
@@ -77,6 +80,17 @@ function pmInBlock(): boolean {
   return false
 }
 
+/** PM：光标是否在代码块内（右键「格式化代码」显隐） */
+function pmInCode(): boolean {
+  const view = livePm()
+  if (!view) return false
+  const { $from } = view.state.selection
+  for (let d = $from.depth; d >= 0; d--) {
+    if ($from.node(d).type.name === 'code_block') return true
+  }
+  return false
+}
+
 /** CM：光标是否在围栏代码/HTML 块内（lezer 语法树祖先） */
 function cmInBlock(): boolean {
   const view = liveCm()
@@ -93,10 +107,12 @@ function cmInBlock(): boolean {
 }
 
 function buildItems(target: 'pm' | 'cm'): TextMenuItem[] {
+  const pmV = livePm()
+  const cmV = liveCm()
   const selEmpty =
     target === 'pm'
-      ? (livePm()?.state.selection.empty ?? true)
-      : (liveCm()?.state.selection.main.empty ?? true)
+      ? (pmV?.state.selection.empty ?? true)
+      : (cmV?.state.selection.main.empty ?? true)
   const inBlock = target === 'pm' ? pmInBlock() : cmInBlock()
   /** labelKey 动态串走 string 签名（键由调用处静态保证） */
   const tl = (k: string): string => (t as unknown as (key: string) => string)(k)
@@ -107,7 +123,12 @@ function buildItems(target: 'pm' | 'cm'): TextMenuItem[] {
     { id: 'paste', label: tl('ctx.paste'), accel: 'Ctrl+V' },
     { id: 'selectAll', label: tl('ctx.selectAll'), accel: 'Ctrl+A' }
   ]
-  if (inBlock) return clipboard
+  if (inBlock) {
+    // 代码块内（公式/HTML 表/yaml 不算）：追加「格式化代码」（6.3，Shift+Alt+F 同语义）
+    const inCode = target === 'pm' ? pmInCode() : cmV ? cmInFence(cmV) : false
+    if (inCode) clipboard.push({ id: 'codefmt', label: tl('code.format'), accel: 'Shift+Alt+F' })
+    return clipboard
+  }
 
   const paraItems: TextMenuItem[] = [
     { id: 'para:h1', label: tl('ctx.paraH1'), accel: 'Ctrl+1' },
@@ -137,12 +158,32 @@ function buildItems(target: 'pm' | 'cm'): TextMenuItem[] {
     accel: ACCENTS[c.id] ?? (c.id === 'image' ? commandAccel('file:insertImage') : '')
   }))
 
-  return [
+  const groups: TextMenuItem[] = [
     ...clipboard,
     { id: 'sep1', label: '-' },
-    { id: 'para', label: t('ctx.paraConvert'), children: paraItems },
-    { id: 'insert', label: t('ctx.insert'), children: insertItems }
+    { id: 'para', label: t('ctx.paraConvert'), children: paraItems }
   ]
+  // 列表项内：整项上移/下移（6.1，Ctrl+Shift+↑/↓ 同语义）
+  const inList =
+    target === 'pm'
+      ? pmV
+        ? pmInList(pmV.state)
+        : false
+      : cmV
+        ? cmListBlockAt(cmV) !== null
+        : false
+  if (inList) {
+    groups.push({
+      id: 'listItem',
+      label: tl('ctx.listItem'),
+      children: [
+        { id: 'listItem:up', label: tl('ctx.listItemUp'), accel: 'Ctrl+Shift+↑' },
+        { id: 'listItem:down', label: tl('ctx.listItemDown'), accel: 'Ctrl+Shift+↓' }
+      ]
+    })
+  }
+  groups.push({ id: 'insert', label: t('ctx.insert'), children: insertItems })
+  return groups
 }
 
 /* ---------- 执行 ---------- */
@@ -156,6 +197,27 @@ export function runTextMenuAction(id: string): void {
   }
   if (id.startsWith('para:')) {
     runParaAction(id.slice(5), target)
+    return
+  }
+  if (id === 'codefmt') {
+    if (target === 'pm') {
+      const v = livePm()
+      if (v) void pmFormatCodeBlock(v)
+    } else {
+      const v = liveCm()
+      if (v) void cmFormatCodeBlock(v)
+    }
+    return
+  }
+  if (id === 'listItem:up' || id === 'listItem:down') {
+    const dir = id === 'listItem:up' ? -1 : 1
+    if (target === 'pm') {
+      const v = livePm()
+      if (v) pmMoveListItem(v, dir)
+    } else {
+      const v = liveCm()
+      if (v) cmMoveListItem(v, dir)
+    }
     return
   }
   // 剪贴板走系统语义（execCommand 让原生编辑行为处理选区/粘贴清洗）

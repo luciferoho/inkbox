@@ -159,6 +159,7 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-bar {
   pointer-events: none;
 }
 html[data-theme-css] .wysiwyg-host .luci-prose .md-code-bar .md-code-lang,
+html[data-theme-css] .wysiwyg-host .luci-prose .md-code-bar .md-code-fmt,
 html[data-theme-css] .wysiwyg-host .luci-prose .md-code-bar .md-code-copy {
   pointer-events: auto;
 }
@@ -270,6 +271,28 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item:hover,
 html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   background: var(--accent-soft) !important;
   color: var(--accent-strong) !important;
+}
+.wysiwyg-host .luci-prose .md-code-fmt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--code-comment);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.wysiwyg-host .luci-prose .md-code-fmt:hover {
+  color: var(--code-fg);
+  background: var(--code-edge);
+}
+.wysiwyg-host .luci-prose .md-code-fmt svg {
+  width: 15px;
+  height: 15px;
+  display: block;
 }
 .wysiwyg-host .luci-prose .md-code-copy {
   display: inline-flex;

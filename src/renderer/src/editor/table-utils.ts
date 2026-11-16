@@ -32,6 +32,7 @@ export type TableOp =
   | { kind: 'col-move-left' }
   | { kind: 'col-move-right' }
   | { kind: 'align'; how: 'left' | 'center' | 'right' | 'none' }
+  | { kind: 'col-sort'; dir: 'asc' | 'desc' }
   | { kind: 'format-table' }
   | { kind: 'table-delete' }
 
@@ -58,6 +59,21 @@ export function splitCells(line: string): string[] {
 /** 单元格 → 行内容 */
 export function joinCells(cells: string[]): string {
   return `| ${cells.join(' | ')} |`
+}
+
+/** 单元格文本排序比较（6.4c 源码/即显共用）：两端都是数字（千分位/空白容忍）按
+ *  数值比，否则数字排前、文本走中文本地化字符串序 */
+export function cellSortCmp(a: string, b: string): number {
+  const norm = (s: string): { n: number | null; s: string } => {
+    const t = s.replace(/[,\s]/g, '')
+    return /^-?\d+(\.\d+)?$/.test(t) ? { n: Number(t), s: t } : { n: null, s }
+  }
+  const x = norm(a)
+  const y = norm(b)
+  if (x.n !== null && y.n !== null) return x.n - y.n
+  if (x.n !== null) return -1
+  if (y.n !== null) return 1
+  return x.s.localeCompare(y.s, 'zh-Hans-CN')
 }
 
 /** 行内第 col 个单元格的起始偏移（左管道后的"| "之后，夹取行尾）。
@@ -294,6 +310,22 @@ export function applyTableOp(
         op.how === 'left' ? ':---' : op.how === 'center' ? ':---:' : op.how === 'right' ? '---:' : '---'
       lines[1] = joinCells(cells)
       return { lines, cursorLine: idx, cursorCol: info.colIndex }
+    }
+    case 'col-sort': {
+      // 数据行按光标列排序（6.4c）：纯数字列数值比较（千分位/空白容忍），混合列
+      // 本地化字符串序；表头/分隔行不动；光标跟随所在行的新位置；同值保持原序
+      const col = Math.min(info.colIndex, colCount - 1)
+      const keyOf = (line: string): string => {
+        const cells = splitCells(line)
+        return cells[Math.min(col, cells.length - 1)] ?? ''
+      }
+      const curLine = lines[Math.max(2, idx)]
+      const body = lines.slice(2)
+      const mul = op.dir === 'desc' ? -1 : 1
+      const sorted = [...body].sort((l1, l2) => mul * cellSortCmp(keyOf(l1), keyOf(l2)))
+      const out = [lines[0], lines[1], ...sorted]
+      const cursorLine = Math.max(2, out.indexOf(curLine))
+      return { lines: out, cursorLine, cursorCol: col }
     }
     case 'table-delete':
       return { lines: [], cursorLine: 0, cursorCol: 0 }
