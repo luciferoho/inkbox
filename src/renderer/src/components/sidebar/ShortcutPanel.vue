@@ -77,6 +77,7 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string 
       { k: ['Ctrl+Shift+Q'], d: t('sc.quote') },
       { k: ['Ctrl+Shift+K'], d: t('sc.codeBlock') },
       { k: ['Ctrl+Shift+M'], d: t('sc.mathBlock') },
+      { k: ['Ctrl+Shift+↑↓'], d: t('sc.listMove') },
       { k: ['Ctrl+T'], d: t('sc.table') }
     ]
   },
@@ -86,7 +87,9 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string 
       { k: ['Tab', 'Shift+Tab'], d: t('sc.indent') },
       { k: ['Esc'], d: t('sc.exitCode') },
       { k: ['Ctrl+Enter'], d: t('sc.afterCode') },
-      { k: ['Ctrl+/'], d: t('sc.codeComment') }
+      { k: ['Ctrl+/'], d: t('sc.codeComment') },
+      { k: ['Shift+Alt+F'], d: t('sc.codeFormat') },
+      { k: ['Ctrl+D'], d: t('sc.duplicate') }
     ]
   }
 ])

@@ -7,6 +7,10 @@ import { t } from '@/i18n'
 import { applyCopiedFeedback, COPY_ICON, writeClipboard } from './code-copy'
 import { FENCE_LANGS } from './cm-fence-completion'
 
+/** 格式化按钮图标（对齐复制的线性描边风格） */
+const FORMAT_ICON =
+  '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5h10M3 8h6M3 12.5h8"/><path d="M11.5 6.5l2 2-3.5 3.5H8v-2z"/></svg>'
+
 /**
  * 即显模式代码块 chrome：为每个 code_block 节点上方插入
  * 「语言标签 + 复制按钮」widget 栏（与预览管线观感一致）。
@@ -88,7 +92,25 @@ function buildDecorations(state: EditorState, ref: ViewRef): DecorationSet {
       })
     })
 
-    bar.append(langEl, btn)
+    // 格式化按钮（6.3）：prettier/sql-formatter 惰性加载；不支持/失败 toast 在模块内
+    const fmtBtn = document.createElement('button')
+    fmtBtn.type = 'button'
+    fmtBtn.className = 'md-code-fmt'
+    fmtBtn.innerHTML = FORMAT_ICON
+    fmtBtn.title = t('code.format')
+    fmtBtn.setAttribute('aria-label', t('code.format'))
+    fmtBtn.addEventListener('mousedown', (e) => e.preventDefault())
+    fmtBtn.addEventListener('click', () => {
+      void import('./code-format').then((m) => {
+        const v = ref.view
+        if (!v) return
+        void m.pmFormatCodeAt(v, pos).then((o) => {
+          if (o.applied) applyCopiedFeedback(fmtBtn, t('code.formatted'), t('code.format'))
+        })
+      })
+    })
+
+    bar.append(langEl, fmtBtn, btn)
     decos.push(
       Decoration.widget(pos, bar, { side: -1, key: `cb-chrome-${pos}`, ignoreSelection: true })
     )

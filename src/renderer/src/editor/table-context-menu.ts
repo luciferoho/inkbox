@@ -16,6 +16,7 @@ import {
   applyTableOp,
   cellStart,
   detectTable,
+  splitCells,
   tableSelectionSpan,
   type TableInfo,
   type TableOp,
@@ -66,6 +67,9 @@ export type TableMenuAction =
   | 'align-right'
   | 'align-none'
   | 'copy-table'
+  | 'copy-tsv'
+  | 'col-sort-asc'
+  | 'col-sort-desc'
   | 'format-table'
   | 'to-text'
   | 'auto-width'
@@ -233,6 +237,8 @@ export function tableMenuGroups(): TableMenuGroup[] {
         label: colBatch > 0 ? t('table.deleteCols', { n: colBatch }) : t('table.deleteCol'),
         disabled: ro || !tableMenu.canCol
       },
+      { action: 'col-sort-asc', label: t('table.sortAsc'), disabled: ro },
+      { action: 'col-sort-desc', label: t('table.sortDesc'), disabled: ro },
       { sep: true, label: '-' },
       { action: 'align-left', label: t('table.alignLeft'), disabled: ro },
       { action: 'align-center', label: t('table.alignCenter'), disabled: ro },
@@ -245,6 +251,7 @@ export function tableMenuGroups(): TableMenuGroup[] {
     label: t('table.groupTable'),
     items: [
       { action: 'copy-table', label: t('table.copyTable') },
+      { action: 'copy-tsv', label: t('table.copyTsv') },
       { action: 'to-text', label: t('table.toText'), disabled: ro },
       { action: 'auto-width', label: t('table.autoWidth') },
       { sep: true, label: '-' },
@@ -255,6 +262,7 @@ export function tableMenuGroups(): TableMenuGroup[] {
     return [
       { id: 'table', label: t('table.groupTable'), items: [
         { action: 'copy-table', label: t('table.copyTable') },
+        { action: 'copy-tsv', label: t('table.copyTsv') },
         { action: 'auto-width', label: t('table.autoWidth') }
       ] }
     ]
@@ -308,6 +316,16 @@ function runCmTableAction(
 
   if (action === 'copy-table') {
     void writeClipboard(lines.join('\n'))
+    return
+  }
+  if (action === 'copy-tsv') {
+    // 复制为 TSV（6.4b）：丢分隔行，逐行单元格制表符连接，Excel 可直接贴
+    void writeClipboard(
+      lines
+        .filter((_, i) => i !== 1)
+        .map((l) => splitCells(l).join('\t'))
+        .join('\n')
+    )
     return
   }
   // 常用格式/剪贴板走通用执行路径（runTableMenuAction 已分发），到这里只处理结构操作
@@ -364,7 +382,11 @@ function runCmTableAction(
                   ? { kind: 'row-down' }
                   : action === 'format-table'
                     ? { kind: 'format-table' }
-                    : { kind: action }
+                    : action === 'col-sort-asc'
+                      ? { kind: 'col-sort', dir: 'asc' }
+                      : action === 'col-sort-desc'
+                        ? { kind: 'col-sort', dir: 'desc' }
+                        : { kind: action }
   const edit = applyTableOp(lines, info, batchOp ?? singleOp)
   if (!edit) return
   if (action === 'format-table' && edit.lines.join('\n') === before) return // 已对齐：不动光标也不标脏
@@ -406,6 +428,14 @@ function runPreviewAction(table: HTMLTableElement, action: TableMenuAction): voi
       lines.push(`| ${cells.join(' | ')} |`)
     }
     void writeClipboard(lines.join('\n'))
+    return
+  }
+  if (action === 'copy-tsv') {
+    const rows: string[] = []
+    for (const row of Array.from(table.rows)) {
+      rows.push(Array.from(row.cells).map((c) => (c.textContent ?? '').trim()).join('\t'))
+    }
+    void writeClipboard(rows.join('\n'))
   }
 }
 
