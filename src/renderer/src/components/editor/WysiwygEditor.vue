@@ -1710,9 +1710,11 @@ function saveWysiwygProgress(id: number | null): void {
 }
 
 /** 恢复浏览进度（切签与重挂载共用）。多阶段补拍（nextTick/60ms/250ms）
- *  覆盖面板可见性与 PM 渲染的时序竞态；图片加载期间另有逐张重钉 */
+ *  覆盖面板可见性与 PM 渲染的时序竞态；图片加载期间另有逐张重钉。
+ *  新标签无记录时按 0 落位（host 是复用的滚动容器，scrollTop 会残留
+ *  上一标签的位置——置 null 会让 apply 早退、永不归零） */
 function restoreWysiwygScroll(): void {
-  pendingFrac = loadView(tabId)?.frac ?? null
+  pendingFrac = loadView(tabId)?.frac ?? 0
   const apply = (): void => {
     if (!host.value) return
     applyCachedImageSizes(host.value)
