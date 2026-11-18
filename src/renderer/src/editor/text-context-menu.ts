@@ -13,7 +13,13 @@ import { INSERT_COMMANDS, runInsertCommand } from './insert-commands'
 import { pmSetHeading } from './pm-heading'
 import { cmListBlockAt, cmMoveListItem } from './cm-commands'
 import { pmInList, pmMoveListItem } from './list-move'
-import { cmFormatCodeBlock, cmInFence, pmFormatCodeBlock } from './code-format'
+import {
+  cmFenceLang,
+  cmFormatCodeBlock,
+  isFormatSupported,
+  pmCodeLangAt,
+  pmFormatCodeBlock
+} from './code-format'
 import { useUiStore } from '@/stores/ui'
 
 /**
@@ -80,17 +86,6 @@ function pmInBlock(): boolean {
   return false
 }
 
-/** PM：光标是否在代码块内（右键「格式化代码」显隐） */
-function pmInCode(): boolean {
-  const view = livePm()
-  if (!view) return false
-  const { $from } = view.state.selection
-  for (let d = $from.depth; d >= 0; d--) {
-    if ($from.node(d).type.name === 'code_block') return true
-  }
-  return false
-}
-
 /** CM：光标是否在围栏代码/HTML 块内（lezer 语法树祖先） */
 function cmInBlock(): boolean {
   const view = liveCm()
@@ -124,9 +119,11 @@ function buildItems(target: 'pm' | 'cm'): TextMenuItem[] {
     { id: 'selectAll', label: tl('ctx.selectAll'), accel: 'Ctrl+A' }
   ]
   if (inBlock) {
-    // 代码块内（公式/HTML 表/yaml 不算）：追加「格式化代码」（6.3，Shift+Alt+F 同语义）
-    const inCode = target === 'pm' ? pmInCode() : cmV ? cmInFence(cmV) : false
-    if (inCode) clipboard.push({ id: 'codefmt', label: tl('code.format'), accel: 'Shift+Alt+F' })
+    // 代码块内且语言支持格式化才出「格式化代码」（与块上按钮同判据；公式/HTML 表/yaml 不算）
+    const lang = target === 'pm' ? (pmV ? pmCodeLangAt(pmV) : null) : cmV ? cmFenceLang(cmV) : null
+    if (lang !== null && isFormatSupported(lang)) {
+      clipboard.push({ id: 'codefmt', label: tl('code.format'), accel: 'Shift+Alt+F' })
+    }
     return clipboard
   }
 

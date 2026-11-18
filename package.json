@@ -36,6 +36,7 @@
     "@milkdown/plugin-listener": "^7.22.2",
     "@milkdown/vue": "^7.22.2",
     "@replit/codemirror-vim": "^6.4.0",
+    "@wasm-fmt/ruff_fmt": "^0.15.20",
     "codemirror": "^6.0.2",
     "dictionary-en": "^4.0.0",
     "electron-updater": "^6.8.9",

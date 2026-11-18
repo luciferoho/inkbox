@@ -294,6 +294,12 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   height: 15px;
   display: block;
 }
+/* 右侧动作组：格式化 + 复制并排靠右（space-between 下语言标签独占左侧） */
+.wysiwyg-host .luci-prose .md-code-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
 .wysiwyg-host .luci-prose .md-code-copy {
   display: inline-flex;
   align-items: center;
