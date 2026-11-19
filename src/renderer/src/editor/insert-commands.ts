@@ -99,8 +99,11 @@ function pmInsertTableDims(view: PMView, rows: number, cols: number): boolean {
     )
   ]
   const table = tableT.create(null, body)
+  // 选中第一格表头占位文本（「列1」）：直接打字即替换，不会拼成「表头A列1」
   return blockAfter(view, [table], (tr, at) => {
-    tr.setSelection(TextSelection.near(tr.doc.resolve(at + 4)))
+    const textLen = `列1`.length
+    const from = at + 4
+    tr.setSelection(TextSelection.create(tr.doc, from, Math.min(from + textLen, tr.doc.content.size)))
   })
 }
 
@@ -167,18 +170,17 @@ function pmInsertList(view: PMView, ordered: boolean): boolean {
 }
 
 function pmInsertTaskList(view: PMView): boolean {
-  const bl = view.state.schema.nodes.bullet_list
-  if (!bl) return false
-  if (!wrapInList(bl)(view.state, view.dispatch, view)) return false
-  // 刚包成的列表项置为未勾选（milkdown gfm list_item.checked）
-  const { $from } = view.state.selection
-  for (let d = $from.depth; d >= 1; d--) {
-    if ($from.node(d).type.name === 'list_item') {
-      view.dispatch(view.state.tr.setNodeMarkup($from.before(d), undefined, { checked: false }))
-      break
-    }
-  }
-  return true
+  const s = view.state.schema
+  const bl = s.nodes.bullet_list
+  const li = s.nodes.list_item
+  const para = s.nodes.paragraph
+  if (!bl || !li || !para) return false
+  // 直接构造「未勾选任务项」：list_item.checked=false 由 gfm schema 序列化为
+  // `- [ ] `。不再走先包列表再改 attrs 的两步（撤销要两步、且空段落会序列化出 `<br />`）
+  const item = li.create({ checked: false }, para.create())
+  return blockAfter(view, [bl.create(null, [item])], (tr, at) => {
+    tr.setSelection(TextSelection.near(tr.doc.resolve(at + 3)))
+  })
 }
 
 function pmInsertToc(view: PMView): boolean {
@@ -212,10 +214,11 @@ function pmInsertFootnote(view: PMView): boolean {
   const tr = state.tr
   const at = state.selection.to
   tr.insert(at, refT.create({ identifier: id, label: id }))
-  const def = defT.create({ identifier: id }, paraT.create(null, state.schema.text(` `)))
+  const def = defT.create({ identifier: id }, paraT.create())
   const insertAt = state.doc.content.size
   tr.insert(insertAt, def)
-  tr.setSelection(TextSelection.create(tr.doc, at + 2))
+  // 光标落进定义段落（文末），插入后直接敲脚注内容；不再停在引用后留空定义
+  tr.setSelection(TextSelection.near(tr.doc.resolve(insertAt + 2)))
   view.dispatch(tr.scrollIntoView())
   return true
 }

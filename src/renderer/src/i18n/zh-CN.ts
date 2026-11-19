@@ -450,6 +450,8 @@ export const zh = {
   'settings.spellcheckHint': '编辑器内为英文单词标红（Chromium 内置词典）；中文不参与检查，默认关闭',
   'settings.formatBar': '选区浮动格式条',
   'settings.formatBarHint': '即显模式选中文本时浮现工具条：粗体/斜体/删除线/行内码/高亮/链接/标题级切换，默认开启',
+  'settings.enterSplits': '回车即分段',
+  'settings.enterSplitsHint': '开启后段落内回车直接分成新段落（Typora 习惯）；默认关闭=回车为段内换行、再敲一次回车才分段（与双栏源码的「空行分段」一致）',
   'settings.vimMode': 'Vim 模式',
   'settings.showDocPath': '显示文档路径',
   'settings.showDocPathHint': '打开文档时在标题下方显示完整路径；关闭后只显示文件名，不影响编辑与保存',

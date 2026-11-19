@@ -10,6 +10,7 @@ import remarkGemoji from 'remark-gemoji'
 import remarkFootnotes from 'remark-footnotes'
 import remarkFrontmatter from 'remark-frontmatter'
 import { sanitizeHtmlTableBlock, rewriteHtmlImgSrc } from '@/services/markdown'
+import { imageSchema, linkSchema } from '@milkdown/kit/preset/commonmark'
 
 /**
  * 即显扩展语法（ROADMAP 1.3/1.4/1.5）：==高亮==、^上标^、~下标~、脚注、emoji。
@@ -1266,3 +1267,74 @@ export function createLinkSourcePlugin(): Plugin {
     }
   })
 }
+
+/* ---------- 输入规则补齐（7.x 实测反馈）：任务列表/图片/链接 ---------- */
+
+/**
+ * 任务列表输入规则（P2）：gfm 自带的 wrapInTaskListInputRule 行首锚定
+ * `/^\[(\s|x)\]\s$/`，`- [ ] `（Typora 习惯）因前面有列表符永远匹配不上。
+ * 这里放宽为「可有列表符前缀」：`- [ ] ` / `- [x] ` / `[ ] ` 都能命中。
+ * 与 gfm 原规则共存：裸 `[ ] ` 由原规则先命中，其余形态落到本规则。
+ */
+export const taskListBulletInputRule = $inputRule((ctx: Ctx) =>
+  new InputRule(/^(\s*[-+*]\s)?\[(?<checked>\s|x)\]\s$/, (state, match, start, end) => {
+    const pos = state.doc.resolve(start)
+    let depth = 0
+    let node = pos.node(depth)
+    while (node && node.type.name !== 'list_item') {
+      depth--
+      node = pos.node(depth)
+    }
+    // 仅普通列表项可转任务项（checked==null）；已是任务项的不重复处理
+    if (!node || node.attrs.checked != null) return null
+    const checked = Boolean(match.groups?.checked === 'x')
+    const finPos = pos.before(depth)
+    return state.tr.deleteRange(start, end).setNodeMarkup(finPos, undefined, {
+      ...node.attrs,
+      checked
+    })
+  })
+)
+
+/**
+ * 图片输入规则（P5）：`![alt](src)` 键入完成即转图片节点。
+ * preset-commonmark 定义了 insertImageInputRule 但未纳入组合的 inputRules
+ * 数组（上游遗漏），这里按同语义自建并显式注册。
+ */
+export const imageInlineInputRule = $inputRule((ctx: Ctx) =>
+  new InputRule(
+    /!\[(?<alt>[^\]]*)\]\((?<src>[^)\s]+)(?:\s+"(?<title>[^"]*)")?\)$/,
+    (state, match, start, end) => {
+      const src = match.groups?.src ?? ''
+      if (!src) return null
+      const type = imageSchema.type(ctx)
+      // title 属性类型是 string（传 null 会抛 RangeError），无 title 时用空串
+      return state.tr.replaceWith(
+        start,
+        end,
+        type.create({ src, alt: match.groups?.alt ?? '', title: match.groups?.title ?? '' })
+      )
+    }
+  )
+)
+
+/**
+ * 链接输入规则（P5）：`[文本](href)` 键入完成即加链接标记。
+ * preset-commonmark 无链接输入规则（只有命令/工具栏入口），补齐 Typora 语义。
+ */
+export const inlineLinkInputRule = $inputRule((ctx: Ctx) =>
+  new InputRule(
+    /\[(?<text>[^\]\n]+)\]\((?<href>[^)\s]+)(?:\s+"(?<title>[^"]*)")?\)$/,
+    (state, match, start, end) => {
+      const href = match.groups?.href ?? ''
+      const text = match.groups?.text ?? ''
+      if (!href || !text) return null
+      const type = linkSchema.type(ctx)
+      return state.tr.replaceWith(
+        start,
+        end,
+        state.schema.text(text, [type.create({ href, title: match.groups?.title ?? null })])
+      )
+    }
+  )
+)

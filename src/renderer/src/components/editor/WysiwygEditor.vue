@@ -8,6 +8,7 @@ import {
   editorViewCtx,
   serializerCtx,
   remarkCtx,
+  parserCtx,
   remarkPluginsCtx,
   remarkStringifyOptionsCtx
 } from '@milkdown/kit/core'
@@ -42,7 +43,7 @@ import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { history } from '@milkdown/kit/plugin/history'
 import { replaceAll, $prose, callCommand } from '@milkdown/kit/utils'
 import { NodeSelection, TextSelection, type EditorState } from '@milkdown/kit/prose/state'
-import { Fragment, type Node as PMNode } from '@milkdown/kit/prose/model'
+import { Fragment, Slice, type Node as PMNode } from '@milkdown/kit/prose/model'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { lift } from '@milkdown/kit/prose/commands'
 import { liftListItem, sinkListItem } from '@milkdown/kit/prose/schema-list'
@@ -130,6 +131,9 @@ import {
   footnoteReferenceSchema,
   footnoteDefinitionSchema,
   footnoteReferenceInputRule,
+  taskListBulletInputRule,
+  imageInlineInputRule,
+  inlineLinkInputRule,
   yamlSchema,
   tocSchema,
   tocView,
@@ -707,9 +711,36 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
       return true
     }
   }
-  // 回车 = 软换行（与双栏源码「回车只换一行」一致）；光标紧贴换行后再按回车
-  // 升级为真实分段（对应双栏的「空行分段」）。列表/表格/标题/代码块保持默认
+  // 段落输入 ```lang 后回车 → 代码块（Typora 语义）。preset 的输入规则要求
+  // 围栏后先敲一个空格才触发，` ```js` 直接回车命中不了，这里在 Enter 上补齐
   if (
+    event.key === 'Enter' &&
+    !event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !inCodeBlock(state) &&
+    !inListItem(state) &&
+    !inTable(state)
+  ) {
+    const { $from } = state.selection
+    const text = $from.parent.type.name === 'paragraph' ? $from.parent.textContent : ''
+    const fm = /^```([A-Za-z0-9+#._-]*)$/.exec(text)
+    if (fm) {
+      event.preventDefault()
+      const codeT = state.schema.nodes.code_block
+      const from = $from.before()
+      const tr = state.tr.replaceWith(from, $from.after(), codeT.create({ language: fm[1] ?? '' }))
+      tr.setSelection(TextSelection.near(tr.doc.resolve(from + 1)))
+      view.dispatch(tr)
+      return true
+    }
+  }
+  // 回车 = 软换行（与双栏源码「回车只换一行」一致）；光标紧贴换行后再按回车
+  // 升级为真实分段（对应双栏的「空行分段」）。列表/表格/标题/代码块保持默认。
+  // 「回车即分段」（enterSplits，Typora 习惯）开启时不拦截，走分段的默认行为
+  if (
+    !ui.editorPrefs.enterSplits &&
     event.key === 'Enter' &&
     !event.shiftKey &&
     !event.ctrlKey &&
@@ -1623,6 +1654,39 @@ function onHostPasteTsv(e: ClipboardEvent): void {
   }
 }
 
+/** 纯文本 Markdown 粘贴（P4）：剪贴板是多行 Markdown（围栏/标题/列表/引用/
+ *  表格/强调/链接等结构语法）时按 Markdown 解析成节点插入，与 Typora 一致。
+ *  普通纯文本、代码块内、单行文本不接管，仍走默认粘贴（逐字/纯文本段落）。 */
+const MD_PASTE_PAT = /^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|~~~|\|.*\|)|\*\*[^*\n]+\*\*|__[^_\n]+__|!\[[^\]]*\]\([^)]+\)|\[[^\]\n]+\]\([^)]+\)/m
+
+function onHostPasteMarkdown(e: ClipboardEvent): void {
+  const view = getView()
+  if (!view || !e.clipboardData) return
+  const el = e.target as HTMLElement | null
+  if (!el || !view.dom.contains(el)) return
+  if (inCodeBlock(view.state)) return
+  if (e.clipboardData.getData('text/html')) return // 富文本来源（浏览器复制）交给默认/TSV 逻辑
+  const text = e.clipboardData.getData('text/plain')
+  if (!text || text.includes('\t')) return // TSV 由表格粘贴逻辑接管
+  if (!text.includes('\n') || !MD_PASTE_PAT.test(text)) return
+  let ok = false
+  editor?.action((ctx) => {
+    try {
+      const parser = ctx.get(parserCtx)
+      const doc = parser(text)
+      // 整段文档内容作为片段插入（replaceSelection 保留前后文）
+      view.dispatch(view.state.tr.replaceSelection(new Slice(doc.content, 0, 0)).scrollIntoView())
+      ok = true
+    } catch {
+      ok = false
+    }
+  })
+  if (ok) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+}
+
 function onHostOver(e: MouseEvent): void {
   const target = e.target
   if (!(target instanceof HTMLImageElement) || !target.closest('.luci-prose')) return
@@ -2402,6 +2466,7 @@ onMounted(() => {
   host.value.addEventListener('error', onHostImgError, { capture: true })
   // TSV 粘贴建表/填格（6.4a）：捕获层先于 milkdown 剪贴板插件接管
   host.value.addEventListener('paste', onHostPasteTsv, { capture: true })
+  host.value.addEventListener('paste', onHostPasteMarkdown, { capture: true })
   // 用户滚轮即接管：停用切签锚点的自动重对齐
   host.value.addEventListener(
     'wheel',
@@ -2468,6 +2533,10 @@ onMounted(() => {
     .use(footnoteReferenceSchema)
     .use(footnoteDefinitionSchema)
     .use(footnoteReferenceInputRule)
+    // 任务列表 `- [ ] `、图片 `![alt](src)`、链接 `[text](href)` 键入即转换
+    .use(taskListBulletInputRule)
+    .use(imageInlineInputRule)
+    .use(inlineLinkInputRule)
     .use(footnoteRefView)
     .use(createFootnoteJumpPlugin)
     // front matter + [TOC]
@@ -2622,6 +2691,7 @@ onBeforeUnmount(() => {
   host.value?.removeEventListener('mouseout', onHostOut)
   host.value?.removeEventListener('scroll', onHostScroll)
   host.value?.removeEventListener('paste', onHostPasteTsv, { capture: true })
+  host.value?.removeEventListener('paste', onHostPasteMarkdown, { capture: true })
   host.value?.removeEventListener('load', onHostImgLoad, { capture: true })
   host.value?.removeEventListener('error', onHostImgError, { capture: true })
   host.value?.removeEventListener(

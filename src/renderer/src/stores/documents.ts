@@ -5,7 +5,7 @@ import { useWorkspaceStore } from './workspace'
 import type { DetachDoc, DraftPayload } from '@shared/types'
 import { t } from '@/i18n'
 import { htmlToMarkdown } from '@/services/richPaste'
-import { normalizeOrderedNumbering } from '@/services/markdown'
+import { normalizeOrderedNumbering, normalizeSingleLineBlockMath } from '@/services/markdown'
 import { contentEquivalent } from '@/services/content-equivalence'
 import sampleDoc from '@samples/示例.md?raw'
 import markdownHelpDoc from '@samples/Markdown语法帮助.md?raw'
@@ -217,6 +217,9 @@ export const useDocumentsStore = defineStore('documents', {
         // 有序列表编号归一化（Typora 语义）：空行分隔的有序组从 1 起，
         // 打开即与预览一致；脏标记不变，用户实际编辑保存时才会写入磁盘
         content = normalizeOrderedNumbering(content)
+        // 单行 $$..$$ → 围栏块级公式（同上策略）：不归一会被护栏按字面拒绝，
+        // 导致「打开即未保存」（`_` 转义）且公式不渲染
+        content = normalizeSingleLineBlockMath(content)
         const tab: DocTab = {
           id: nextId++,
           path,

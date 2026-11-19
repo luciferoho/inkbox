@@ -452,6 +452,8 @@ export const en: MsgSchema = {
   'settings.spellcheckHint': 'Underline misspelled English words in editors (built-in Chromium dictionary); non-Latin text is skipped. Off by default',
   'settings.formatBar': 'Floating format bar',
   'settings.formatBarHint': 'Show a small toolbar when selecting text in WYSIWYG: bold/italic/strikethrough/inline code/highlight/link/heading level. On by default',
+  'settings.enterSplits': 'Enter splits paragraphs',
+  'settings.enterSplitsHint': 'When on, Enter inside a paragraph starts a new paragraph (Typora habit). Off by default: Enter inserts a soft line break and a second Enter splits (matching the split-pane blank-line semantics)',
   'settings.vimMode': 'Vim mode',
   'settings.showDocPath': 'Show document path',
   'settings.showDocPathHint': 'Shows the full path under the document title; turn off to display the file name only. Editing and saving are unaffected',

@@ -740,6 +740,19 @@ function checkUpdate(): void {
           </button>
         </div>
         <p class="row-hint">{{ $t('settings.formatBarHint') }}</p>
+        <div class="row">
+          <span class="label">{{ $t('settings.enterSplits') }}</span>
+          <button
+            class="switch"
+            role="switch"
+            :aria-checked="ui.editorPrefs.enterSplits === true"
+            :class="{ on: ui.editorPrefs.enterSplits === true }"
+            @click="ui.setEditorPrefs({ enterSplits: ui.editorPrefs.enterSplits !== true })"
+          >
+            <i class="knob" />
+          </button>
+        </div>
+        <p class="row-hint">{{ $t('settings.enterSplitsHint') }}</p>
       </template>
 
       <!-- 图床：PicGo server 协议上传 -->
