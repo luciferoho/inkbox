@@ -101,6 +101,7 @@ import { createLeafDeletePlugin } from '@/editor/pm-leaf-delete'
 import { hrView } from '@/editor/pm-hr-view'
 import { wrappedTableView } from '@/editor/pm-table-view'
 import { createTaskTogglePlugin } from '@/editor/pm-task-toggle'
+import { registerWysiwygFlush } from '@/editor/wysiwyg-flush'
 import { parseAltMods, buildAltMods, stepWidth, luciToDisplaySrc, type ImageMods } from '@/editor/image-utils'
 import { splitAdjacentOrderedLists, parseOutline } from '@/services/markdown'
 // 单换行 → 硬换行：与预览管线 markdown-it 的 breaks:true 对齐（否则即显把
@@ -186,6 +187,23 @@ function applyReplace(markdown: string): void {
   } finally {
     applying = false
   }
+}
+
+/* 保存前同步（P14）：markdownUpdated 有防抖，saveTab 直读 store 会截掉最后
+   一段输入。组件跨标签复用（tabId 随 activeId watch 更新），注册跟随 tabId
+   重挂，卸载时解绑 */
+let unregisterFlush: (() => void) | null = null
+function serializeNow(): string | null {
+  if (!editor || tabId === null) return null
+  return editor.action((ctx) => {
+    const ser = ctx.get(serializerCtx)
+    const view = ctx.get(editorViewCtx)
+    return fromWysiwygSource(String(ser(view.state.doc)))
+  })
+}
+function registerFlush(): void {
+  unregisterFlush?.()
+  unregisterFlush = tabId === null ? null : registerWysiwygFlush(tabId, serializeNow)
 }
 
 /* ---------- 代码块编辑体验 ---------- */
@@ -709,6 +727,32 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
       return true
     }
   }
+  // 脚注定义内回车：提出到定义之后的正文（定义在文末则补一个空段落）。
+  // 定义块不支持分割，默认回车会变成软换行——后续键入全部被吞进定义
+  // （2026-11-20 F8：v1 产物三个章节被吞进定义实证）
+  if (
+    event.key === 'Enter' &&
+    !event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey
+  ) {
+    const { $from } = state.selection
+    for (let d = $from.depth; d > 0; d--) {
+      if ($from.node(d).type.name === 'footnote_definition') {
+        event.preventDefault()
+        const after = $from.after(d)
+        const tr = state.tr
+        if (after >= state.doc.content.size) {
+          tr.insert(after, state.schema.nodes.paragraph.create())
+        }
+        const $pos = tr.doc.resolve(Math.min(after + 1, tr.doc.content.size))
+        tr.setSelection(TextSelection.near($pos))
+        view.dispatch(tr.scrollIntoView())
+        return true
+      }
+    }
+  }
   // 段落输入 ```lang 后回车 → 代码块（Typora 语义）。preset 的输入规则要求
   // 围栏后先敲一个空格才触发，` ```js` 直接回车命中不了，这里在 Enter 上补齐
   if (
@@ -869,6 +913,13 @@ function fromWysiwygSource(md: string): string {
         : // 列表项内空段落：`2. <br />` / `- <br />` / `- [ ] <br />` → 干净的空列表项
           // （只归一化有序项曾漏掉任务项，源码里留下字面 <br /> 标签占位）
           l.replace(/^([ \t]*(?:\d+[.)]|[-*+])[ \t]+(?:\[[ xX]\][ \t]+)?)<br\s*\/?>[ \t]*$/i, '$1')
+    )
+    .map((l) =>
+      // 引用内空段落：`> <br />` → `>`。引用行的空段落不归一会落盘字面 <br />，
+      // 重开解析不等价 → 打开即脏（2026-11-20 P15，与列表行同族）
+      /^[ \t]*(?:>[ \t]*)+<br\s*\/?>[ \t]*$/i.test(l)
+        ? l.replace(/^([ \t]*(?:>[ \t]*)+)<br\s*\/?>[ \t]*$/i, '$1').replace(/[ \t]+$/, '')
+        : l
     )
     .join('\n')
     .replace(/^(\s*\d+)\)/gm, '$1.')
@@ -2505,7 +2556,34 @@ onMounted(() => {
         ...prev,
         // spellcheck 初始值按设置（4.2）；切换广播见 onSpellcheckBroadcast
         attributes: { class: 'luci-prose', spellcheck: ui.editorPrefs.spellcheck ? 'true' : 'false' },
-        handleKeyDown: (view, event) => handleKeys(view, event)
+        handleKeyDown: (view, event) => handleKeys(view, event),
+        // 多行（块级）粘贴后光标会停在粘贴内容末尾的开放容器里，紧接着敲的
+        // 正文被吞进引用/脚注定义（2026-11-20 P16）。放行默认粘贴，异步把
+        // 光标提出这两类容器；列表项不逃逸（粘贴列表后续打字续写是预期行为）
+        handlePaste: (view, event) => {
+          const text = event.clipboardData?.getData('text/plain') ?? ''
+          if (!text.trim() || !text.trimEnd().includes('\n')) return false
+          requestAnimationFrame(() => {
+            // 重读 view.state：默认粘贴在返回 false 后才完成，此刻才是插入后的状态
+            const st = view.state
+            const { $from } = st.selection
+            for (let d = $from.depth; d > 0; d--) {
+              const name = $from.node(d).type.name
+              if (name === 'blockquote' || name === 'footnote_definition') {
+                const after = $from.after(d)
+                const tr = st.tr
+                if (after >= st.doc.content.size) {
+                  tr.insert(after, st.schema.nodes.paragraph.create())
+                }
+                const $pos = tr.doc.resolve(Math.min(after + 1, tr.doc.content.size))
+                tr.setSelection(TextSelection.near($pos))
+                view.dispatch(tr)
+                return
+              }
+            }
+          })
+          return false
+        }
       }))
     })
     .use(commonmark)
@@ -2667,11 +2745,13 @@ onMounted(() => {
       applyCachedImageSizes(hostEl)
       applyWysiwygProgress()
     })
+    registerFlush()
     pullFind(tabId, true) // 编辑器就绪后恢复当前标签共享的查找条状态
   })
 })
 
 onBeforeUnmount(() => {
+  unregisterFlush?.()
   offTableWidths?.()
   window.removeEventListener('inkbox:theme-applied', onThemeApplied)
   window.removeEventListener('inkbox:spellcheck', onSpellcheckBroadcast)
@@ -2784,6 +2864,7 @@ watch(
   (id, old) => {
     saveWysiwygProgress(old)
     tabId = id
+    registerFlush() // flush 注册跟随当前标签（保存前同步按 tabId 寻址）
     const markdown = docs.active?.content ?? ''
     if (editor) applyReplace(markdown)
     else pending = markdown

@@ -21,6 +21,7 @@ interface MdastNode {
   alt?: unknown
   title?: unknown
   checked?: unknown
+  value?: string
   children?: MdastNode[]
 }
 
@@ -50,12 +51,14 @@ export function repairEmptyTaskItems() {
     const walk = (n: MdastNode): void => {
       if (n.type === 'listItem' && (n.checked === null || n.checked === undefined)) {
         const first = n.children?.[0]
-        const only = first?.type === 'paragraph' ? first.children : undefined
-        if (only?.length === 1 && only[0].type === 'text' && typeof only[0].value === 'string') {
-          const m = /^\[([ xX])\][ \t]*$/.exec(only[0].value)
-          if (m) {
-            n.checked = m[1].toLowerCase() === 'x'
-            first.children = []
+        if (first && first.type === 'paragraph') {
+          const only = first.children
+          if (only?.length === 1 && only[0].type === 'text' && typeof only[0].value === 'string') {
+            const m = /^\[([ xX])\][ \t]*$/.exec(only[0].value)
+            if (m) {
+              n.checked = m[1].toLowerCase() === 'x'
+              first.children = []
+            }
           }
         }
       }
@@ -76,12 +79,36 @@ export function dropSplitHeadings() {
   }
 }
 
+/** 容器内孤立硬换行清理（存量文件）：remark-breaks 会把旧版序列化缺陷落盘的
+ *  字面 `<br />` 解析成 break。`> <br />`（引用里只有一个 break）是空段落残渣
+ *  （P15），不清掉则重开序列化不等价 → 打开即脏。列表项同族一并处理。 */
+export function dropLoneBreakInContainers() {
+  return (tree: MdastNode): void => {
+    const walk = (n: MdastNode): void => {
+      // 本插件在 remarkBreaks 之前运行：<br /> 此时是 html 节点，之后才是 break，
+      // 两种形态都认（remark-breaks 缺席/顺序调整时不失效）
+      const lone =
+        n.children?.length === 1 &&
+        (n.children[0].type === 'break' ||
+          (n.children[0].type === 'html' && /^\s*<br\s*\/?>\s*$/i.test(String(n.children[0].value ?? ''))))
+      if ((n.type === 'blockquote' || n.type === 'listItem') && lone) {
+        // 换成空段落而不是清空 children：空容器会被 milkdown 整个丢弃，
+        // 序列化少一块 → 与磁盘不等价（等于白修）
+        n.children = [{ type: 'paragraph', children: [] }]
+      }
+      n.children?.forEach((c) => walk(c))
+    }
+    walk(tree)
+  }
+}
+
 /** 与 WysiwygEditor 的 ctx.update(remarkPluginsCtx) 完全一致的插件序列。
  *  options 字段沿用 milkdown 约定（core 按 plug.plugin 取值 use） */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const wysiwygRemarkPlugins: { plugin: any; options: any }[] = [
   { plugin: normalizeImageNulls, options: {} },
   { plugin: repairEmptyTaskItems, options: {} },
+  { plugin: dropLoneBreakInContainers, options: {} },
   { plugin: dropSplitHeadings, options: {} },
   { plugin: remarkBreaks, options: {} },
   // $...$ / $$...$$ → mdast inlineMath/math，由 wysiwyg-math 的 schema 接住

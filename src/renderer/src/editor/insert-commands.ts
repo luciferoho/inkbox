@@ -85,15 +85,19 @@ function pmInsertTableDims(view: PMView, rows: number, cols: number): boolean {
   const s = view.state.schema
   const tableT = s.nodes.table
   const rowT = s.nodes.table_row
+  const headerRowT = s.nodes.table_header_row
   const headerT = s.nodes.table_header
   const cellT = s.nodes.table_cell
   const paraT = s.nodes.paragraph
-  if (!tableT || !rowT || !headerT || !cellT || !paraT) return false
+  if (!tableT || !rowT || !headerRowT || !headerT || !cellT || !paraT) return false
   const cell = (type: NodeType, text: string): PMNode =>
     type.create(null, paraT.create(null, text ? s.text(text) : null))
-  // 首行表头（列1..列N），其余正文行
+  // 首行表头（列1..列N），其余正文行。首行必须是 table_header_row 类型：
+  // gfm schema 规定 table 内容为 "table_header_row table_row+"，用 table_row
+  // 装表头单元格会让整表成为非法节点，后续加行列（Tab/Ctrl+Enter/右键）全部
+  // 在 replace 拟合时抛 contentMatchAt 静默失败（2026-11-20 P13）
   const body = [
-    rowT.create(null, Array.from({ length: cols }, (_, i) => cell(headerT, `列${i + 1}`))),
+    headerRowT.create(null, Array.from({ length: cols }, (_, i) => cell(headerT, `列${i + 1}`))),
     ...Array.from({ length: Math.max(rows - 1, 1) }, () =>
       rowT.create(null, Array.from({ length: cols }, () => cell(cellT, '')))
     )

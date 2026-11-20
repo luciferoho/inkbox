@@ -1347,11 +1347,16 @@ export const inlineLinkInputRule = $inputRule((ctx: Ctx) =>
       const text = match.groups?.text ?? ''
       if (!href || !text) return null
       const type = linkSchema.type(ctx)
-      return state.tr.replaceWith(
+      const tr = state.tr.replaceWith(
         start,
         end,
         state.schema.text(text, [type.create({ href, title: match.groups?.title ?? null })])
       )
+      // 光标落链尾并清 storedMarks：不这么做光标带着链接 mark（ArrowRight 也
+      // 出不去），紧跟着敲的说明文字全被吞进链接文字（2026-11-20 P16）
+      return tr
+        .setSelection(TextSelection.create(tr.doc, start + text.length))
+        .setStoredMarks([])
     }
   )
 )

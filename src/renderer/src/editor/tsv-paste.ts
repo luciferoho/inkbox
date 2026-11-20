@@ -126,10 +126,17 @@ export function pmPasteTsv(view: PMView, text: string): boolean {
         return c
       }
       const mkRow = (cells: string[], header: boolean): PMNode =>
-        schema.nodes.table_row.create(
-          null,
-          pad(cells).map((c) => cellOf(schema, header ? 'table_header' : 'table_cell', c))
-        )
+        header
+          ? // 首行必须是 table_header_row：table 内容为 "table_header_row table_row+"，
+            // 用 table_row 装表头单元格会建出非法节点，随后加行列全抛 contentMatchAt（P13）
+            schema.nodes.table_header_row.create(
+              null,
+              pad(cells).map((c) => cellOf(schema, 'table_header', c))
+            )
+          : schema.nodes.table_row.create(
+              null,
+              pad(cells).map((c) => cellOf(schema, 'table_cell', c))
+            )
       // cellOf 已把 alignment 置 null，序列化保持 '---' 分隔行
       const out = [mkRow(rows[0], true)]
       for (let i = 1; i < rows.length; i++) out.push(mkRow(rows[i], false))
