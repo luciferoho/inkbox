@@ -20,6 +20,7 @@ interface MdastNode {
   depth?: number
   alt?: unknown
   title?: unknown
+  checked?: unknown
   children?: MdastNode[]
 }
 
@@ -31,6 +32,32 @@ export function normalizeImageNulls() {
       if (n.type === 'image') {
         if (n.alt === null || n.alt === undefined) n.alt = ''
         if (n.title === null || n.title === undefined) n.title = ''
+      }
+      n.children?.forEach((c) => walk(c))
+    }
+    walk(tree)
+  }
+}
+
+/** 空内容任务项修复：milkdown 内置 remark-gfm 的 tasklist 分词器要求复选框后
+ *  跟非空白内容，`- [ ] `/`- [x] `（复选框在行尾，插入面板/输入规则的空任务项
+ *  都是这个形态）解析成 checked:null + 字面文本 [ ]，模式往返后任务项退化为
+ *  普通列表项。GFM 规范允许复选框后仅空白到行尾（预览侧 markdown-it 就能渲染
+ *  出复选框），这里在 mdast 层对齐：listItem 无 checked 且首段文本恰为
+ *  [ ]/[x]（可带尾随空白）时改写 checked 并清空该段文本。 */
+export function repairEmptyTaskItems() {
+  return (tree: MdastNode): void => {
+    const walk = (n: MdastNode): void => {
+      if (n.type === 'listItem' && (n.checked === null || n.checked === undefined)) {
+        const first = n.children?.[0]
+        const only = first?.type === 'paragraph' ? first.children : undefined
+        if (only?.length === 1 && only[0].type === 'text' && typeof only[0].value === 'string') {
+          const m = /^\[([ xX])\][ \t]*$/.exec(only[0].value)
+          if (m) {
+            n.checked = m[1].toLowerCase() === 'x'
+            first.children = []
+          }
+        }
       }
       n.children?.forEach((c) => walk(c))
     }
@@ -54,6 +81,7 @@ export function dropSplitHeadings() {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const wysiwygRemarkPlugins: { plugin: any; options: any }[] = [
   { plugin: normalizeImageNulls, options: {} },
+  { plugin: repairEmptyTaskItems, options: {} },
   { plugin: dropSplitHeadings, options: {} },
   { plugin: remarkBreaks, options: {} },
   // $...$ / $$...$$ → mdast inlineMath/math，由 wysiwyg-math 的 schema 接住

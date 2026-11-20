@@ -574,7 +574,9 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     // 始终拦截:普通段落放行 Tab 会被浏览器抢走焦点(跳到状态栏按钮)
     event.preventDefault()
     // 表格单元格：Tab/Shift+Tab 跳到下/上一个单元格（prosemirror-tables 命令）；
-    // 尾格 Tab = 追加一行并跳进新行首格（6.4d，Typora 行为）
+    // 跳不动（选区引用没变 = 命令没派发事务）即真尾格：追加一行并跳进新行首格
+    //（6.4d，Typora 行为）。不按行列号预判——仅表头表/尾部空行这类退化结构里
+    // 「当前格之后的行没有任何单元格」，按 childCount 判会同时卡死跳格与加行。
     if (inTable(state)) {
       if (editor) {
         if (event.shiftKey) {
@@ -582,18 +584,14 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
           return true
         }
         const view = getView()
+        const before = view ? view.state.selection : null
         const meta = view ? findTableSelection(view) : null
-        const t = view && meta ? view.state.doc.nodeAt(meta.pos) : null
-        const isLastCell =
-          !!t &&
-          !!meta &&
-          meta.row === t.childCount - 1 &&
-          meta.col === (t.child(meta.row)?.childCount ?? 0) - 1
-        if (view && meta && isLastCell) {
+        elTable(callCommand(goToNextTableCellCommand.key))
+        const view2 = getView()
+        const moved = !!view2 && !!before && view2.state.selection !== before
+        if (!moved && view2 && meta) {
           elTable(callCommand(addRowAfterCommand.key))
-          selectPmTableCell(view, meta.pos, meta.row + 1, 0)
-        } else {
-          elTable(callCommand(goToNextTableCellCommand.key))
+          selectPmTableCell(getView() ?? view2, meta.pos, meta.row + 1, 0)
         }
       }
       return true
@@ -2615,13 +2613,21 @@ onMounted(() => {
               type?: string
               alt?: unknown
               title?: unknown
+              checked?: unknown
               children?: DebugMdastNode[]
             }
             const tree = proc.runSync(proc.parse(src)) as unknown as DebugMdastNode
-            const walk = (n: DebugMdastNode): unknown =>
-              n.type === 'image'
-                ? { type: n.type, alt: n.alt, title: n.title }
-                : { type: n.type, kids: (n.children ?? []).map(walk) }
+            // 保留全部属性（checked/ordered/url…），只剥掉 position——定位解析层丢字段的场景
+            const walk = (n: DebugMdastNode): unknown => {
+              const plain = JSON.parse(
+                JSON.stringify(n, (k, v) => (k === 'position' ? undefined : v))
+              ) as Record<string, unknown>
+              if (Array.isArray(plain.children)) {
+                plain.kids = (plain.children as DebugMdastNode[]).map(walk)
+                delete plain.children
+              }
+              return plain
+            }
             return JSON.stringify(walk(tree))
           }),
         contentInfo: () =>
