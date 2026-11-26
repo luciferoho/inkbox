@@ -26,10 +26,13 @@ import {
   getColWidths,
   hasColWidths,
   headerKeyOf,
-  hitColumnBoundary,
+  hideColBoundaryFeedback,
+  hitColumnBoundaryAt,
+  isColResizing,
   onColWidthsChanged,
   resetTableWidth,
   setColWidths,
+  showColBoundaryFeedback,
   tableKey,
 } from '@/editor/table-widths'
 
@@ -45,23 +48,35 @@ function applyStoredTableWidths(container: HTMLElement): void {
   })
 }
 
-/** 表头列边界 hover 光标（与即显同款，rAF 节流） */
+/** 表头列边界 hover：光标变 col-resize + 分割线高亮（与即显同款，rAF 节流） */
 let pvCursorRaf = 0
 function onPreviewMouseMoveTableCursor(e: MouseEvent): void {
+  // 列宽拖拽期间由拖拽逻辑自己维护高亮线与光标
+  if (isColResizing()) return
   if (pvCursorRaf) return
   const x = e.clientX
   const target = e.target as HTMLElement | null
   pvCursorRaf = window.requestAnimationFrame(() => {
     pvCursorRaf = 0
+    if (isColResizing()) return
     const table = target?.closest?.('table')
     if (!(table instanceof HTMLTableElement)) {
-      scroller.value?.style.removeProperty('cursor')
+      hideColBoundaryFeedback()
       return
     }
-    if (hitColumnBoundary(table, x) !== null)
-      scroller.value?.style.setProperty('cursor', 'col-resize')
-    else scroller.value?.style.removeProperty('cursor')
+    const hit = hitColumnBoundaryAt(table, x)
+    if (!hit) {
+      hideColBoundaryFeedback()
+      return
+    }
+    const r = scroller.value?.getBoundingClientRect()
+    showColBoundaryFeedback(table, hit.edgeX, r ? { top: r.top, bottom: r.bottom } : null)
   })
+}
+
+/** 滚动/离开预览：表格位移后高亮线会残影，先收起（指针再次移动会重新判定） */
+function onPreviewLeaveTableCursor(): void {
+  hideColBoundaryFeedback()
 }
 
 /** 预览侧列宽拖拽：与即显共享同一份记忆，拖完即显侧重渲染时自动跟随 */
@@ -72,8 +87,12 @@ function onPreviewMouseDownTableWidths(e: MouseEvent): void {
   if (!(table instanceof HTMLTableElement)) return
   const tables = Array.from(body.value?.querySelectorAll('table') ?? [])
   const index = tables.indexOf(table)
-  dragColumnWidth(table, e, (widths) =>
-    setColWidths(tableKey(docs.activeId ?? 'x', index, headerKeyOf(table)), widths)
+  const r = scroller.value?.getBoundingClientRect()
+  dragColumnWidth(
+    table,
+    e,
+    (widths) => setColWidths(tableKey(docs.activeId ?? 'x', index, headerKeyOf(table)), widths),
+    r ? { top: r.top, bottom: r.bottom } : null
   )
 }
 import FindBar from './FindBar.vue'
@@ -1403,6 +1422,8 @@ onMounted(() => {
   // 主动触发；开关切换时引擎懒加载就绪前先按开关状态包装或还原）
   window.addEventListener('inkbox:spellcheck', onSpellBroadcastPreview)
   scroller.value?.addEventListener('mousemove', onPreviewMouseMoveTableCursor, { passive: true })
+  scroller.value?.addEventListener('mouseleave', onPreviewLeaveTableCursor)
+  scroller.value?.addEventListener('scroll', onPreviewLeaveTableCursor, { passive: true })
   scroller.value?.addEventListener('scroll', onScrollDom, { passive: true })
   scroller.value?.addEventListener('click', onClickDom)
   scroller.value?.addEventListener('load', onImgLoad, { capture: true, passive: true })
@@ -1420,6 +1441,9 @@ onBeforeUnmount(() => {
   body.value?.removeEventListener('drop', preventPreviewInput)
   window.removeEventListener('inkbox:spellcheck', onSpellBroadcastPreview)
   scroller.value?.removeEventListener('mousemove', onPreviewMouseMoveTableCursor)
+  scroller.value?.removeEventListener('mouseleave', onPreviewLeaveTableCursor)
+  scroller.value?.removeEventListener('scroll', onPreviewLeaveTableCursor)
+  hideColBoundaryFeedback()
   pushFind() // 兜底推送（正常情况下每次变化都已实时推送）
   scroller.value?.removeEventListener('scroll', onScrollDom)
   scroller.value?.removeEventListener('click', onClickDom)
