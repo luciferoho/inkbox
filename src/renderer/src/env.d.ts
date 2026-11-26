@@ -59,6 +59,11 @@ interface Window {
       clear(key: string): Promise<void>
       clearAll(): Promise<void>
     }
+    clipboard: {
+      readText(): Promise<string>
+      writeText(text: string): Promise<void>
+      writeRich(text: string, html?: string): Promise<void>
+    }
     drag: {
       begin(doc: import('@shared/types').DetachDoc): void
       end(): void

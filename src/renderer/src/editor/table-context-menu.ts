@@ -1,7 +1,7 @@
 import { reactive } from 'vue'
 import { TextSelection } from '@milkdown/kit/prose/state'
 import type { EditorState } from '@milkdown/kit/prose/state'
-import { CellSelection, selectedRect } from '@milkdown/kit/prose/tables'
+import { CellSelection, deleteCellSelection, selectedRect } from '@milkdown/kit/prose/tables'
 import type { EditorView as PmView } from '@milkdown/kit/prose/view'
 import type { EditorView as CmView } from '@codemirror/view'
 import { useUiStore } from '@/stores/ui'
@@ -10,12 +10,13 @@ import { t } from '@/i18n'
 import { cmViews } from './cm-registry'
 import { pmViews } from './pm-registry'
 import { findTableSelection } from './pm-element-toolbar'
-import { writeClipboard } from './code-copy'
+import { writeClipboard, writeClipboardRich } from './code-copy'
 import { parseImageLine } from './image-utils'
 import {
   applyTableOp,
   cellStart,
   detectTable,
+  gfmTable,
   splitCells,
   tableSelectionSpan,
   type TableInfo,
@@ -23,6 +24,10 @@ import {
   type TableSpan
 } from './table-utils'
 import { cmdBold, cmdInlineCode, cmdItalic, cmdLink, cmdStrike } from './cm-commands'
+import { tryPmSmartPaste } from './paste-smart'
+import { pmClipboardData } from './table-cell-copy'
+import { readClipboardText } from '@/services/clipboard'
+import { cmPasteTsv } from './tsv-paste'
 import {
   clearColWidths,
   getColWidths,
@@ -91,6 +96,10 @@ export const tableMenu = reactive({
   /** 多选时将被批量删除的行/列数（0 = 按右键落点单行/单列） */
   rowBatch: 0,
   colBatch: 0,
+  /** 右键「复制/剪切」是否有可复制的内容（无选中时置灰：复制只针对选中内容，
+   *  整表复制走「整表操作 → 复制表格」） */
+  canCopy: false,
+  canCut: false,
   /** 预览（只读）面板：仅复制与列宽重置可用 */
   readOnly: false,
   /** 弹菜单时的面板类型（「格式化表格源码」只在 cm 提供） */
@@ -99,12 +108,15 @@ export const tableMenu = reactive({
 
 type Target =
   | { kind: 'cm'; view: CmView; info: TableInfo; span: TableSpan | null }
-  | { kind: 'pm'; view: PmView }
+  /** tablePos：右键落点所在表格的文档位置。表格动作以它为准，不依赖当前选区——
+   *  落点在单元格边框/滚动壳上时 posAtCoords 可能给不出位置，选区会停留在上一次
+   *  的表格里，导致「复制 A 却复制成 B」 */
+  | { kind: 'pm'; view: PmView; tablePos?: number }
   | { kind: 'preview'; table: HTMLTableElement }
 let target: Target | null = null
 
 /** 即显侧执行器（WysiwygEditor 挂载时注册）：菜单动作 → Milkdown gfm 命令 */
-export type PmTableExecutor = (action: TableMenuAction) => boolean
+export type PmTableExecutor = (action: TableMenuAction, tablePos?: number) => boolean
 let pmExecutor: PmTableExecutor | null = null
 export function registerPmTableExecutor(fn: PmTableExecutor | null): void {
   pmExecutor = fn
@@ -120,6 +132,9 @@ export interface OpenTableMenuOpts {
   canMoveRowDown?: boolean
   rowBatch?: number
   colBatch?: number
+  /** 右键是否有可复制/剪切的内容（无选中时置灰） */
+  canCopy?: boolean
+  canCut?: boolean
 }
 
 /** 即显多选的单元格矩形（行列 0 基，bottom/right 不含）；非 CellSelection 返回 null */
@@ -150,6 +165,8 @@ export function openTableMenu(
   tableMenu.canMoveRowDown = opts.canMoveRowDown ?? false
   tableMenu.rowBatch = opts.rowBatch ?? 0
   tableMenu.colBatch = opts.colBatch ?? 0
+  tableMenu.canCopy = opts.canCopy ?? false
+  tableMenu.canCut = opts.canCut ?? false
   tableMenu.readOnly = tgt.kind === 'preview'
   tableMenu.targetKind = tgt.kind
 }
@@ -177,11 +194,12 @@ export interface TableMenuGroup {
 }
 
 /** 菜单顶部直接列出的项（Typora 表格右键同样把剪贴板放最上） */
-export function tableMenuTop(state: { readOnly: boolean }): TableMenuItem[] {
+export function tableMenuTop(state: { readOnly: boolean; canCopy: boolean; canCut: boolean }): TableMenuItem[] {
   const ro = state.readOnly
   return [
-    { action: 'cut', label: t('ctx.cut'), accel: 'Ctrl+X', disabled: ro },
-    { action: 'copy', label: t('ctx.copy'), accel: 'Ctrl+C' },
+    { action: 'cut', label: t('ctx.cut'), accel: 'Ctrl+X', disabled: ro || !state.canCut },
+    // 复制只针对选中内容；整表复制在「整表操作 → 复制表格」
+    { action: 'copy', label: t('ctx.copy'), accel: 'Ctrl+C', disabled: !state.canCopy },
     { action: 'paste', label: t('ctx.paste'), accel: 'Ctrl+V', disabled: ro }
   ]
 }
@@ -422,12 +440,14 @@ function runPreviewAction(table: HTMLTableElement, action: TableMenuAction): voi
     return
   }
   if (action === 'copy-table') {
-    const lines: string[] = []
-    for (const row of Array.from(table.rows)) {
-      const cells = Array.from(row.cells).map((c) => (c.textContent ?? '').trim())
-      lines.push(`| ${cells.join(' | ')} |`)
-    }
-    void writeClipboard(lines.join('\n'))
+    // 必须带表头分隔行：否则粘回编辑器只是几段带竖线的普通文本（Markdown 不认表格）
+    const rows = Array.from(table.rows).map((row) =>
+      Array.from(row.cells).map((c) => (c.textContent ?? '').trim())
+    )
+    const aligns = table.rows[0]
+      ? Array.from(table.rows[0].cells).map((c) => ((c as HTMLElement).style.textAlign || null))
+      : []
+    void writeClipboard(gfmTable(rows, aligns))
     return
   }
   if (action === 'copy-tsv') {
@@ -440,36 +460,77 @@ function runPreviewAction(table: HTMLTableElement, action: TableMenuAction): voi
 }
 
 /** 执行菜单动作（TableContextMenu.vue 调用） */
-/** 剪贴板动作（系统语义；粘贴走 navigator 读文本插入） */
+/** 剪贴板动作：复制/剪切按编辑器状态取内容直写剪贴板，粘贴走解析插入。
+ *  不用 document.execCommand('copy')——单元格多选时 PM 的 DOM 选区是折叠的，
+ *  命令返回 false、剪贴板保持上次内容，粘出来就是无关的旧东西。 */
 function runClipboardAction(view: PmView | CmView, action: 'cut' | 'copy' | 'paste'): void {
-  if (action === 'copy') {
-    document.execCommand('copy')
-    return
-  }
-  if (action === 'cut') {
-    document.execCommand('cut')
+  const isPm = 'dispatch' in view && 'state' in view && view.dom.classList.contains('ProseMirror')
+  if (action === 'copy' || action === 'cut') {
+    if (isPm) {
+      const pm = view as PmView
+      const data = pmClipboardData(pm.state)
+      if (!data) return
+      void writeClipboardRich(data.text, data.html).then((ok) => {
+        if (!ok) {
+          useUiStore().showToast(t('table.copyFailed'))
+          return
+        }
+        if (action !== 'cut') return
+        // 写成功后再删，避免写入失败时内容凭空消失
+        if (pm.state.selection instanceof CellSelection) deleteCellSelection(pm.state, (tr) => pm.dispatch(tr))
+        else pm.dispatch(pm.state.tr.deleteSelection())
+      })
+      return
+    }
+    const cm = view as CmView
+    const { from, to } = cm.state.selection.main
+    const text = cm.state.sliceDoc(from, to)
+    if (!text) return
+    void writeClipboardRich(text).then((ok) => {
+      if (!ok) useUiStore().showToast(t('table.copyFailed'))
+      else if (action === 'cut') cm.dispatch({ changes: { from, to, insert: '' } })
+    })
     return
   }
   void (async () => {
+    let text = ''
     try {
-      const text = await navigator.clipboard.readText()
-      if (!text) return
-      if ('dispatch' in view && 'state' in view && view.dom.classList.contains('ProseMirror')) {
-        const pm = view as PmView
-        if (!(pm.state.selection instanceof TextSelection)) return
-        const { from, to } = pm.state.selection
-        pm.dispatch(pm.state.tr.insertText(text, from, to))
-        return
-      }
-      const cm = view as CmView
-      const head = cm.state.selection.main.head
-      cm.dispatch({
-        changes: { from: head, insert: text },
-        selection: { anchor: head + text.length }
-      })
+      text = await readClipboardText()
     } catch {
-      /* 剪贴板权限受限：静默放弃 */
+      useUiStore().showToast(t('table.pasteFailed'))
+      return
     }
+    if (!text) return
+    if (isPm) {
+      const pm = view as PmView
+      // 单元格多选时以选区左上格为落点（WPS：粘贴填入选区起点）
+      if (pm.state.selection instanceof CellSelection) {
+        const rect = selectedRect(pm.state)
+        const table = pm.state.doc.nodeAt(rect.tableStart - 1)
+        if (table) {
+          let p = rect.tableStart
+          for (let i = 0; i < rect.top; i++) p += table.child(i).nodeSize
+          p += 1
+          for (let j = 0; j < rect.left; j++) p += table.child(rect.top).child(j).nodeSize
+          p += 2
+          pm.dispatch(pm.state.tr.setSelection(TextSelection.near(pm.state.doc.resolve(p), 1)))
+        }
+      }
+      if (!(pm.state.selection instanceof TextSelection)) return
+      // 多行 Markdown / TSV 走与 Ctrl+V 相同的解析链路（表格能真正变成表格）
+      if (tryPmSmartPaste(pm, text)) return
+      const { from, to } = pm.state.selection
+      pm.dispatch(pm.state.tr.insertText(text, from, to))
+      return
+    }
+    const cm = view as CmView
+    // TSV（Excel/本应用复制的单元格区域）按表格数据填充，而不是当普通文本插入
+    if (cmPasteTsv(cm, text)) return
+    const head = cm.state.selection.main.head
+    cm.dispatch({
+      changes: { from: head, insert: text },
+      selection: { anchor: head + text.length }
+    })
   })()
 }
 
@@ -478,18 +539,20 @@ export function runTableMenuAction(action: TableMenuAction): void {
   if (!target) return
   const tgt = target
   target = null
+  // 剪贴板动作必须走通用路径：即显表格的目标先被上面 kind==='pm' 截走交给执行器，
+  // 而执行器对 cut/copy/paste 返回 false —— 不提前分流，表格右键的「粘贴」是空操作
+  if ((action === 'cut' || action === 'copy' || action === 'paste') && 'view' in tgt) {
+    tgt.view.focus()
+    runClipboardAction(tgt.view, action)
+    return
+  }
   if (tgt.kind === 'pm') {
-    pmExecutor?.(action)
+    pmExecutor?.(action, tgt.tablePos)
     tgt.view.focus() // 菜单点击会抢焦点：操作后交还编辑器，Ctrl+Z 才能直接生效
     return
   }
   if (tgt.kind === 'preview') {
     runPreviewAction(tgt.table, action)
-    return
-  }
-  if (action === 'cut' || action === 'copy' || action === 'paste') {
-    tgt.view.focus()
-    runClipboardAction(tgt.view, action)
     return
   }
   if (action === 'bold') cmdBold(tgt.view)
@@ -521,8 +584,19 @@ function onContext(e: MouseEvent): void {
     }
     e.preventDefault()
     e.stopPropagation()
-    const hit = view.posAtCoords({ left: e.clientX, top: e.clientY })
-    const pos = hit?.pos
+    // 落点在单元格边框/滚动壳上时 posAtCoords 可能返回 null：退回按被点单元格取位置，
+    // 否则选区停在旧表格，后续「复制表格」会复制错表（用户实测：复制 A 粘出 B）
+    let pos = view.posAtCoords({ left: e.clientX, top: e.clientY })?.pos ?? null
+    if (pos == null) {
+      const cellEl = el.closest('td, th')
+      if (cellEl) {
+        try {
+          pos = view.posAtDOM(cellEl, 0)
+        } catch {
+          /* 位置不可解析：保持原选区 */
+        }
+      }
+    }
     if (pos != null && pos >= 0 && pos <= view.state.doc.content.size) {
       // 右键点落在已有选区内时保留选区——否则「选中单元格文字 → 右键加粗」会
       // 被这里的落点重置折叠掉，格式动作拿不到选区（表现为点了没反应）
@@ -544,7 +618,21 @@ function onContext(e: MouseEvent): void {
       }
     }
     // 行列可删性按落位后的选区复算：表头不可删/不可上方插入、只剩单列时不可删列
-    const meta = findTableSelection(view)
+    let meta: ReturnType<typeof findTableSelection> = findTableSelection(view)
+    if (!meta) {
+      // 选区仍不在表格里（极端落点）：按被点的表格 DOM 反查节点位置，
+      // 让复制/格式动作至少作用在右键的那张表上
+      try {
+        const $p = view.state.doc.resolve(view.posAtDOM(tableEl, 0))
+        for (let d = $p.depth; d > 0; d--) {
+          if ($p.node(d).type.name !== 'table') continue
+          meta = { pos: $p.before(d), row: 0, col: 0, canDeleteRow: false, canDeleteCol: false }
+          break
+        }
+      } catch {
+        /* 忽略 */
+      }
+    }
     const tNode = meta ? view.state.doc.nodeAt(meta.pos) : null
     const colCount = tNode && tNode.childCount > 0 ? tNode.child(0).childCount : 0
     const rowCount = tNode ? tNode.childCount : 0
@@ -562,6 +650,9 @@ function onContext(e: MouseEvent): void {
         rowBatch,
         colBatch,
         canAbove: (meta?.row ?? 0) >= 1,
+        // 右键「复制/剪切」：只有存在选中内容（文字选区或单元格多选）才可用
+        canCopy: !view.state.selection.empty,
+        canCut: !view.state.selection.empty,
         // 第一列禁左移、最后一列禁右移（与删列的边界一致）
         canMoveLeft: !!meta && meta.col > 0,
         canMoveRight: !!meta && colCount > 0 && meta.col < colCount - 1,
@@ -569,11 +660,10 @@ function onContext(e: MouseEvent): void {
         canMoveRowUp: !!meta && meta.row >= 2,
         canMoveRowDown: !!meta && meta.row >= 1 && meta.row < rowCount - 1
       },
-      { kind: 'pm', view }
+      { kind: 'pm', view, tablePos: meta?.pos }
     )
     return
   }
-
   // 预览面板：只读，但列宽重置/复制可用
   const pvTable = el.closest('.md-preview table')
   if (pvTable instanceof HTMLTableElement) {
@@ -584,6 +674,9 @@ function onContext(e: MouseEvent): void {
     const idx = cell instanceof HTMLTableCellElement ? cell.cellIndex : 0
     const parent = cell instanceof HTMLTableCellElement ? cell.parentElement : null
     const count = parent instanceof HTMLTableRowElement ? parent.cells.length : 1
+    // 预览只读：复制仅在有选区时可用（同编辑器的置灰规则）
+    const sel = window.getSelection()
+    const inPvSel = !!sel && !sel.isCollapsed && !!sel.anchorNode && pvTable.contains(sel.anchorNode)
     openTableMenu(
       e.clientX,
       e.clientY,
@@ -591,6 +684,8 @@ function onContext(e: MouseEvent): void {
         canRow: true,
         canCol: true,
         canAbove: false,
+        canCopy: inPvSel,
+        canCut: false,
         canMoveLeft: idx > 0,
         canMoveRight: idx < count - 1
       },
@@ -646,6 +741,8 @@ function onContext(e: MouseEvent): void {
         rowBatch,
         colBatch,
         canAbove: info.cursorLine > info.startLine + 1,
+        canCopy: !main.empty,
+        canCut: !main.empty,
         canMoveLeft: info.colIndex > 0,
         canMoveRight: info.colIndex < info.colCount - 1,
         // 行移动边界：表头(0)/分隔行(1)/首个数据行(2)禁上移；末行禁下移

@@ -13,6 +13,9 @@ import { INSERT_COMMANDS, runInsertCommand } from './insert-commands'
 import { pmSetHeading } from './pm-heading'
 import { cmListBlockAt, cmMoveListItem } from './cm-commands'
 import { pmInList, pmMoveListItem } from './list-move'
+import { tryPmSmartPaste } from './paste-smart'
+import { cmPasteTsv } from './tsv-paste'
+import { readClipboardText } from '@/services/clipboard'
 import {
   cmFenceLang,
   cmFormatCodeBlock,
@@ -263,17 +266,21 @@ export function runTextMenuAction(id: string): void {
 
 async function pasteViaClipboard(target: 'pm' | 'cm'): Promise<void> {
   try {
-    const text = await navigator.clipboard.readText()
+    const text = await readClipboardText()
     if (!text) return
     const v = target === 'pm' ? livePm() : liveCm()
     if (!v) return
     if (target === 'pm') {
       const view = v as PMView
       if (!(view.state.selection instanceof TextSelection)) return
+      // 与 Ctrl+V 同一套解析（TSV 建表 / 多行 Markdown 结构）；不接管才纯文本插入
+      if (tryPmSmartPaste(view, text)) return
       const { from, to } = view.state.selection
       view.dispatch(view.state.tr.insertText(text, from, to))
     } else {
       const view = v as NonNullable<ReturnType<typeof cmViews>>[number]
+      // TSV（Excel/单元格区域复制）在源码侧按表格数据填充
+      if (cmPasteTsv(view, text)) return
       const head = view.state.selection.main.head
       view.dispatch(
         view.state.update({
