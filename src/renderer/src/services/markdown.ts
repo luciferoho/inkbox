@@ -762,6 +762,37 @@ export function normalizeOrderedNumbering(src: string): string {
   return lines.join('\n')
 }
 
+/**
+ * 单行块级公式归一化（文档打开时一次性整理，Typora 语义）：
+ * 独占一行的 `$$E=mc^2$$` 在 micromark 里不构成块级 flow math（flow math 需
+ * 跨行围栏），又会被行内 `$$..$$` 护栏按字面拒绝 → 退化成普通文本，序列化
+ * 时 `_` 被转义成 `\_`，于是「打开即未保存」且公式不渲染。
+ * 这里把该形态改写成三行围栏（`$$` / 内容 / `$$`），打开即与预览一致；
+ * 脏标记不变，用户实际编辑保存时才写入磁盘（与有序列表编号归一同一策略）。
+ * 代码围栏内、行内混排（行首行尾之外还有别的字符）不动。
+ */
+export function normalizeSingleLineBlockMath(src: string): string {
+  const lines = src.split('\n')
+  let fence: string | null = null
+  let changed = false
+  for (let i = 0; i < lines.length; i++) {
+    const fm = /^\s{0,3}(`{3,}|~{3,})/.exec(lines[i])
+    if (fm) {
+      if (fence === null) fence = fm[1][0]
+      else if (fm[1][0] === fence) fence = null
+      continue
+    }
+    if (fence !== null) continue
+    const m = /^(\s*)\$\$([^$\n]+)\$\$\s*$/.exec(lines[i])
+    if (!m) continue
+    const indent = m[1]
+    lines.splice(i, 1, `${indent}$$`, `${indent}${m[2].trim()}`, `${indent}$$`)
+    i += 2
+    changed = true
+  }
+  return changed ? lines.join('\n') : src
+}
+
 /** 渲染结果后处理：哨兵段落替换为真实包裹层（段落带 data-source-line 属性） */
 function applyCenter(html: string): string {
   return html

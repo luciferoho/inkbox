@@ -8,6 +8,7 @@ import {
   editorViewCtx,
   serializerCtx,
   remarkCtx,
+  parserCtx,
   remarkPluginsCtx,
   remarkStringifyOptionsCtx
 } from '@milkdown/kit/core'
@@ -42,7 +43,7 @@ import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { history } from '@milkdown/kit/plugin/history'
 import { replaceAll, $prose, callCommand } from '@milkdown/kit/utils'
 import { NodeSelection, TextSelection, type EditorState } from '@milkdown/kit/prose/state'
-import { Fragment, type Node as PMNode } from '@milkdown/kit/prose/model'
+import { Fragment, Slice, type Node as PMNode } from '@milkdown/kit/prose/model'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { lift } from '@milkdown/kit/prose/commands'
 import { liftListItem, sinkListItem } from '@milkdown/kit/prose/schema-list'
@@ -100,6 +101,7 @@ import { createLeafDeletePlugin } from '@/editor/pm-leaf-delete'
 import { hrView } from '@/editor/pm-hr-view'
 import { wrappedTableView } from '@/editor/pm-table-view'
 import { createTaskTogglePlugin } from '@/editor/pm-task-toggle'
+import { registerWysiwygFlush } from '@/editor/wysiwyg-flush'
 import { parseAltMods, buildAltMods, stepWidth, luciToDisplaySrc, type ImageMods } from '@/editor/image-utils'
 import { splitAdjacentOrderedLists, parseOutline } from '@/services/markdown'
 // 单换行 → 硬换行：与预览管线 markdown-it 的 breaks:true 对齐（否则即显把
@@ -130,6 +132,9 @@ import {
   footnoteReferenceSchema,
   footnoteDefinitionSchema,
   footnoteReferenceInputRule,
+  taskListBulletInputRule,
+  imageInlineInputRule,
+  inlineLinkInputRule,
   yamlSchema,
   tocSchema,
   tocView,
@@ -182,6 +187,23 @@ function applyReplace(markdown: string): void {
   } finally {
     applying = false
   }
+}
+
+/* 保存前同步（P14）：markdownUpdated 有防抖，saveTab 直读 store 会截掉最后
+   一段输入。组件跨标签复用（tabId 随 activeId watch 更新），注册跟随 tabId
+   重挂，卸载时解绑 */
+let unregisterFlush: (() => void) | null = null
+function serializeNow(): string | null {
+  if (!editor || tabId === null) return null
+  return editor.action((ctx) => {
+    const ser = ctx.get(serializerCtx)
+    const view = ctx.get(editorViewCtx)
+    return fromWysiwygSource(String(ser(view.state.doc)))
+  })
+}
+function registerFlush(): void {
+  unregisterFlush?.()
+  unregisterFlush = tabId === null ? null : registerWysiwygFlush(tabId, serializeNow)
 }
 
 /* ---------- 代码块编辑体验 ---------- */
@@ -570,7 +592,9 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     // 始终拦截:普通段落放行 Tab 会被浏览器抢走焦点(跳到状态栏按钮)
     event.preventDefault()
     // 表格单元格：Tab/Shift+Tab 跳到下/上一个单元格（prosemirror-tables 命令）；
-    // 尾格 Tab = 追加一行并跳进新行首格（6.4d，Typora 行为）
+    // 跳不动（选区引用没变 = 命令没派发事务）即真尾格：追加一行并跳进新行首格
+    //（6.4d，Typora 行为）。不按行列号预判——仅表头表/尾部空行这类退化结构里
+    // 「当前格之后的行没有任何单元格」，按 childCount 判会同时卡死跳格与加行。
     if (inTable(state)) {
       if (editor) {
         if (event.shiftKey) {
@@ -578,18 +602,14 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
           return true
         }
         const view = getView()
+        const before = view ? view.state.selection : null
         const meta = view ? findTableSelection(view) : null
-        const t = view && meta ? view.state.doc.nodeAt(meta.pos) : null
-        const isLastCell =
-          !!t &&
-          !!meta &&
-          meta.row === t.childCount - 1 &&
-          meta.col === (t.child(meta.row)?.childCount ?? 0) - 1
-        if (view && meta && isLastCell) {
+        elTable(callCommand(goToNextTableCellCommand.key))
+        const view2 = getView()
+        const moved = !!view2 && !!before && view2.state.selection !== before
+        if (!moved && view2 && meta) {
           elTable(callCommand(addRowAfterCommand.key))
-          selectPmTableCell(view, meta.pos, meta.row + 1, 0)
-        } else {
-          elTable(callCommand(goToNextTableCellCommand.key))
+          selectPmTableCell(getView() ?? view2, meta.pos, meta.row + 1, 0)
         }
       }
       return true
@@ -707,9 +727,62 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
       return true
     }
   }
-  // 回车 = 软换行（与双栏源码「回车只换一行」一致）；光标紧贴换行后再按回车
-  // 升级为真实分段（对应双栏的「空行分段」）。列表/表格/标题/代码块保持默认
+  // 脚注定义内回车：提出到定义之后的正文（定义在文末则补一个空段落）。
+  // 定义块不支持分割，默认回车会变成软换行——后续键入全部被吞进定义
+  // （2026-11-20 F8：v1 产物三个章节被吞进定义实证）
   if (
+    event.key === 'Enter' &&
+    !event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey
+  ) {
+    const { $from } = state.selection
+    for (let d = $from.depth; d > 0; d--) {
+      if ($from.node(d).type.name === 'footnote_definition') {
+        event.preventDefault()
+        const after = $from.after(d)
+        const tr = state.tr
+        if (after >= state.doc.content.size) {
+          tr.insert(after, state.schema.nodes.paragraph.create())
+        }
+        const $pos = tr.doc.resolve(Math.min(after + 1, tr.doc.content.size))
+        tr.setSelection(TextSelection.near($pos))
+        view.dispatch(tr.scrollIntoView())
+        return true
+      }
+    }
+  }
+  // 段落输入 ```lang 后回车 → 代码块（Typora 语义）。preset 的输入规则要求
+  // 围栏后先敲一个空格才触发，` ```js` 直接回车命中不了，这里在 Enter 上补齐
+  if (
+    event.key === 'Enter' &&
+    !event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !inCodeBlock(state) &&
+    !inListItem(state) &&
+    !inTable(state)
+  ) {
+    const { $from } = state.selection
+    const text = $from.parent.type.name === 'paragraph' ? $from.parent.textContent : ''
+    const fm = /^```([A-Za-z0-9+#._-]*)$/.exec(text)
+    if (fm) {
+      event.preventDefault()
+      const codeT = state.schema.nodes.code_block
+      const from = $from.before()
+      const tr = state.tr.replaceWith(from, $from.after(), codeT.create({ language: fm[1] ?? '' }))
+      tr.setSelection(TextSelection.near(tr.doc.resolve(from + 1)))
+      view.dispatch(tr)
+      return true
+    }
+  }
+  // 回车 = 软换行（与双栏源码「回车只换一行」一致）；光标紧贴换行后再按回车
+  // 升级为真实分段（对应双栏的「空行分段」）。列表/表格/标题/代码块保持默认。
+  // 「回车即分段」（enterSplits，Typora 习惯）开启时不拦截，走分段的默认行为
+  if (
+    !ui.editorPrefs.enterSplits &&
     event.key === 'Enter' &&
     !event.shiftKey &&
     !event.ctrlKey &&
@@ -840,6 +913,13 @@ function fromWysiwygSource(md: string): string {
         : // 列表项内空段落：`2. <br />` / `- <br />` / `- [ ] <br />` → 干净的空列表项
           // （只归一化有序项曾漏掉任务项，源码里留下字面 <br /> 标签占位）
           l.replace(/^([ \t]*(?:\d+[.)]|[-*+])[ \t]+(?:\[[ xX]\][ \t]+)?)<br\s*\/?>[ \t]*$/i, '$1')
+    )
+    .map((l) =>
+      // 引用内空段落：`> <br />` → `>`。引用行的空段落不归一会落盘字面 <br />，
+      // 重开解析不等价 → 打开即脏（2026-11-20 P15，与列表行同族）
+      /^[ \t]*(?:>[ \t]*)+<br\s*\/?>[ \t]*$/i.test(l)
+        ? l.replace(/^([ \t]*(?:>[ \t]*)+)<br\s*\/?>[ \t]*$/i, '$1').replace(/[ \t]+$/, '')
+        : l
     )
     .join('\n')
     .replace(/^(\s*\d+)\)/gm, '$1.')
@@ -1618,6 +1698,39 @@ function onHostPasteTsv(e: ClipboardEvent): void {
   const text = e.clipboardData.getData('text/plain')
   if (!text || !text.includes('\t')) return
   if (pmPasteTsv(view, text)) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+}
+
+/** 纯文本 Markdown 粘贴（P4）：剪贴板是多行 Markdown（围栏/标题/列表/引用/
+ *  表格/强调/链接等结构语法）时按 Markdown 解析成节点插入，与 Typora 一致。
+ *  普通纯文本、代码块内、单行文本不接管，仍走默认粘贴（逐字/纯文本段落）。 */
+const MD_PASTE_PAT = /^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|~~~|\|.*\|)|\*\*[^*\n]+\*\*|__[^_\n]+__|!\[[^\]]*\]\([^)]+\)|\[[^\]\n]+\]\([^)]+\)/m
+
+function onHostPasteMarkdown(e: ClipboardEvent): void {
+  const view = getView()
+  if (!view || !e.clipboardData) return
+  const el = e.target as HTMLElement | null
+  if (!el || !view.dom.contains(el)) return
+  if (inCodeBlock(view.state)) return
+  if (e.clipboardData.getData('text/html')) return // 富文本来源（浏览器复制）交给默认/TSV 逻辑
+  const text = e.clipboardData.getData('text/plain')
+  if (!text || text.includes('\t')) return // TSV 由表格粘贴逻辑接管
+  if (!text.includes('\n') || !MD_PASTE_PAT.test(text)) return
+  let ok = false
+  editor?.action((ctx) => {
+    try {
+      const parser = ctx.get(parserCtx)
+      const doc = parser(text)
+      // 整段文档内容作为片段插入（replaceSelection 保留前后文）
+      view.dispatch(view.state.tr.replaceSelection(new Slice(doc.content, 0, 0)).scrollIntoView())
+      ok = true
+    } catch {
+      ok = false
+    }
+  })
+  if (ok) {
     e.preventDefault()
     e.stopPropagation()
   }
@@ -2402,6 +2515,7 @@ onMounted(() => {
   host.value.addEventListener('error', onHostImgError, { capture: true })
   // TSV 粘贴建表/填格（6.4a）：捕获层先于 milkdown 剪贴板插件接管
   host.value.addEventListener('paste', onHostPasteTsv, { capture: true })
+  host.value.addEventListener('paste', onHostPasteMarkdown, { capture: true })
   // 用户滚轮即接管：停用切签锚点的自动重对齐
   host.value.addEventListener(
     'wheel',
@@ -2442,7 +2556,34 @@ onMounted(() => {
         ...prev,
         // spellcheck 初始值按设置（4.2）；切换广播见 onSpellcheckBroadcast
         attributes: { class: 'luci-prose', spellcheck: ui.editorPrefs.spellcheck ? 'true' : 'false' },
-        handleKeyDown: (view, event) => handleKeys(view, event)
+        handleKeyDown: (view, event) => handleKeys(view, event),
+        // 多行（块级）粘贴后光标会停在粘贴内容末尾的开放容器里，紧接着敲的
+        // 正文被吞进引用/脚注定义（2026-11-20 P16）。放行默认粘贴，异步把
+        // 光标提出这两类容器；列表项不逃逸（粘贴列表后续打字续写是预期行为）
+        handlePaste: (view, event) => {
+          const text = event.clipboardData?.getData('text/plain') ?? ''
+          if (!text.trim() || !text.trimEnd().includes('\n')) return false
+          requestAnimationFrame(() => {
+            // 重读 view.state：默认粘贴在返回 false 后才完成，此刻才是插入后的状态
+            const st = view.state
+            const { $from } = st.selection
+            for (let d = $from.depth; d > 0; d--) {
+              const name = $from.node(d).type.name
+              if (name === 'blockquote' || name === 'footnote_definition') {
+                const after = $from.after(d)
+                const tr = st.tr
+                if (after >= st.doc.content.size) {
+                  tr.insert(after, st.schema.nodes.paragraph.create())
+                }
+                const $pos = tr.doc.resolve(Math.min(after + 1, tr.doc.content.size))
+                tr.setSelection(TextSelection.near($pos))
+                view.dispatch(tr)
+                return
+              }
+            }
+          })
+          return false
+        }
       }))
     })
     .use(commonmark)
@@ -2468,6 +2609,10 @@ onMounted(() => {
     .use(footnoteReferenceSchema)
     .use(footnoteDefinitionSchema)
     .use(footnoteReferenceInputRule)
+    // 任务列表 `- [ ] `、图片 `![alt](src)`、链接 `[text](href)` 键入即转换
+    .use(taskListBulletInputRule)
+    .use(imageInlineInputRule)
+    .use(inlineLinkInputRule)
     .use(footnoteRefView)
     .use(createFootnoteJumpPlugin)
     // front matter + [TOC]
@@ -2546,13 +2691,21 @@ onMounted(() => {
               type?: string
               alt?: unknown
               title?: unknown
+              checked?: unknown
               children?: DebugMdastNode[]
             }
             const tree = proc.runSync(proc.parse(src)) as unknown as DebugMdastNode
-            const walk = (n: DebugMdastNode): unknown =>
-              n.type === 'image'
-                ? { type: n.type, alt: n.alt, title: n.title }
-                : { type: n.type, kids: (n.children ?? []).map(walk) }
+            // 保留全部属性（checked/ordered/url…），只剥掉 position——定位解析层丢字段的场景
+            const walk = (n: DebugMdastNode): unknown => {
+              const plain = JSON.parse(
+                JSON.stringify(n, (k, v) => (k === 'position' ? undefined : v))
+              ) as Record<string, unknown>
+              if (Array.isArray(plain.children)) {
+                plain.kids = (plain.children as DebugMdastNode[]).map(walk)
+                delete plain.children
+              }
+              return plain
+            }
             return JSON.stringify(walk(tree))
           }),
         contentInfo: () =>
@@ -2592,11 +2745,13 @@ onMounted(() => {
       applyCachedImageSizes(hostEl)
       applyWysiwygProgress()
     })
+    registerFlush()
     pullFind(tabId, true) // 编辑器就绪后恢复当前标签共享的查找条状态
   })
 })
 
 onBeforeUnmount(() => {
+  unregisterFlush?.()
   offTableWidths?.()
   window.removeEventListener('inkbox:theme-applied', onThemeApplied)
   window.removeEventListener('inkbox:spellcheck', onSpellcheckBroadcast)
@@ -2622,6 +2777,7 @@ onBeforeUnmount(() => {
   host.value?.removeEventListener('mouseout', onHostOut)
   host.value?.removeEventListener('scroll', onHostScroll)
   host.value?.removeEventListener('paste', onHostPasteTsv, { capture: true })
+  host.value?.removeEventListener('paste', onHostPasteMarkdown, { capture: true })
   host.value?.removeEventListener('load', onHostImgLoad, { capture: true })
   host.value?.removeEventListener('error', onHostImgError, { capture: true })
   host.value?.removeEventListener(
@@ -2708,6 +2864,7 @@ watch(
   (id, old) => {
     saveWysiwygProgress(old)
     tabId = id
+    registerFlush() // flush 注册跟随当前标签（保存前同步按 tabId 寻址）
     const markdown = docs.active?.content ?? ''
     if (editor) applyReplace(markdown)
     else pending = markdown

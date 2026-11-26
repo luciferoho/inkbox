@@ -17,6 +17,21 @@ import type {
 } from '@shared/types'
 
 /**
+ * 原生对话框调用带超时兜底：系统对话框在极端环境（安全软件按路径拦截、
+ * 无桌面会话等）可能永不返回，渲染层 await 会永久挂起、连同整条调用链
+ * （打开文件/另存为）一起卡死且无任何提示。超时按「取消」处理（null）。
+ */
+const DIALOG_TIMEOUT_MS = 5 * 60 * 1000
+
+function dialogInvoke<T>(channel: string, timeoutMs: number, ...args: unknown[]): Promise<T | null> {
+  const call = ipcRenderer.invoke(channel, ...args) as Promise<T | null>
+  return Promise.race([
+    call,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs))
+  ])
+}
+
+/**
  * 渲染进程唯一入口 API。全部走 invoke/on 白名单频道，
  * 不暴露 ipcRenderer 本体、不暴露任意频道字符串拼接调用。
  */
@@ -47,12 +62,13 @@ const api = {
       ipcRenderer.invoke('search:run', root, query, opts)
   },
   dialog: {
-    openFile: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFile'),
-    openFolder: (): Promise<string | null> => ipcRenderer.invoke('dialog:openFolder'),
+    // 5 分钟：正常用户操作（找文件/输入文件名）远小于该值，超时只兜「对话框没弹出来」的僵死
+    openFile: (): Promise<string | null> => dialogInvoke('dialog:openFile', DIALOG_TIMEOUT_MS),
+    openFolder: (): Promise<string | null> => dialogInvoke('dialog:openFolder', DIALOG_TIMEOUT_MS),
     /** 块工具栏「插入图片」：选择本地图片文件 */
-    openImage: (): Promise<string | null> => ipcRenderer.invoke('dialog:openImage'),
+    openImage: (): Promise<string | null> => dialogInvoke('dialog:openImage', DIALOG_TIMEOUT_MS),
     saveFile: (defaultName?: string, kind: 'md' | 'html' | 'tex' | 'opml' | 'epub' = 'md'): Promise<string | null> =>
-      ipcRenderer.invoke('dialog:saveFile', defaultName, kind)
+      dialogInvoke('dialog:saveFile', DIALOG_TIMEOUT_MS, defaultName, kind)
   },
   export: {
     pdf: (html: string, opts: PdfExportOptions, defaultName?: string): Promise<string | null> =>

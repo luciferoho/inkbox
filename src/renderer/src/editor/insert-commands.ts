@@ -85,22 +85,29 @@ function pmInsertTableDims(view: PMView, rows: number, cols: number): boolean {
   const s = view.state.schema
   const tableT = s.nodes.table
   const rowT = s.nodes.table_row
+  const headerRowT = s.nodes.table_header_row
   const headerT = s.nodes.table_header
   const cellT = s.nodes.table_cell
   const paraT = s.nodes.paragraph
-  if (!tableT || !rowT || !headerT || !cellT || !paraT) return false
+  if (!tableT || !rowT || !headerRowT || !headerT || !cellT || !paraT) return false
   const cell = (type: NodeType, text: string): PMNode =>
     type.create(null, paraT.create(null, text ? s.text(text) : null))
-  // 首行表头（列1..列N），其余正文行
+  // 首行表头（列1..列N），其余正文行。首行必须是 table_header_row 类型：
+  // gfm schema 规定 table 内容为 "table_header_row table_row+"，用 table_row
+  // 装表头单元格会让整表成为非法节点，后续加行列（Tab/Ctrl+Enter/右键）全部
+  // 在 replace 拟合时抛 contentMatchAt 静默失败（2026-11-20 P13）
   const body = [
-    rowT.create(null, Array.from({ length: cols }, (_, i) => cell(headerT, `列${i + 1}`))),
+    headerRowT.create(null, Array.from({ length: cols }, (_, i) => cell(headerT, `列${i + 1}`))),
     ...Array.from({ length: Math.max(rows - 1, 1) }, () =>
       rowT.create(null, Array.from({ length: cols }, () => cell(cellT, '')))
     )
   ]
   const table = tableT.create(null, body)
+  // 选中第一格表头占位文本（「列1」）：直接打字即替换，不会拼成「表头A列1」
   return blockAfter(view, [table], (tr, at) => {
-    tr.setSelection(TextSelection.near(tr.doc.resolve(at + 4)))
+    const textLen = `列1`.length
+    const from = at + 4
+    tr.setSelection(TextSelection.create(tr.doc, from, Math.min(from + textLen, tr.doc.content.size)))
   })
 }
 
@@ -167,18 +174,17 @@ function pmInsertList(view: PMView, ordered: boolean): boolean {
 }
 
 function pmInsertTaskList(view: PMView): boolean {
-  const bl = view.state.schema.nodes.bullet_list
-  if (!bl) return false
-  if (!wrapInList(bl)(view.state, view.dispatch, view)) return false
-  // 刚包成的列表项置为未勾选（milkdown gfm list_item.checked）
-  const { $from } = view.state.selection
-  for (let d = $from.depth; d >= 1; d--) {
-    if ($from.node(d).type.name === 'list_item') {
-      view.dispatch(view.state.tr.setNodeMarkup($from.before(d), undefined, { checked: false }))
-      break
-    }
-  }
-  return true
+  const s = view.state.schema
+  const bl = s.nodes.bullet_list
+  const li = s.nodes.list_item
+  const para = s.nodes.paragraph
+  if (!bl || !li || !para) return false
+  // 直接构造「未勾选任务项」：list_item.checked=false 由 gfm schema 序列化为
+  // `- [ ] `。不再走先包列表再改 attrs 的两步（撤销要两步、且空段落会序列化出 `<br />`）
+  const item = li.create({ checked: false }, para.create())
+  return blockAfter(view, [bl.create(null, [item])], (tr, at) => {
+    tr.setSelection(TextSelection.near(tr.doc.resolve(at + 3)))
+  })
 }
 
 function pmInsertToc(view: PMView): boolean {
@@ -212,10 +218,11 @@ function pmInsertFootnote(view: PMView): boolean {
   const tr = state.tr
   const at = state.selection.to
   tr.insert(at, refT.create({ identifier: id, label: id }))
-  const def = defT.create({ identifier: id }, paraT.create(null, state.schema.text(` `)))
+  const def = defT.create({ identifier: id }, paraT.create())
   const insertAt = state.doc.content.size
   tr.insert(insertAt, def)
-  tr.setSelection(TextSelection.create(tr.doc, at + 2))
+  // 光标落进定义段落（文末），插入后直接敲脚注内容；不再停在引用后留空定义
+  tr.setSelection(TextSelection.near(tr.doc.resolve(insertAt + 2)))
   view.dispatch(tr.scrollIntoView())
   return true
 }

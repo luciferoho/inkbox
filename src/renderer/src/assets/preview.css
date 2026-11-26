@@ -1,6 +1,6 @@
 /* ============================================================
    预览排版 · 「墨匣纸面」
-   签名元素：代码块是嵌入纸面的深色"墨块"，明暗主题都不变
+   暖纸配青釉：正文落在暖白纸上，主色只给标题符号、链接、表头等着色件
    ============================================================ */
 
 .md-preview {
@@ -24,7 +24,8 @@
   margin-top: 0;
 }
 
-/* 标题 */
+/* 标题：一套「釉珠」符号——一级底部墨起线，二级实心菱珠，三级空心菱珠；
+   四至六级不加符号，靠字号/字重/颜色分级。菱珠用行内盒（折行留在首行） */
 .md-preview h1,
 .md-preview h2,
 .md-preview h3,
@@ -33,66 +34,149 @@
 .md-preview h6 {
   font-family: var(--font-body);
   font-weight: 700;
-  line-height: 1.4;
+  line-height: 1.35;
   margin: 1.3em 0 0.6em;
 }
 .md-preview h1 {
-  font-size: 1.7em;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--border);
+  position: relative;
+  font-size: 1.9em;
+  margin: 1.6em 0 0.8em;
+  padding-bottom: 0.42em;
+}
+/* 底部发丝线（右端渐隐）+ 起笔处一段青线压在线上 */
+.md-preview h1::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, var(--border) 0 58%, transparent 94%);
+}
+.md-preview h1::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 2.3em;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent) 0 52%, color-mix(in srgb, var(--accent) 40%, transparent));
 }
 .md-preview h2 {
-  font-size: 1.42em;
-  padding-bottom: 0.25em;
-  border-bottom: 1px solid var(--border);
+  font-size: 1.45em;
+  margin: 1.9em 0 0.7em;
+}
+.md-preview h2::before {
+  content: '';
+  display: inline-block;
+  width: 0.38em;
+  height: 0.38em;
+  margin-right: 0.6em;
+  vertical-align: 0.16em;
+  border-radius: 22%;
+  background: var(--accent);
+  transform: rotate(45deg);
 }
 .md-preview h3 {
   font-size: 1.22em;
+  margin: 1.65em 0 0.55em;
+}
+.md-preview h3::before {
+  content: '';
+  display: inline-block;
+  box-sizing: border-box;
+  width: 0.36em;
+  height: 0.36em;
+  margin-right: 0.8em;
+  vertical-align: 0.17em;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 80%, transparent);
+  border-radius: 22%;
+  transform: rotate(45deg);
 }
 .md-preview h4 {
-  font-size: 1.08em;
+  font-size: 1.06em;
+  margin: 1.4em 0 0.5em;
 }
-.md-preview h5,
-.md-preview h6 {
-  font-size: 1em;
+.md-preview h5 {
+  font-size: 0.98em;
+  font-weight: 600;
   color: var(--text-2);
+  margin: 1.3em 0 0.45em;
+}
+.md-preview h6 {
+  font-size: 0.94em;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: 0.02em;
+  margin: 1.2em 0 0.4em;
 }
 
 .md-preview p {
-  margin: 0.75em 0;
+  margin: 0.85em 0;
 }
 
-/* 链接 */
+/* 链接：真下划线（跨行逐行续画），淡青线，悬停转实 */
 .md-preview a {
   color: var(--accent);
-  text-decoration: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
 }
 .md-preview a:hover {
-  border-bottom-color: var(--accent);
+  color: var(--accent-strong);
+  text-decoration-color: currentColor;
 }
 
-/* 行内代码 */
+/* 行内代码：淡青药丸 + 深青字 */
 .md-preview code {
   font-family: var(--font-code);
   font-size: 0.86em;
   background: var(--inline-code-bg);
   color: var(--inline-code-fg);
-  border: 1px solid var(--inline-code-border);
-  border-radius: 4px;
-  padding: 0.13em 0.4em;
+  border: 0;
+  border-radius: 5px;
+  padding: 0.12em 0.42em;
 }
 
-/* 代码块：亮色暖纸浅底 / 暗色墨块，全部走 --code-* 令牌（base.css 双主题定义） */
+/* 粗体 / 上下标 / 键帽（与即显同一套） */
+.md-preview strong,
+.md-preview b {
+  font-weight: 600;
+}
+.md-preview sub,
+.md-preview sup {
+  font-size: 0.72em;
+  line-height: 0;
+}
+.md-preview kbd {
+  font-family: var(--font-code);
+  font-size: 0.78em;
+  padding: 0.12em 0.5em;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* 代码块：浅米底 + 顶部 30px 信息带（语言/操作浮在上面），
+   全部走 --code-* 令牌（base.css 双主题定义） */
 .md-preview pre {
-  background: var(--code-bg);
+  background:
+    linear-gradient(var(--code-bar), var(--code-bar)) 0 0 / 100% 30px no-repeat,
+    linear-gradient(var(--code-edge), var(--code-edge)) 0 29px / 100% 1px no-repeat,
+    var(--code-bg);
   color: var(--code-fg);
   border-radius: 10px;
-  padding: 14px 16px;
+  padding: 30px 18px 16px;
   overflow-x: auto;
   margin: 1em 0;
-  line-height: 1.6;
+  line-height: 1.65;
   box-shadow: inset 0 0 0 1px var(--code-edge);
+  cursor: default;
 }
 
 /* 主题兜底：自定义主题的 pre 规则（如 phycat 的 overflow: visible）会把
@@ -109,35 +193,43 @@ html[data-theme-css] .md-preview pre.luci-code {
   padding: 0;
   font-size: 13px;
   color: inherit;
+  cursor: text;
   /* 软换行替代横向滚动（与即显一致）；CJK 自然断行，超长英文 token 兜底断词 */
   white-space: pre-wrap;
   overflow-wrap: break-word;
 }
 
-/* 代码块 chrome：语言标签栏 + 复制按钮（fence 渲染包 .md-code 容器） */
+/* 代码块 chrome：语言标签栏 + 复制按钮（fence 渲染包 .md-code 容器）。
+   外壳本身不画皮肤——皮肤在 pre 上（圆角/信息带），栏是浮在信息带里的浮层 */
 .md-preview .md-code {
   /* 注意：这里不能加 position:relative——内部 pre[data-source-line] 的
      offsetTop 是滚动映射（双栏同步）的坐标依据，relative 会把它变成
      局部坐标，导致滚动同步跳变（2026-10 实测） */
   margin: 1em 0;
-  border: 1px solid var(--code-edge);
-  border-radius: 10px;
-  background: var(--code-bar);
-  overflow: hidden;
 }
 .md-preview .md-code-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 6px 4px 14px;
-  background: var(--code-bar);
-  border-bottom: 1px solid var(--code-edge);
+  position: relative;
+  z-index: 1;
+  height: 30px;
+  margin: 0 0 -30px;
+  padding: 0 8px 0 18px;
+  background: none;
+  border: 0;
+  pointer-events: none;
+  user-select: none;
+}
+.md-preview .md-code-bar > * {
+  pointer-events: auto;
 }
 .md-preview .md-code-lang {
   font-family: var(--font-code);
   font-size: 11px;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--code-comment);
   user-select: none;
 }
@@ -145,8 +237,8 @@ html[data-theme-css] .md-preview pre.luci-code {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border: 0;
   border-radius: 6px;
   background: none;
@@ -168,12 +260,11 @@ html[data-theme-css] .md-preview pre.luci-code {
 }
 .md-preview .md-code pre {
   margin: 0;
-  border-radius: 0;
-  box-shadow: none;
 }
 
 /* Typora 主题模式：代码块完全交给主题（.md-fences → pre）渲染。
-   语言栏/复制栏、外层描边、内阴影都是内置皮肤，会让主题圆角/底色/边框失效 */
+   语言栏、信息带、内阴影都是内置皮肤，会让主题圆角/底色/边框失效；
+   信息带由主题自身的 pre 底色覆盖（CONTENT_FINAL 把 pre 背景收成 --code-bg） */
 html[data-theme-css] .md-preview .md-code {
   border: 0;
   border-radius: 0;
@@ -187,7 +278,7 @@ html[data-theme-css] .md-preview pre {
   box-shadow: none;
 }
 /* 主题模式：front matter 包装层让位（主题的 pre.md-meta-block 规则接管，
-   内置的奶油底/琥珀左条会叠在主题元信息块样式上） */
+   内置的虚线卡会叠在主题元信息块样式上） */
 html[data-theme-css] .md-preview .md-front-matter {
   border: 0;
   border-radius: 0;
@@ -195,31 +286,84 @@ html[data-theme-css] .md-preview .md-front-matter {
   padding: 0;
 }
 
-/* 引用：琥珀细条 */
-.md-preview blockquote {
-  margin: 1em 0;
-  padding: 0.5em 1em;
-  border-left: 3px solid var(--accent);
-  background: var(--accent-soft);
+/* 引用：淡青底 + 左侧青线 + 齐首行的悬挂引号；嵌套叠深、内层不再画引号 */
+.md-preview blockquote:not(.md-alert) {
+  position: relative;
+  margin: 1.2em 0;
+  padding: 0.72em 1.15em 0.72em 2.2em;
+  border: none;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  border-radius: 0 10px 10px 0;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  color: var(--text);
+}
+.md-preview blockquote::before {
+  content: '\201C';
+  position: absolute;
+  left: 0.62em;
+  top: 0.62em;
+  font-family: Georgia, 'Times New Roman', 'Songti SC', serif;
+  font-size: 1.7em;
+  line-height: 1;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--accent) 50%, transparent);
+  pointer-events: none;
+}
+.md-preview blockquote > :first-child {
+  margin-top: 0;
+}
+.md-preview blockquote > :last-child:not(pre) {
+  margin-bottom: 0;
+}
+.md-preview blockquote blockquote:not(.md-alert) {
+  margin: 0.6em 0;
+  padding: 0.55em 1em 0.55em 1.1em;
+  border-left-width: 2px;
   border-radius: 0 8px 8px 0;
-  color: var(--text-2);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
-.md-preview blockquote p {
-  margin: 0.3em 0;
+.md-preview blockquote blockquote:not(.md-alert)::before {
+  content: none;
 }
+/* 提示块自带标签图标与色条，不再叠加悬挂引号 */
+.md-preview blockquote.md-alert::before {
+  content: none;
+}
+/* 引用块内段落沿用正文段落间距（设计稿如此）；首尾块由 first/last-child 归零 */
+
 
 /* 列表 */
 .md-preview ul,
 .md-preview ol {
-  padding-left: 1.5em;
-  margin: 0.75em 0;
+  padding-left: 1.6em;
+  margin: 0.5em 0;
 }
 .md-preview li {
-  margin: 0.28em 0;
+  margin: 0.3em 0;
+  /* Typora 基准（与即显一致）：主题列表装饰依赖，内置无副作用 */
+  position: relative;
+}
+/* 列表符取主色：层级一眼可辨 */
+.md-preview li::marker {
+  color: color-mix(in srgb, var(--accent) 78%, transparent);
+  font-weight: 600;
+}
+.md-preview li > p {
+  margin: 0;
+}
+.md-preview li > p + p {
+  margin-top: 0.5em;
+}
+.md-preview li > ul,
+.md-preview li > ol {
+  margin: 0.3em 0 0.1em;
+}
+.md-preview li > :last-child {
+  margin-bottom: 0;
 }
 .md-preview li.task-list-item {
   list-style: none;
-  margin-left: -1.4em;
+  margin-left: 0;
 }
 /* 任务项统一渲染 li > p（对齐 Typora 结构，主题兄弟规则的前提）；
    紧列表的唯一段落 margin 归零，观感与原先的裸文本一致。
@@ -229,39 +373,121 @@ html[data-theme-css] .md-preview .md-front-matter {
 .md-preview :where(li.task-list-item) > p:only-child {
   margin: 0;
 }
+/* 任务勾选框：自绘方框（1.5px 描边，勾选后填主色 + 浅色勾） */
 .md-preview .task-item-checkbox {
-  accent-color: var(--accent);
-  margin-right: 7px;
-  vertical-align: -1.5px;
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  font: inherit;
+  position: absolute;
+  left: -1.5em;
+  top: 0.5lh;
+  translate: 0 -50%;
+  width: 1em;
+  height: 1em;
+  margin: 0;
+  border: 1.5px solid color-mix(in srgb, var(--text-2) 65%, transparent);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.md-preview .task-item-checkbox::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 0.3em;
+  height: 0.52em;
+  margin: -0.28em 0 0 -0.16em;
+  border: solid var(--check-fg);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.md-preview .task-item-checkbox:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.md-preview .task-item-checkbox:checked::after {
+  opacity: 1;
+}
+/* 已完成项文字转次要色（只在内置模式：主题有自己的勾选态写法，别抢） */
+html:not([data-theme-css]) .md-preview li.task-list-item:has(input:checked) > p {
+  color: var(--text-2);
 }
 
-/* 表格：外层横向滚动容器（窄窗口不压扁内容）+ 内容自适应宽度 */
+/* 表格：外层横向滚动容器（窄窗口不压扁内容）+ 完整框线（外框略深、内线发丝、
+   四角圆角、表头淡底）。线落在单元格上，配 separate+spacing:0（collapse 画不出圆角）；
+   首/末行写成 table > :first-child > tr，兼容即显 tbody 与预览 thead 两种结构。
+   不写 text-align：默认左对齐由基础样式给，写死会盖掉列对齐（:---: 走内联 style） */
 .md-preview .md-table-wrap {
   max-width: 100%;
-  margin: 1em 0;
+  margin: 1.3em 0;
   overflow-x: auto;
   overflow-y: hidden;
 }
 
 .md-preview table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   margin: 0;
   width: max-content;
   min-width: 100%;
-  font-size: 0.94em;
+  font-size: 0.93em;
+  line-height: 1.6;
 }
 .md-preview th,
 .md-preview td {
-  border: 1px solid var(--border);
-  padding: 6px 12px;
+  border: 0;
+  border-right: 1px solid color-mix(in srgb, var(--text-2) 30%, var(--bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--text-2) 30%, var(--bg));
+  padding: 0.58em 0.95em;
   text-align: left;
-  word-break: break-word;
-  overflow-wrap: anywhere;
+  vertical-align: top;
+  word-break: normal;
+  overflow-wrap: break-word;
+  /* 与主题模式一致的列下限：auto 布局会把可断行列压成一字宽 */
+  min-width: 4em;
+}
+.md-preview table > :first-child > tr:first-child > th,
+.md-preview table > :first-child > tr:first-child > td {
+  border-top: 1px solid color-mix(in srgb, var(--text-2) 52%, var(--bg));
+}
+.md-preview tr > th:first-child,
+.md-preview tr > td:first-child {
+  border-left: 1px solid color-mix(in srgb, var(--text-2) 52%, var(--bg));
+}
+.md-preview table > :last-child > tr:last-child > th,
+.md-preview table > :last-child > tr:last-child > td {
+  border-bottom-color: color-mix(in srgb, var(--text-2) 52%, var(--bg));
+}
+.md-preview tr > th:last-child,
+.md-preview tr > td:last-child {
+  border-right-color: color-mix(in srgb, var(--text-2) 52%, var(--bg));
+}
+html:not([data-theme-css]) .md-preview table > :first-child > tr:first-child > :first-child {
+  border-top-left-radius: 8px;
+}
+html:not([data-theme-css]) .md-preview table > :first-child > tr:first-child > :last-child {
+  border-top-right-radius: 8px;
+}
+html:not([data-theme-css]) .md-preview table > :last-child > tr:last-child > :first-child {
+  border-bottom-left-radius: 8px;
+}
+html:not([data-theme-css]) .md-preview table > :last-child > tr:last-child > :last-child {
+  border-bottom-right-radius: 8px;
 }
 .md-preview th {
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   font-family: var(--font-body);
   font-weight: 600;
+}
+.md-preview th > p,
+.md-preview td > p {
+  margin: 0;
+  padding: 0;
 }
 
 /* 块级 HTML 表格（白名单，带 luci-html-table 标记类）：与 markdown 表格的
@@ -284,11 +510,42 @@ html[data-theme-css] .md-preview .md-front-matter {
 }
 
 /* 其他 */
+/* 分割线：两端渐隐 + 正中缺口 + 缺口里一枚实心菱珠（与二级标题同一个符号） */
 .md-preview hr {
   border: none;
-  border-top: 1px solid var(--border);
-  margin: 2em auto;
-  width: 62%;
+  height: 1px;
+  width: auto;
+  margin: 2.4em 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0,
+    var(--border) 12%,
+    var(--border) calc(50% - 20px),
+    transparent calc(50% - 11px),
+    transparent calc(50% + 11px),
+    var(--border) calc(50% + 20px),
+    var(--border) 88%,
+    transparent 100%
+  );
+  position: relative;
+  overflow: visible;
+}
+.md-preview hr::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 22%;
+  background: color-mix(in srgb, var(--accent) 72%, var(--text-2));
+  transform: rotate(45deg);
+}
+/* 脚注分隔线不画菱珠 */
+.md-preview hr.footnotes-sep::after,
+.md-preview hr.footnote-sep::after {
+  content: none;
 }
 /* 连续空行占位（高度 = 源码里超出一行的空行数 × 行高，由 Preview 插入） */
 .md-preview .blank-gap {
@@ -296,8 +553,10 @@ html[data-theme-css] .md-preview .md-front-matter {
 }
 .md-preview img {
   max-width: 100%;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: zoom-in;
+  /* 1px 收边：浅色图浮在浅底上不至于"没边" */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 85%, transparent);
 }
 /* 破图占位：与即显侧同规则（加载失败给虚线框，不静默隐身） */
 .md-preview img.img-broken {
@@ -305,6 +564,7 @@ html[data-theme-css] .md-preview .md-front-matter {
   min-height: 56px;
   border: 1.5px dashed color-mix(in srgb, var(--text-2) 55%, transparent);
   background: color-mix(in srgb, var(--text-2) 7%, transparent);
+  box-shadow: none;
   object-fit: none;
   overflow: hidden;
   padding: 4px 8px;
@@ -312,29 +572,22 @@ html[data-theme-css] .md-preview .md-front-matter {
   font-size: 12px;
   cursor: default;
 }
-/* 双栏联动：源码光标落在图片语法上 → 预览对应图轻量高亮（琥珀描边 + 微光,
-   跟随主题变量;只标边界不遮内容） */
+/* 双栏联动：源码光标落在图片语法上 → 预览对应图轻量高亮（只标边界不遮内容） */
 .md-preview img.pv-img-focus {
   outline: 2px solid color-mix(in srgb, var(--accent-strong) 85%, transparent);
   outline-offset: 2px;
   box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-strong) 16%, transparent);
 }
-.md-preview mark {
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  padding: 0 3px;
-  border-radius: 3px;
-}
 
 /* ---------- 数学公式（KaTeX） ---------- */
 .md-preview .math-block {
-  margin: 1em 0;
+  margin: 1.2em 0;
   padding: 6px 2px;
   overflow-x: auto;
   text-align: center;
 }
 .md-preview .katex {
-  font-size: 1.05em;
+  font-size: 1.06em;
   /* 公式渲染结果是展示层，不可选中（2026-10-31 反馈） */
   user-select: none;
 }
@@ -347,11 +600,11 @@ html[data-theme-css] .md-preview .md-front-matter {
 
 /* ---------- Mermaid 图表 ---------- */
 .md-preview .mermaid {
-  margin: 1em auto;
-  padding: 14px;
+  margin: 1.2em 0;
+  padding: 18px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius-m);
+  border-radius: 10px;
   overflow-x: auto;
   display: flex;
   justify-content: center;
@@ -379,7 +632,8 @@ html[data-theme-css] .md-preview .md-front-matter {
   width: 100%;
 }
 
-/* highlight.js · 语法配色全部走 --code-* 令牌（亮色深墨系 / 暗色暖墨系） */
+/* highlight.js · 语法配色全部走 --code-* 令牌（亮色暖墨 / 暗色暖墨）。
+   类目映射与设计稿一致；主题模式里主题自带的 hljs 规则特异性更高，照常接管 */
 .hljs-comment,
 .hljs-quote {
   color: var(--code-comment);
@@ -387,35 +641,48 @@ html[data-theme-css] .md-preview .md-front-matter {
 }
 .hljs-keyword,
 .hljs-selector-tag,
-.hljs-meta {
+.hljs-meta,
+.hljs-tag {
   color: var(--code-keyword);
 }
 .hljs-string,
 .hljs-regexp,
-.hljs-addition {
+.hljs-addition,
+.hljs-subst {
   color: var(--code-string);
 }
 .hljs-number,
 .hljs-literal,
-.hljs-symbol {
+.hljs-symbol,
+.hljs-atom {
   color: var(--code-number);
 }
+/* 函数/类名（title/section）：设计稿映射到 code-title（主题自身规则压过 remap） */
 .hljs-title,
-.hljs-section,
+.hljs-section {
+  color: var(--code-title);
+}
 .hljs-name,
 .hljs-selector-id,
-.hljs-selector-class {
+.hljs-selector-class,
+.hljs-link {
   color: var(--code-title);
 }
 .hljs-attr,
 .hljs-attribute,
+.hljs-property {
+  color: var(--code-attr);
+}
+/* 对象键与普通标识符：设计稿统一走 code-attr */
 .hljs-variable,
 .hljs-template-variable {
   color: var(--code-attr);
 }
 .hljs-type,
 .hljs-built_in,
-.hljs-builtin-name {
+.hljs-builtin-name,
+.hljs-title.class_,
+.hljs-title.class_.inherited__ {
   color: var(--code-type);
 }
 .hljs-deletion {
@@ -445,73 +712,94 @@ html[data-theme-css] .hljs-section {
 
 /* ---------- 扩展语法 ---------- */
 
-/* ==高亮==（markdown-it-mark → <mark>） */
+/* ==高亮==（markdown-it-mark → <mark>）：暖黄荧光笔，与青色选区拉开色相 */
 .md-preview mark {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  background: var(--mark-bg);
   color: inherit;
-  padding: 0.1em 0.25em;
+  padding: 0.06em 0.32em;
   border-radius: 4px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
-/* [TOC] 目录块 */
+/* [TOC] 目录块：发丝线卡片 + 题头菱珠 */
 .md-preview .md-toc {
-  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+  background: none;
   border: 1px solid var(--border);
-  border-radius: var(--radius-m);
-  padding: 14px 20px 14px 8px;
-  margin: 1.2em 0;
+  border-radius: 10px;
+  padding: 0.9em 1.2em;
+  margin: 1.4em 0;
+  font-size: 0.93em;
 }
 .md-preview .md-toc-title {
+  display: block;
   font-family: var(--font-body);
-  font-size: 0.78em;
+  font-size: 0.74em;
   font-weight: 600;
-  letter-spacing: 2px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
   color: var(--text-2);
-  margin: 0 0 6px 12px;
+  margin: 0 0 0.6em;
+}
+.md-preview .md-toc-title::before {
+  content: '';
+  display: inline-block;
+  width: 0.42em;
+  height: 0.42em;
+  margin-right: 0.75em;
+  vertical-align: 0.12em;
+  border-radius: 22%;
+  background: var(--accent);
+  transform: rotate(45deg);
 }
 .md-preview .md-toc ul {
   list-style: none;
   margin: 0;
-  padding-left: 16px;
+  padding-left: 0;
 }
 .md-preview .md-toc > ul {
-  padding-left: 12px;
+  padding-left: 0;
 }
 .md-preview .md-toc li {
-  margin: 2px 0;
-  line-height: 1.6;
+  margin-block: 0.12em;
+  line-height: 1.75;
 }
 /* 扁平条目的层级缩进兜底（:where 零特异性，主题模式下让位主题 margin-left） */
 .md-preview .md-toc :where(.md-toc-h2) {
-  margin-left: 1.4em;
+  margin-left: 0;
 }
 .md-preview .md-toc :where(.md-toc-h3) {
-  margin-left: 2.8em;
+  margin-left: 1.2em;
 }
 .md-preview .md-toc :where(.md-toc-h4) {
-  margin-left: 3.6em;
+  margin-left: 2.4em;
 }
 .md-preview .md-toc :where(.md-toc-h5) {
-  margin-left: 4.2em;
+  margin-left: 3.6em;
 }
 .md-preview .md-toc :where(.md-toc-h6) {
   margin-left: 4.8em;
 }
 .md-preview .md-toc a {
-  color: var(--text);
+  color: var(--text-2);
   text-decoration: none;
   border-radius: 4px;
+  transition: color 0.15s ease;
 }
 .md-preview .md-toc a:hover {
-  color: var(--accent-strong);
-  background: var(--accent-soft);
+  color: var(--accent);
+  background: none;
 }
 
 /* 脚注（markdown-it-footnote） */
-.md-preview .footnote-sep {
+.md-preview .footnote-sep,
+.md-preview .footnotes-sep {
   border: none;
-  border-top: 1px solid var(--border);
-  margin: 2em 0 1em;
+  border-top: none;
+  width: 36%;
+  height: 1px;
+  margin: 2.4em 0 1em;
+  background: linear-gradient(90deg, var(--border), transparent);
 }
 .md-preview .footnotes {
   font-size: 0.86em;
@@ -522,15 +810,16 @@ html[data-theme-css] .hljs-section {
   margin: 0.4em 0;
 }
 .md-preview .footnotes li {
-  margin: 0.3em 0;
+  margin: 0.35em 0;
 }
 .md-preview .footnote-ref a,
 .md-preview .footnote-backref {
   text-decoration: none;
-  color: var(--accent-strong);
+  color: var(--accent);
 }
 .md-preview .footnote-ref a:hover,
 .md-preview .footnote-backref:hover {
+  color: var(--accent-strong);
   text-decoration: underline;
 }
 
@@ -545,85 +834,86 @@ html[data-theme-css] .hljs-section {
 
 /* ---------- YAML front matter 元信息块（ROADMAP 1.7）---------- */
 .md-preview .md-front-matter {
-  margin: 1em 0;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: 6px;
+  margin: 1.2em 0;
+  padding: 0.9em 1.2em;
+  border: 1px dashed color-mix(in srgb, var(--text-2) 40%, transparent);
+  border-radius: 10px;
   background: var(--surface-2);
-}
-
-.md-preview .md-fm-pre {
-  margin: 0;
-  padding: 0;
-  background: none;
-  border: none;
   font-family: var(--font-code);
-  font-size: 0.86em;
-  line-height: 1.6;
+  font-size: 0.84em;
+  line-height: 1.65;
   color: var(--text-2);
   white-space: pre-wrap;
 }
 
+.md-preview .md-fm-pre {
+  /* 元信息卡的字号/字族/颜色都落在外层 .md-front-matter 上，内层 pre 全部继承
+     （再写一次 0.84em 会叠成 0.71em，比设计稿小一圈） */
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+  white-space: inherit;
+  box-shadow: none;
+}
+
 /* ---------- GitHub / Typora 警告块（> [!NOTE] 等标记） ----------
    主题自带 .md-alert 配色时（phycat 等）由主题接管（作用域特异性更高），
-   这里是无主题时的内置观感 */
+   这里是无主题时的内置观感：左侧色条 + 该色 9% 淡底 + 小字大写感标签 */
 .md-preview .md-alert {
-  padding: 10px 16px;
-  margin: 1em 0;
+  position: relative;
+  padding: 0.75em 1.1em 0.75em 1.15em;
+  margin: 1.1em 0;
   border: none;
-  border-radius: 10px;
+  border-left: 3px solid var(--al);
+  border-radius: 0 10px 10px 0;
+  background: color-mix(in srgb, var(--al) 9%, transparent);
+  color: var(--text);
 }
 .md-preview .md-alert-text-container {
   display: inline-flex;
   align-items: center;
-  padding: 2px 10px;
-  border-radius: 50px;
+  padding: 0;
+  border-radius: 0;
   font-weight: 600;
-  font-size: 13px;
-  background: color-mix(in srgb, var(--surface) 60%, transparent);
-  margin-bottom: 6px;
+  font-size: 0.8em;
+  letter-spacing: 0.06em;
+  background: none;
+  color: var(--al);
+  margin-bottom: 0.2em;
 }
 .md-preview .md-alert-text {
   display: inline-flex;
   align-items: center;
+  color: inherit;
 }
 .md-preview .md-alert-text svg {
   fill: currentColor;
-  width: 1em;
-  height: 1em;
-  margin-right: 6px;
+  width: 1.1em;
+  height: 1.1em;
+  margin-right: 0.45em;
   flex-shrink: 0;
 }
+/* 五个类型只负责给 --al 赋值（色条与淡底都由上面那条规则统一画） */
 .md-preview .md-alert-note {
-  background: rgba(108, 92, 231, 0.1);
-}
-.md-preview .md-alert-text-note {
-  color: #6c5ce7;
+  --al: var(--alert-note);
 }
 .md-preview .md-alert-tip {
-  background: rgba(0, 184, 148, 0.1);
-}
-.md-preview .md-alert-text-tip {
-  color: #009472;
+  --al: var(--alert-tip);
 }
 .md-preview .md-alert-important {
-  background: rgba(255, 118, 117, 0.12);
-}
-.md-preview .md-alert-text-important {
-  color: #e0526d;
+  --al: var(--alert-important);
 }
 .md-preview .md-alert-warning {
-  background: rgba(253, 203, 110, 0.16);
-}
-.md-preview .md-alert-text-warning {
-  color: #b58105;
+  --al: var(--alert-warning);
 }
 .md-preview .md-alert-caution {
-  background: rgba(214, 48, 49, 0.1);
-}
-.md-preview .md-alert-text-caution {
-  color: #d63031;
+  --al: var(--alert-caution);
 }
 
 /* Typora 分页标记：应用内不可见，导出/打印凭 break-after 分页 */
