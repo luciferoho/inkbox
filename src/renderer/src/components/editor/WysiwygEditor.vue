@@ -78,14 +78,19 @@ import { createHeadingFoldPlugin } from '@/editor/pm-heading-fold'
 import {
   beginColResize,
   clearColWidths,
+  colDragMaxTotal,
   createTableWidthsPlugin,
   endColResize,
   headerKeyOf,
-  hitColumnBoundary,
+  hideColBoundaryFeedback,
+  hitColumnBoundaryAt,
+  isColResizing,
   normalizeWidthsToTable,
   onColWidthsChanged,
   refreshTableWidths,
+  resizeWidths,
   setColWidths,
+  showColBoundaryFeedback,
   tableKey,
   widthsFromDom,
 } from '@/editor/table-widths'
@@ -1158,17 +1163,25 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
   if (!(table instanceof HTMLTableElement)) return
   const view = getView()
   if (!view) return
-  const col = hitColumnBoundary(table, e.clientX)
-  if (col === null) return
+  const hit = hitColumnBoundaryAt(table, e.clientX)
+  if (!hit) return
+  const col = hit.col
   const measured = widthsFromDom(table)
   if (!measured) return
   // 边界按下即进入拖拽态：阻止默认行为，避免拖动过程选中表格文字
   e.preventDefault()
   e.stopPropagation()
   const startWidths = normalizeWidthsToTable(table, measured)
+  const startTotal = startWidths.reduce((a, b) => a + b, 0)
+  const cells = table.rows[0].cells
+  // 只有表格右缘（最后一列右边界）受内容列宽上限约束；内部列边界自由变宽
+  const maxTotal = col === cells.length - 1 ? colDragMaxTotal(table, startTotal) : Number.POSITIVE_INFINITY
   const tableIndex = Array.from(view.dom.querySelectorAll('table')).indexOf(table)
   const key = tableKey(tabId ?? 'x', tableIndex, headerKeyOf(table))
   const startX = e.clientX
+  // 高亮线纵向只画在编辑区可视范围内（滚动容器可能比表格矮）
+  const hostRect = host.value?.getBoundingClientRect()
+  const clip = hostRect ? { top: hostRect.top, bottom: hostRect.bottom } : null
   beginColResize()
   let active = false
   let latest: number[] = startWidths
@@ -1183,18 +1196,30 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
       active = true
     }
     window.getSelection()?.removeAllRanges()
-    const next = [...startWidths]
-    next[col] = Math.max(24, Math.round(startWidths[col] + dx))
-    latest = next
+    latest = resizeWidths(startWidths, col, dx, maxTotal)
     // 每个 mousemove 立即应用：不依赖 rAF（窗口不可见/后台时 rAF 会被暂停，
     // 拖拽会变成松手才生效）；PM 事务 + 装饰器重算在这个体量下足够轻
     setColWidths(key, latest, true) // 本侧自己刷新装饰器，不触发广播
     if (editor) refreshTableWidths(view)
+    // 内容/CSS 最小宽会挡住「更窄」：把实际渲染宽度写回，否则存档是 24、渲染是 57，
+    // 表格会比外壳(总宽=存档和)宽出一条，白出一根横向滚动条
+    const actual = table.rows[0].cells[col]?.getBoundingClientRect().width
+    if (actual && actual - latest[col] >= 1) {
+      latest = [...latest]
+      latest[col] = Math.round(actual)
+      setColWidths(key, latest, true)
+      if (editor) refreshTableWidths(view)
+    }
+    // 线按「实际渲染出来的边界」定位：列宽被内容最小宽 / 内容列宽上限钳住时，
+    // 指针还会继续走，但线必须停在真正的分割线上
+    const edge = table.rows[0].cells[col]?.getBoundingClientRect().right
+    if (edge) showColBoundaryFeedback(table, edge, clip)
   }
   const onUp = (): void => {
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
     endColResize()
+    hideColBoundaryFeedback()
     if (!active) return // 纯点击：不提交、不广播
     setColWidths(key, latest) // 松手广播：预览侧同步
     if (editor) refreshTableWidths(view)
@@ -1439,14 +1464,21 @@ function scheduleHideTableHandles(): void {
   }, 350)
 }
 
-/** 指针离开编辑器：移向把手时保留，否则延迟收起 */
+/** 指针离开编辑器：移向把手时保留，否则延迟收起（顺手收起列边界反馈） */
 function onHostLeaveForHandles(e: MouseEvent): void {
+  hideColBoundaryFeedback()
   const rt = e.relatedTarget as Node | null
   if (rt && (colHandleLayer?.contains(rt) || rowHandleLayer?.contains(rt))) {
     cancelHandleHide()
     return
   }
   scheduleHideTableHandles()
+}
+
+/** 滚动：表格跟着位移，把手与边界高亮线立即收起避免残影 */
+function onHostScrollTables(): void {
+  hideTableHandles()
+  hideColBoundaryFeedback()
 }
 
 /** 只在「当前列」表头上方显示列把手 */
@@ -1527,7 +1559,7 @@ function syncTableHandles(target: HTMLElement | null): void {
   showRowHandle(table, rowEl instanceof HTMLTableRowElement ? rowEl.rowIndex : -1)
 }
 
-/** 表头列边界 hover：光标变 col-resize（el-table 手感）；rAF 节流避免每次移动查布局 */
+/** 表头列边界 hover：光标变 col-resize + 分割线高亮（el-table 手感）；rAF 节流避免每次移动查布局 */
 let cursorRaf = 0
 function onHostMouseMoveTableCursor(e: MouseEvent): void {
   const x = e.clientX
@@ -1535,16 +1567,23 @@ function onHostMouseMoveTableCursor(e: MouseEvent): void {
   const table = target?.closest?.('table')
   // 把手同步：不挂 rAF——窗口被遮挡/后台时 rAF 会暂停，把手就永远不出现
   syncTableHandles(target)
+  // 列宽拖拽期间由拖拽逻辑自己维护高亮线，悬浮反馈让位
+  if (isColResizing()) return
   if (!(table instanceof HTMLTableElement)) {
-    host.value?.style.removeProperty('cursor')
+    hideColBoundaryFeedback()
     return
   }
   if (cursorRaf) return
   cursorRaf = window.requestAnimationFrame(() => {
     cursorRaf = 0
-    const col = hitColumnBoundary(table, x)
-    if (col !== null) host.value?.style.setProperty('cursor', 'col-resize')
-    else host.value?.style.removeProperty('cursor')
+    if (isColResizing()) return
+    const hit = hitColumnBoundaryAt(table, x)
+    if (!hit) {
+      hideColBoundaryFeedback()
+      return
+    }
+    const hostRect = host.value?.getBoundingClientRect()
+    showColBoundaryFeedback(table, hit.edgeX, hostRect ? { top: hostRect.top, bottom: hostRect.bottom } : null)
   })
 }
 
@@ -2508,7 +2547,7 @@ onMounted(() => {
   // 表格列边界 hover 光标（el-table 手感）+ 表头上方列序把手
   host.value.addEventListener('mousemove', onHostMouseMoveTableCursor, { passive: true })
   host.value.addEventListener('mouseleave', onHostLeaveForHandles)
-  host.value.addEventListener('scroll', hideTableHandles, { passive: true })
+  host.value.addEventListener('scroll', onHostScrollTables, { passive: true })
   // 图片悬浮地址提示（mouseover/out 冒泡委托）;滚动即收起避免提示漂移
   host.value.addEventListener('mouseover', onHostOver)
   host.value.addEventListener('mouseout', onHostOut)
@@ -2773,10 +2812,11 @@ onBeforeUnmount(() => {
   host.value?.removeEventListener('mousedown', onHostMousedown)
   host.value?.removeEventListener('mousemove', onHostMouseMoveTableCursor)
   host.value?.removeEventListener('mouseleave', onHostLeaveForHandles)
-  host.value?.removeEventListener('scroll', hideTableHandles)
+  host.value?.removeEventListener('scroll', onHostScrollTables)
   colHandleLayer?.remove()
   colHandleLayer = null
   colHandleTable = null
+  hideColBoundaryFeedback()
   host.value?.removeEventListener('mouseover', onHostOver)
   host.value?.removeEventListener('mouseout', onHostOut)
   host.value?.removeEventListener('scroll', onHostScroll)
