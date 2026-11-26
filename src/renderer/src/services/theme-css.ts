@@ -477,65 +477,65 @@ const SYNTAX_TOKENS = [
 /** 明暗兜底令牌：主题只给了主色时，代码块/图标/危险色等仍要跟主题明暗一致。
  *  值与 base.css 的双主题调色板对齐（主题自己定义的同名令牌优先） */
 const POLARITY_LIGHT: Record<string, string> = {
-  '--bg': '#f6f2ec',
-  '--bg-rail': '#ece4d7',
-  '--surface': '#ffffff',
-  '--surface-2': '#efe9e0',
-  '--border': '#e4dcd0',
+  '--bg': '#faf5ee',
+  '--bg-rail': '#f4eadc',
+  '--surface': '#fffef5',
+  '--surface-2': '#f7eddf',
+  '--border': '#eaddc8',
   '--win-border': '#aaaaaa',
-  '--text': '#2b2420',
-  '--text-2': '#7c7267',
-  '--accent': '#c9701f',
-  '--accent-strong': '#b16014',
-  '--accent-soft': 'rgba(201, 112, 31, 0.12)',
-  '--selection': 'rgba(58, 118, 190, 0.5)',
-  '--danger': '#c2503e',
-  '--ok': '#2e7f72',
-  '--shadow-card': '0 1px 3px rgba(38, 32, 25, 0.06), 0 10px 28px rgba(38, 32, 25, 0.06)',
-  '--shadow-pop': '0 2px 6px rgba(38, 32, 25, 0.08), 0 16px 40px rgba(38, 32, 25, 0.12)',
-  '--code-bg': '#f2ecdf',
-  '--code-bar': '#eae2d2',
-  '--code-fg': '#2b2420',
-  '--code-edge': 'rgba(38, 32, 25, 0.08)',
-  '--code-comment': '#9c9184',
-  '--code-keyword': '#b16014',
-  '--code-string': '#57783b',
-  '--code-number': '#b8503f',
-  '--code-title': '#3565a3',
-  '--code-attr': '#8a6d2f',
-  '--code-type': '#7a55c0',
-  '--code-deletion': '#c2503e'
+  '--text': '#342e27',
+  '--text-2': '#6e6555',
+  '--accent': '#2c7281',
+  '--accent-strong': '#1f5a68',
+  '--accent-soft': 'rgba(44, 115, 130, 0.1)',
+  '--selection': 'rgba(104, 176, 192, 0.36)',
+  '--danger': '#c0524a',
+  '--ok': '#3a8a6a',
+  '--shadow-card': '0 1px 3px rgba(64, 48, 38, 0.06), 0 10px 28px rgba(64, 48, 38, 0.07)',
+  '--shadow-pop': '0 2px 6px rgba(64, 48, 38, 0.08), 0 16px 40px rgba(64, 48, 38, 0.13)',
+  '--code-bg': '#f8eee0',
+  '--code-bar': '#efe4d1',
+  '--code-fg': '#342e27',
+  '--code-edge': 'rgba(52, 46, 39, 0.09)',
+  '--code-comment': '#7e8986',
+  '--code-keyword': '#a85a3f',
+  '--code-string': '#557d4f',
+  '--code-number': '#9a6a2a',
+  '--code-title': '#2f6b94',
+  '--code-attr': '#8a6a33',
+  '--code-type': '#7560a3',
+  '--code-deletion': '#c0524a'
 }
 
 const POLARITY_DARK: Record<string, string> = {
-  '--bg': '#1d1814',
-  '--bg-rail': '#14100c',
-  '--surface': '#272019',
-  '--surface-2': '#332a21',
-  '--border': '#3b3128',
+  '--bg': '#131a1c',
+  '--bg-rail': '#0e1416',
+  '--surface': '#1a2225',
+  '--surface-2': '#222c2f',
+  '--border': '#2c373a',
   '--win-border': '#555555',
-  '--text': '#eae2d6',
-  '--text-2': '#a89d8e',
-  '--accent': '#e6a054',
-  '--accent-strong': '#f0b26e',
-  '--accent-soft': 'rgba(230, 160, 84, 0.14)',
-  '--selection': 'rgba(124, 170, 222, 0.55)',
-  '--danger': '#d66a55',
-  '--ok': '#5bb8a8',
-  '--shadow-card': '0 1px 3px rgba(0, 0, 0, 0.25), 0 10px 28px rgba(0, 0, 0, 0.22)',
-  '--shadow-pop': '0 2px 6px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.4)',
-  '--code-bg': '#26201a',
-  '--code-bar': '#1d1812',
-  '--code-fg': '#ece4d8',
-  '--code-edge': 'rgba(255, 244, 230, 0.16)',
-  '--code-comment': '#8a7f70',
-  '--code-keyword': '#f4c67f',
-  '--code-string': '#a8c98a',
-  '--code-number': '#e8a3a0',
-  '--code-title': '#9fc6e8',
-  '--code-attr': '#d4b483',
-  '--code-type': '#c9b3f0',
-  '--code-deletion': '#d66a55'
+  '--text': '#c8d0ce',
+  '--text-2': '#8a9693',
+  '--accent': '#74c0cf',
+  '--accent-strong': '#97d3de',
+  '--accent-soft': 'rgba(116, 192, 207, 0.13)',
+  '--selection': 'rgba(86, 160, 178, 0.42)',
+  '--danger': '#e2837b',
+  '--ok': '#6fc2a0',
+  '--shadow-card': '0 1px 3px rgba(0, 0, 0, 0.3), 0 10px 28px rgba(0, 0, 0, 0.26)',
+  '--shadow-pop': '0 2px 6px rgba(0, 0, 0, 0.34), 0 16px 40px rgba(0, 0, 0, 0.46)',
+  '--code-bg': '#151c1f',
+  '--code-bar': '#1c2528',
+  '--code-fg': '#c8d0ce',
+  '--code-edge': 'rgba(200, 208, 206, 0.1)',
+  '--code-comment': '#6f7c79',
+  '--code-keyword': '#e0937a',
+  '--code-string': '#9cc48f',
+  '--code-number': '#e0ad6c',
+  '--code-title': '#85b8e0',
+  '--code-attr': '#d4b47c',
+  '--code-type': '#b9a3e0',
+  '--code-deletion': '#e2837b'
 }
 
 /** 后置取值桥：主题定义的 Typora 变量值 → 我们的设计令牌（整应用跟随主题） */
@@ -1308,6 +1308,36 @@ ${SCOPE} .footnote-item em {
 }
 ${SCOPE} .footnote-item p {
   text-align: left;
+}
+/* 内置的「釉珠」装饰与自绘件是内置模式的设计语言，主题模式下必须让位：
+   主题有自己的标题装饰（phycat 的 span 内编号/图标片）、引用装饰（✨）、
+   表格框线与任务框写法。同特异度时主题规则在本文之后注入，照常覆盖 */
+${SCOPE} h1::before,
+${SCOPE} h1::after,
+${SCOPE} h2::before,
+${SCOPE} h3::before,
+${SCOPE} blockquote::before,
+${SCOPE} hr::after {
+  content: none;
+}
+/* 自绘任务勾选让位：主题自己画勾（takeover）或还原原生（guard）时，
+   内置的勾形伪元素与圆角描边都不能残留 */
+${SCOPE} .task-item-checkbox::after {
+  content: none;
+}
+/* 表格：内置用 separate 画圆角框线，Typora 表格默认 collapse（每格自带四边）；
+   圆角是内置装饰，主题表格没有圆角语义 */
+${SCOPE} table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+${SCOPE} th,
+${SCOPE} td {
+  border-radius: 0;
+}
+/* 图片的 1px 收边是内置装饰（浅色图浮在浅底上没边），主题图片自带描边时别叠 */
+${SCOPE} img {
+  box-shadow: none;
 }
 `
 

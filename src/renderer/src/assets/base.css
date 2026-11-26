@@ -5,50 +5,62 @@
 :root {
   color-scheme: light;
 
-  /* 净纸 Light（默认）：参考 phycat-caramel 的"净白纸面 + 碳灰正文"——
-     去掉重米黄底（显昏）、正文从近黑降为碳灰（低刺激），琥珀点缀保留 */
-  --bg: #faf9f7;
-  /* 墨脊（活动栏）随主题：亮色下与纸面同族，比 surface-2 再深一档做层次 */
-  --bg-rail: #f1efeb;
-  --rail-icon: rgba(55, 53, 47, 0.6);
-  --rail-icon-hover: #b26a1b;
-  --rail-hover: rgba(55, 53, 47, 0.06);
-  --surface: #ffffff;
-  --surface-2: #f2f0ec;
-  --border: #e6e3dd;
+  /* 奶油纸 Light（默认）：暖白纸面 + 墨色正文，青蓝主色点缀。
+     中性色阶（墨脊、次级面、边线、文字、代码底）都从这张暖纸推导，纸与件同族；
+     青色只给主色与它的着色件（行内代码、表头、列表符、引用线），冷暖对照但不刺眼 */
+  --bg: #faf5ee;
+  /* 墨脊（活动栏）随主题：亮色下比纸面再深一档做层次 */
+  --bg-rail: #f4eadc;
+  --rail-icon: rgba(52, 46, 39, 0.6);
+  --rail-icon-hover: #2c7281;
+  --rail-hover: rgba(52, 46, 39, 0.06);
+  --surface: #fffef5;
+  --surface-2: #f7eddf;
+  --border: #eaddc8;
   /* 窗口框线（无边框窗口的上边框线，独立于内部发丝线 --border）：
      默认中性灰 #AAAAAA，主题显式声明边框色时由主题接管（theme-css 变量桥） */
   --win-border: #aaaaaa;
-  --text: #37352f;
-  --text-2: #86817a;
-  --accent: #c9701f;
-  --accent-strong: #b16014;
-  --accent-soft: rgba(201, 112, 31, 0.1);
-  /* 文本选区：与琥珀色 ==高亮==/搜索命中区分开，对比度足够醒目 */
-  --selection: rgba(58, 118, 190, 0.5);
-  --danger: #c2503e;
-  --ok: #2e7f72;
+  --text: #342e27;
+  --text-2: #6e6555;
+  --accent: #2c7281;
+  --accent-strong: #1f5a68;
+  --accent-soft: rgba(44, 115, 130, 0.1);
+  /* 文本选区：与暖黄 ==高亮==/搜索命中区分开，对比度足够醒目 */
+  --selection: rgba(104, 176, 192, 0.36);
+  --danger: #c0524a;
+  --ok: #3a8a6a;
+  /* 高亮（==高亮== / mark）：暖黄荧光笔，与青色选区拉开色相 */
+  --mark-bg: rgba(240, 196, 92, 0.34);
+  /* 任务勾选标记（填色方块上的勾）：亮色白勾 */
+  --check-fg: #ffffff;
 
-  /* 代码块（浅底净纸）与语法配色：hljs 各类目一令牌，preview/wysiwyg/导出共用 */
-  --code-bg: #f5f4f1;
-  --code-bar: #edebe7;
-  --code-fg: #37352f;
-  --code-edge: rgba(55, 53, 47, 0.1);
-  --code-comment: #9b968c;
-  --code-keyword: #b26a1b;
-  --code-string: #55793c;
-  --code-number: #b8503f;
-  --code-title: #3565a3;
-  --code-attr: #8a6d2f;
-  --code-type: #7a55c0;
-  --code-deletion: #c2503e;
+  /* 代码块（浅米底）与语法配色：hljs 各类目一令牌，preview/wysiwyg/导出共用 */
+  --code-bg: #f8eee0;
+  --code-bar: #efe4d1;
+  --code-fg: #342e27;
+  --code-edge: rgba(52, 46, 39, 0.09);
+  --code-comment: #7e8986;
+  --code-keyword: #a85a3f;
+  --code-string: #557d4f;
+  --code-number: #9a6a2a;
+  --code-title: #2f6b94;
+  --code-attr: #8a6a33;
+  --code-type: #7560a3;
+  --code-deletion: #c0524a;
+
+  /* 提示块（> [!NOTE] 等）五种语义色：左侧色条与标签用它，淡底 = 该色 9% 混入纸色 */
+  --alert-note: #3f6a97;
+  --alert-tip: #2c745a;
+  --alert-important: #935c20;
+  --alert-warning: #84630f;
+  --alert-caution: #b2433b;
 
   /* 形状与阴影 */
   --radius-s: 6px;
   --radius-m: 10px;
   --radius-l: 14px;
-  --shadow-card: 0 1px 3px rgba(40, 38, 33, 0.05), 0 10px 28px rgba(40, 38, 33, 0.05);
-  --shadow-pop: 0 2px 6px rgba(40, 38, 33, 0.07), 0 16px 40px rgba(40, 38, 33, 0.11);
+  --shadow-card: 0 1px 3px rgba(64, 48, 38, 0.06), 0 10px 28px rgba(64, 48, 38, 0.07);
+  --shadow-pop: 0 2px 6px rgba(64, 48, 38, 0.08), 0 16px 40px rgba(64, 48, 38, 0.13);
 
   /* 字体 */
   --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
@@ -57,9 +69,9 @@
   /* 文档内容字族（M3 设置页可覆盖，默认回落上面两族；外观服务写根节点行内样式） */
   --font-body: var(--font-ui);
   --font-code: var(--font-mono);
-  /* 行内代码（主题可覆盖：Typora 的 --inline-code-* / --bg-inline-code） */
-  --inline-code-bg: var(--surface-2);
-  --inline-code-fg: inherit;
+  /* 行内代码（主题可覆盖：Typora 的 --inline-code-* / --bg-inline-code）：淡青药丸 + 深青字 */
+  --inline-code-bg: #e6eeed;
+  --inline-code-fg: #22606e;
   --inline-code-border: transparent;
 
   /* 排版偏好（设置页实时覆盖：ui.applyEditorPrefs） */
@@ -84,42 +96,56 @@
 [data-theme='dark'] {
   color-scheme: dark;
 
-  /* 墨蓝 Dark：参考 phycat-abyss 的"午夜蓝黑 + 冰灰蓝正文"——暖褐底换蓝黑底
-     （蓝调暗环境更放松），正文从近白降到冰灰（降亮度防刺眼），琥珀点缀微降饱和 */
-  --bg: #171a21;
-  --bg-rail: #101218;
-  --rail-icon: rgba(210, 218, 230, 0.62);
-  --rail-icon-hover: #eab464;
-  --rail-hover: rgba(210, 218, 230, 0.07);
-  --surface: #1e212a;
-  --surface-2: #272b35;
-  --border: #2b2f3a;
+  /* 夜墨 Dark：带青底的深灰（不用纯黑）+ 灰白正文（不用纯白）：
+     暗环境降低刺激，青底与主色同族；主色提亮为浅青，代码块与纸面同族靠描边分层 */
+  --bg: #131a1c;
+  --bg-rail: #0e1416;
+  --rail-icon: rgba(200, 208, 206, 0.62);
+  --rail-icon-hover: #74c0cf;
+  --rail-hover: rgba(200, 208, 206, 0.07);
+  --surface: #1a2225;
+  --surface-2: #222c2f;
+  --border: #2c373a;
   --win-border: #555555;
-  --text: #d2d8e2;
-  --text-2: #8d95a5;
-  --accent: #e3a45c;
-  --accent-strong: #edb877;
-  --accent-soft: rgba(227, 164, 92, 0.13);
-  --selection: rgba(120, 165, 220, 0.5);
-  --danger: #d97764;
-  --ok: #63b8a6;
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.28), 0 10px 28px rgba(0, 0, 0, 0.24);
-  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.32), 0 16px 40px rgba(0, 0, 0, 0.42);
+  --text: #c8d0ce;
+  --text-2: #8a9693;
+  --accent: #74c0cf;
+  --accent-strong: #97d3de;
+  --accent-soft: rgba(116, 192, 207, 0.13);
+  --selection: rgba(86, 160, 178, 0.42);
+  --danger: #e2837b;
+  --ok: #6fc2a0;
+  --mark-bg: rgba(236, 190, 92, 0.22);
+  /* 暗色下主色偏亮，勾用近黑的深色 */
+  --check-fg: #0f1c1e;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3), 0 10px 28px rgba(0, 0, 0, 0.26);
+  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.34), 0 16px 40px rgba(0, 0, 0, 0.46);
 
-  /* 代码块（暗底墨蓝）：维持深底形态，令牌与亮色同名 */
-  --code-bg: #1c1f27;
-  --code-bar: #13151b;
-  --code-fg: #d2d8e2;
-  /* 暗色下代码块与纸卡同色系，边界糊（看着费眼睛），描边加重 */
-  --code-edge: rgba(210, 218, 230, 0.15);
-  --code-comment: #7d8595;
-  --code-keyword: #ecb96f;
-  --code-string: #a5c795;
-  --code-number: #e39a92;
-  --code-title: #9cc3e8;
-  --code-attr: #d0b283;
-  --code-type: #c2aeee;
-  --code-deletion: #d97764;
+  /* 代码块（暗底墨青）：维持深底形态，令牌与亮色同名 */
+  --code-bg: #151c1f;
+  --code-bar: #1c2528;
+  --code-fg: #c8d0ce;
+  /* 暗色下代码块与纸面同色系，边界糊（看着费眼睛），描边加重 */
+  --code-edge: rgba(200, 208, 206, 0.1);
+  --code-comment: #6f7c79;
+  --code-keyword: #e0937a;
+  --code-string: #9cc48f;
+  --code-number: #e0ad6c;
+  --code-title: #85b8e0;
+  --code-attr: #d4b47c;
+  --code-type: #b9a3e0;
+  --code-deletion: #e2837b;
+
+  /* 暗底下的行内代码：深青底 + 浅青字 */
+  --inline-code-bg: #243033;
+  --inline-code-fg: #9fd6df;
+
+  /* 提示块五色（暗底提亮） */
+  --alert-note: #8db9e8;
+  --alert-tip: #7fd0ae;
+  --alert-important: #e3ab6c;
+  --alert-warning: #e2c06a;
+  --alert-caution: #f09088;
 }
 
 /* ---------- Reset ---------- */

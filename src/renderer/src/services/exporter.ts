@@ -71,30 +71,32 @@ const IMG_MIME: Record<string, string> = {
 
 /* 代码块语法令牌（与 base.css 双主题同名，导出产物脱离应用也要有值） */
 const CODE_TOKENS_LIGHT = `
-  --code-bg: #f5f4f1;
-  --code-fg: #37352f;
-  --code-edge: rgba(55, 53, 47, 0.1);
-  --code-comment: #9b968c;
-  --code-keyword: #b26a1b;
-  --code-string: #55793c;
-  --code-number: #b8503f;
-  --code-title: #3565a3;
-  --code-attr: #8a6d2f;
-  --code-type: #7a55c0;
-  --code-deletion: #c2503e;
+  --code-bg: #f8eee0;
+  --code-bar: #efe4d1;
+  --code-fg: #342e27;
+  --code-edge: rgba(52, 46, 39, 0.09);
+  --code-comment: #7e8986;
+  --code-keyword: #a85a3f;
+  --code-string: #557d4f;
+  --code-number: #9a6a2a;
+  --code-title: #2f6b94;
+  --code-attr: #8a6a33;
+  --code-type: #7560a3;
+  --code-deletion: #c0524a;
 `
 const CODE_TOKENS_DARK = `
-  --code-bg: #1c1f27;
-  --code-fg: #d2d8e2;
-  --code-edge: rgba(210, 218, 230, 0.15);
-  --code-comment: #7d8595;
-  --code-keyword: #ecb96f;
-  --code-string: #a5c795;
-  --code-number: #e39a92;
-  --code-title: #9cc3e8;
-  --code-attr: #d0b283;
-  --code-type: #c2aeee;
-  --code-deletion: #d97764;
+  --code-bg: #151c1f;
+  --code-bar: #1c2528;
+  --code-fg: #c8d0ce;
+  --code-edge: rgba(200, 208, 206, 0.1);
+  --code-comment: #6f7c79;
+  --code-keyword: #e0937a;
+  --code-string: #9cc48f;
+  --code-number: #e0ad6c;
+  --code-title: #85b8e0;
+  --code-attr: #d4b47c;
+  --code-type: #b9a3e0;
+  --code-deletion: #e2837b;
 `
 
 /* 导出排版兜底：主题 CSS 注入在页面样式之后，可能带来自身场景的 pre/code
@@ -107,6 +109,13 @@ const EXPORT_FALLBACK_LAYOUT = `
 .md-preview pre { overflow: visible !important; max-width: 100%; }
 .md-preview pre code { white-space: pre-wrap !important; word-break: break-word; }
 .md-preview .md-code-bar { display: none !important; }
+/* 导出会剥掉语言栏（.md-code-bar），内置的 30px 信息带就成了一块空条：
+   导出恢复成整块代码底、普通内距 */
+.md-preview pre {
+  background: var(--code-bg) !important;
+  padding-top: 14px !important;
+  padding-inline: 16px !important;
+}
 /* hover 态在源头已剥（previewCss/主题 CSS 注入前经 stripInteractiveCss），
    静态产物无任何鼠标反馈 */
 .md-preview * { cursor: default !important; }
@@ -114,45 +123,54 @@ const EXPORT_FALLBACK_LAYOUT = `
 
 /* PDF 打印净化：PDF 固定白底，暗色自定义主题的文字色（浅色文字）在白底上
    不可读——主题 CSS 注入后重申亮色令牌并强制正文/代码/引用的深色，排版
-   （间距/字体/结构）保留主题效果 */
+   （间距/字体/结构）保留主题效果。色相与内置调色板同族（青蓝主色 + 暖纸代码底） */
 const EXPORT_SANITIZE_PRINT = `
 body, .md-preview.export-page { background: #fff !important; }
 .md-preview {
-  color: #1f2328 !important;
-  --bg: #fff; --surface: #fff; --surface-2: #f6f8fa; --border: #d0d7de;
-  --text: #1f2328; --text-2: #57606a;
-  --accent: #b16014; --accent-strong: #954d0d; --accent-soft: rgba(177, 96, 20, 0.1);
-  --code-bg: #f6f8fa; --code-fg: #1f2328; --code-bar: #eaeef2;
-  --code-comment: #57606a; --code-keyword: #cf222e; --code-string: #0a3069;
-  --code-number: #0550ae; --code-title: #0550ae; --code-attr: #953800;
-  --code-type: #8250df; --code-deletion: #cf222e;
-  --inline-code-bg: #eff1f3;
+  color: #342e27 !important;
+  --bg: #fff; --surface: #fff; --surface-2: #f7f1e6; --border: #d9d1c2;
+  --text: #342e27; --text-2: #6e6555;
+  --accent: #1f5a68; --accent-strong: #17454f; --accent-soft: rgba(31, 90, 104, 0.1);
+  --mark-bg: rgba(240, 196, 92, 0.34);
+  --alert-note: #3f6a97; --alert-tip: #2c745a; --alert-important: #935c20;
+  --alert-warning: #84630f; --alert-caution: #b2433b;
+  --code-bg: #f8eee0; --code-bar: #efe4d1; --code-fg: #342e27;
+  --code-edge: rgba(52, 46, 39, 0.12);
+  --code-comment: #6f7a72; --code-keyword: #9c4f33; --code-string: #4a7044;
+  --code-number: #8a5d20; --code-title: #2a5f85; --code-attr: #7a5e2b;
+  --code-type: #6a56a0; --code-deletion: #b04540;
+  --inline-code-bg: #e6eeed; --inline-code-fg: #22606e;
 }
 .md-preview h1, .md-preview h2, .md-preview h3, .md-preview h4,
 .md-preview h5, .md-preview h6, .md-preview p, .md-preview li,
 .md-preview td, .md-preview th, .md-preview strong, .md-preview em,
-.md-preview del, .md-preview figcaption { color: #1f2328 !important; }
-.md-preview a { color: #0969da !important; }
-.md-preview blockquote { color: #57606a !important; border-left-color: #d0d7de !important; }
-.md-preview pre, .md-preview pre code { color: #1f2328 !important; }
-.md-preview table, .md-preview th, .md-preview td { border-color: #d0d7de !important; }
-.md-preview hr { border-color: #d0d7de !important; }
+.md-preview del, .md-preview figcaption { color: #342e27 !important; }
+.md-preview a { color: #1f5a68 !important; }
+.md-preview blockquote { color: #4a423a !important; border-left-color: #b9cbc7 !important; }
+.md-preview pre, .md-preview pre code { color: #342e27 !important; }
+.md-preview table, .md-preview th, .md-preview td { border-color: #d9d1c2 !important; }
 `
 
 /* 纸面亮色主题的设计令牌（HTML/PNG 导出可选亮暗，PDF 固定亮色白底打印） */
 const EXPORT_TOKENS_LIGHT = `
 :root {
-  --bg: #faf9f7;
-  --surface: #ffffff;
-  --surface-2: #f2f0ec;
-  --border: #e6e3dd;
-  --text: #37352f;
-  --text-2: #86817a;
-  --accent: #c9701f;
-  --accent-strong: #b16014;
-  --accent-soft: rgba(201, 112, 31, 0.1);
-  --danger: #c2503e;
-  --export-shadow: 0 1px 3px rgba(40, 38, 33, 0.05), 0 16px 44px rgba(40, 38, 33, 0.06);
+  --bg: #faf5ee;
+  --surface: #fffef5;
+  --surface-2: #f7eddf;
+  --border: #eaddc8;
+  --text: #342e27;
+  --text-2: #6e6555;
+  --accent: #2c7281;
+  --accent-strong: #1f5a68;
+  --accent-soft: rgba(44, 115, 130, 0.1);
+  --danger: #c0524a;
+  --mark-bg: rgba(240, 196, 92, 0.34);
+  --alert-note: #3f6a97; --alert-tip: #2c745a; --alert-important: #935c20;
+  --alert-warning: #84630f; --alert-caution: #b2433b;
+  --inline-code-bg: #e6eeed;
+  --inline-code-fg: #22606e;
+  --inline-code-border: transparent;
+  --export-shadow: 0 1px 3px rgba(64, 48, 38, 0.05), 0 16px 44px rgba(64, 48, 38, 0.06);
   --radius-m: 10px;
   --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
   --font-serif: Georgia, 'Source Serif SC', 'Noto Serif SC', 'Times New Roman', serif;
@@ -166,16 +184,22 @@ ${CODE_TOKENS_LIGHT}
 /* 墨匣暗色主题的设计令牌（暗色导出：深底浅字，代码块同为暗色） */
 const EXPORT_TOKENS_DARK = `
 :root {
-  --bg: #171a21;
-  --surface: #1e212a;
-  --surface-2: #272b35;
-  --border: #2b2f3a;
-  --text: #d2d8e2;
-  --text-2: #8d95a5;
-  --accent: #e3a45c;
-  --accent-strong: #edb877;
-  --accent-soft: rgba(227, 164, 92, 0.13);
-  --danger: #d97764;
+  --bg: #131a1c;
+  --surface: #1a2225;
+  --surface-2: #222c2f;
+  --border: #2c373a;
+  --text: #c8d0ce;
+  --text-2: #8a9693;
+  --accent: #74c0cf;
+  --accent-strong: #97d3de;
+  --accent-soft: rgba(116, 192, 207, 0.13);
+  --danger: #e2837b;
+  --mark-bg: rgba(236, 190, 92, 0.22);
+  --alert-note: #8db9e8; --alert-tip: #7fd0ae; --alert-important: #e3ab6c;
+  --alert-warning: #e2c06a; --alert-caution: #f09088;
+  --inline-code-bg: #243033;
+  --inline-code-fg: #9fd6df;
+  --inline-code-border: transparent;
   --export-shadow: 0 1px 3px rgba(0, 0, 0, 0.28), 0 16px 44px rgba(0, 0, 0, 0.42);
   --radius-m: 10px;
   --font-ui: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
@@ -189,13 +213,11 @@ ${CODE_TOKENS_DARK}
 
 const EXPORT_TOKENS_COMMON = `
 * { box-sizing: border-box; margin: 0; padding: 0; }
-/* 文档字族回落（M3）：外部主题/用户 CSS 覆盖 --font-body/--font-code 即生效 */
+/* 文档字族回落（M3）：外部主题/用户 CSS 覆盖 --font-body/--font-code 即生效。
+   行内代码配色不在这里兜底——它是设计的一部分，已由明暗令牌块各自定义 */
 :root {
   --font-body: var(--font-ui);
   --font-code: var(--font-mono);
-  --inline-code-bg: var(--surface-2);
-  --inline-code-fg: inherit;
-  --inline-code-border: transparent;
 }
 `
 
