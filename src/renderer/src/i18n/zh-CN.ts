@@ -262,6 +262,8 @@ export const zh = {
 
   // 快捷键面板
   'sc.title': '快捷键',
+  'sc.filterPh': '按标题筛选…',
+  'sc.filterNoHit': '没有匹配的快捷键。',
   'sc.collapse': '收起面板',
   'sc.gCommon': '常用',
   'sc.gEdit': '编辑与格式',

@@ -1,15 +1,21 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useUiStore } from '@/stores/ui'
 import { t, type MsgKey } from '@/i18n'
 import { SHORTCUT_COMMANDS, effectiveShortcuts, accelKeys } from '@shared/shortcuts'
 import { runPluginCommand } from '@/services/pluginHost'
 
 /** 右侧快捷键面板：墨脊键盘图标开关，宽度过渡折叠/展开。
- *  应用级命令来自注册表（改键后实时跟随），编辑器内格式键仍为固定清单。 */
+ *  应用级命令来自注册表（改键后实时跟随），编辑器内格式键仍为固定清单。
+ *  顶部筛选框按条目标题过滤：命中项保留、空组隐藏、全空显示空态。 */
 const ui = useUiStore()
 
 const eff = computed(() => effectiveShortcuts(ui.shortcuts))
+
+/* 筛选词：大小写不敏感的子串匹配（中文直接包含匹配） */
+const filter = ref('')
+const q = computed(() => filter.value.trim().toLowerCase())
+const hit = (text: string): boolean => !q.value || text.toLowerCase().includes(q.value)
 
 /* 注册表组：常用 = 文件命令；视图与模式 = 视图/外观/设置；查找挂在编辑组首行动态渲染。
    键帽格式全面板统一：一个组合一枚 kbd（"Ctrl+Shift+F" 一枚），双组合条目两枚 */
@@ -93,6 +99,30 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string 
     ]
   }
 ])
+
+/* ---------- 筛选结果：命中项保留，空组隐藏；全部为空时显示空态 ---------- */
+const regGroups = computed(() =>
+  REG_GROUPS.value
+    .map((g) => ({ title: g.title, items: g.items.filter((it) => hit(it.label)) }))
+    .filter((g) => g.items.length)
+)
+const pluginItems = computed(() => ui.pluginCommands.filter((c) => hit(c.title)))
+/* 固定键组的「查找替换」是动态行（不随改键），单独参与命中判定 */
+const staticGroups = computed(() =>
+  STATIC_GROUPS.value
+    .map((g) => {
+      const isEdit = g.title === t('sc.gEdit')
+      return {
+        title: g.title,
+        items: g.items.filter((it) => hit(it.d)),
+        showFind: isEdit && hit(t('sc.find'))
+      }
+    })
+    .filter((g) => g.items.length || g.showFind)
+)
+const noMatch = computed(
+  () => !!q.value && !regGroups.value.length && !pluginItems.value.length && !staticGroups.value.length
+)
 </script>
 
 <template>
@@ -105,8 +135,20 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string 
         </svg>
       </button>
     </div>
+    <!-- 按标题筛选：输入即过滤，Esc 清空 -->
+    <div class="sc-filter">
+      <input
+        v-model="filter"
+        class="sc-filter-input"
+        :placeholder="$t('sc.filterPh')"
+        spellcheck="false"
+        @keydown.esc="filter = ''"
+      />
+      <button v-if="filter" class="sc-filter-clear" :title="$t('common.close')" @click="filter = ''">✕</button>
+    </div>
     <div class="sc-body">
-      <section v-for="g in REG_GROUPS" :key="g.title" class="sc-group">
+      <p v-if="noMatch" class="sc-empty">{{ $t('sc.filterNoHit') }}</p>
+      <section v-for="g in regGroups" :key="g.title" class="sc-group">
         <p class="sc-title">{{ g.title }}</p>
         <div v-for="it in g.items" :key="it.id" class="sc-item">
           <span class="sc-desc">{{ it.label }}</span>
@@ -118,10 +160,10 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string 
           </span>
         </div>
       </section>
-      <section v-if="ui.pluginCommands.length" class="sc-group">
+      <section v-if="pluginItems.length" class="sc-group">
         <p class="sc-title">{{ $t('sc.gPlugins') }}</p>
         <button
-          v-for="c in ui.pluginCommands"
+          v-for="c in pluginItems"
           :key="c.id"
           class="sc-cmd"
           :title="c.plugin + ' · ' + $t('sc.pluginRun')"
@@ -134,7 +176,7 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string 
           <span class="sc-cmd-src">{{ c.plugin }}</span>
         </button>
       </section>
-      <section v-for="g in STATIC_GROUPS" :key="g.title" class="sc-group">
+      <section v-for="g in staticGroups" :key="g.title" class="sc-group">
         <p class="sc-title">{{ g.title }}</p>
         <div v-for="it in g.items" :key="it.d" class="sc-item">
           <span class="sc-desc">{{ it.d }}</span>
@@ -143,7 +185,7 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string 
           </span>
         </div>
         <!-- 查找替换为可改键命令，动态渲染在本组末行（同一键帽格式：一组合一枚） -->
-        <div v-if="g.title === $t('sc.gEdit')" class="sc-item">
+        <div v-if="g.showFind" class="sc-item">
           <span class="sc-desc">{{ $t('sc.find') }}</span>
           <span class="sc-keys">
             <kbd v-if="findLabel">{{ findLabel }}</kbd>
@@ -192,6 +234,61 @@ const STATIC_GROUPS = computed<{ title: string; items: { k: string[]; d: string 
 .collapse-btn:hover {
   color: var(--accent-strong);
   background: var(--accent-soft);
+}
+
+/* 筛选框：与工作区面板的文件筛选同款观感 */
+.sc-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 14px 6px;
+  flex-shrink: 0;
+}
+
+.sc-filter-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.sc-filter-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.sc-filter-input::placeholder {
+  color: var(--text-2);
+  opacity: 0.75;
+}
+
+.sc-filter-clear {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-s);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.sc-filter-clear:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.sc-empty {
+  margin: 18px 2px;
+  font-size: 12px;
+  color: var(--text-2);
+  text-align: center;
 }
 
 .sc-body {
