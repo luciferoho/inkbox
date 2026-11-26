@@ -330,12 +330,14 @@ function pmSetHeading(view: EditorView, level: number): boolean {
   )
 }
 
-/** 标题升级/降级（与源码 shiftHeading 一致）：无标题按方向落到 h1/h2，封顶 h1/h6 */
+/** 标题升级/降级：与源码 shiftHeading 同语义——
+ *  delta<0 提升（h1 → 正文、正文 → h1、hN → h(N-1)）；delta>0 降级（正文 → h2、hN → h(N+1)，封顶 h6） */
 function pmShiftHeading(view: EditorView, delta: number): boolean {
   const cur = curHeadingLevel(view.state)
-  const level = cur === null ? (delta > 0 ? 2 : 1) : Math.min(6, Math.max(1, cur + delta))
+  const level = cur === null ? (delta > 0 ? 2 : 1) : Math.min(6, Math.max(0, cur + delta))
   if (cur === level) return true // 已到边界：吞掉按键（拦住浏览器缩放），内容不动
-  return pmSetHeading(view, level)
+  // level 0 = 正文（h1 再提升），与 Ctrl+0 同一实现
+  return level === 0 ? milkCmd(callCommand(turnIntoTextCommand.key)) : pmSetHeading(view, level)
 }
 
 /** 切换引用块：在引用内 → 当前提出；不在 → 包一层 */
@@ -453,11 +455,13 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     }
     if (!event.shiftKey && (key === '=' || key === '+')) {
       event.preventDefault()
-      return pmShiftHeading(view, 1)
+      // 与源码 cmdHeadingUp 一致：提升 = 标题级别变小（h2 → h1，h1 → 正文）
+      return pmShiftHeading(view, -1)
     }
     if (!event.shiftKey && key === '-') {
       event.preventDefault()
-      return pmShiftHeading(view, -1)
+      // 与源码 cmdHeadingDown 一致：降级 = 级别变大（h1 → h2，正文 → h2）
+      return pmShiftHeading(view, 1)
     }
     if (event.shiftKey && key === 'K') {
       event.preventDefault()
