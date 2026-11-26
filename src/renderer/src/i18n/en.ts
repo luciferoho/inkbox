@@ -261,6 +261,8 @@ export const en: MsgSchema = {
 
   // Shortcut panel
   'sc.title': 'Shortcuts',
+  'sc.filterPh': 'Filter by title…',
+  'sc.filterNoHit': 'No matching shortcuts.',
   'sc.collapse': 'Collapse panel',
   'sc.gCommon': 'General',
   'sc.gEdit': 'Editing & formatting',
