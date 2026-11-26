@@ -88,6 +88,14 @@ const api = {
     clear: (key: string): Promise<void> => ipcRenderer.invoke('drafts:clear', key),
     clearAll: (): Promise<void> => ipcRenderer.invoke('drafts:clearAll')
   },
+  /** 剪贴板（主进程实现）：渲染层 navigator.clipboard 受用户激活/权限限制，
+   *  右键菜单这类路径会写不进去或读到旧内容，统一走这里 */
+  clipboard: {
+    readText: (): Promise<string> => ipcRenderer.invoke('clipboard:read-text'),
+    writeText: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write-text', text),
+    writeRich: (text: string, html?: string): Promise<void> =>
+      ipcRenderer.invoke('clipboard:write-rich', text, html)
+  },
   /** 跨窗口标签拖拽：主进程登记中转（dataTransfer 跨窗口不可靠） */
   drag: {
     begin: (doc: DetachDoc): void => ipcRenderer.send('drag:begin', doc),

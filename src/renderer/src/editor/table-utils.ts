@@ -61,6 +61,22 @@ export function joinCells(cells: string[]): string {
   return `| ${cells.join(' | ')} |`
 }
 
+/** 行数据 → GFM 表格文本（含表头分隔行）。
+ *  「复制表格」必须带分隔行：只有竖线的几行在 Markdown 里不是表格，粘回去会是
+ *  几段普通文本（用户实测）。aligns 按列对齐（left/center/right），缺省 `---`。 */
+export function gfmTable(rows: string[][], aligns: (string | null)[] = []): string {
+  if (!rows.length) return ''
+  const cols = Math.max(...rows.map((r) => r.length))
+  const pad = (r: string[]): string[] => Array.from({ length: cols }, (_, i) => r[i] ?? '')
+  const sep = Array.from({ length: cols }, (_, i) => {
+    if (aligns[i] === 'center') return ':---:'
+    if (aligns[i] === 'right') return '---:'
+    if (aligns[i] === 'left') return ':---'
+    return '---'
+  })
+  return [joinCells(pad(rows[0])), joinCells(sep), ...rows.slice(1).map((r) => joinCells(pad(r)))].join('\n')
+}
+
 /** 单元格文本排序比较（6.4c 源码/即显共用）：两端都是数字（千分位/空白容忍）按
  *  数值比，否则数字排前、文本走中文本地化字符串序 */
 export function cellSortCmp(a: string, b: string): number {

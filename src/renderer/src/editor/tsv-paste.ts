@@ -162,8 +162,11 @@ export function pmPasteTsv(view: PMView, text: string): boolean {
   // 表格内：从光标格起填充（PM 无分隔行，表头行粘贴即填表头格）
   const table = $from.node(tableDepth)
   const tablePos = $from.before(tableDepth)
-  const r0 = $from.index(cellDepth - 1)
-  const c0 = $from.index(cellDepth)
+  // index(d) 是「node(d) 内容里的序号」：表格内容里是行号、行内容里是格号。
+  // 原先写成 index(cellDepth)/index(cellDepth-1) 取到的是段落号与格号，
+  // 导致无论光标在哪都从第 0 行第 0 格开始填（覆盖表头）。
+  const r0 = $from.index(tableDepth)
+  const c0 = $from.index(cellDepth - 1)
   const tr = state.tr
   tr.replaceWith(tablePos, tablePos + table.nodeSize, fillTable(table, rows, r0, c0))
   const nb = tr.doc.nodeAt(tablePos)

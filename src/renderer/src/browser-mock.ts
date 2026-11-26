@@ -85,6 +85,31 @@ export function installBrowserMock(): void {
           localStorage.removeItem(k)
       }
     },
+    // 浏览器 mock：退回 navigator 剪贴板（真实 Electron 走主进程）
+    clipboard: {
+      readText: async () => {
+        try {
+          return await navigator.clipboard.readText()
+        } catch {
+          return ''
+        }
+      },
+      writeText: async (text: string) => {
+        await navigator.clipboard.writeText(text)
+      },
+      writeRich: async (text: string, html?: string) => {
+        if (html && typeof ClipboardItem !== 'undefined') {
+          await navigator.clipboard.write([
+            new ClipboardItem({
+              'text/plain': new Blob([text], { type: 'text/plain' }),
+              'text/html': new Blob([html], { type: 'text/html' })
+            })
+          ])
+          return
+        }
+        await navigator.clipboard.writeText(text)
+      }
+    },
     drag: {
       begin: (doc: import('@shared/types').DetachDoc) => {
         ;(window as unknown as { __mockDrag: import('@shared/types').DetachDoc | null })

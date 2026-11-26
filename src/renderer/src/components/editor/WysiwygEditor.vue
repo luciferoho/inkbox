@@ -95,7 +95,9 @@ import {
   widthsFromDom,
 } from '@/editor/table-widths'
 import { pmTableSpan, registerPmTableExecutor, type TableMenuAction } from '@/editor/table-context-menu'
-import { normalizeTables, cellSortCmp } from '@/editor/table-utils'
+import { registerPmSmartPaste } from '@/editor/paste-smart'
+import { cellSelectionClipboard } from '@/editor/table-cell-copy'
+import { normalizeTables, cellSortCmp, gfmTable } from '@/editor/table-utils'
 import { writeClipboard } from '@/editor/code-copy'
 import { createElementToolbar, findTableSelection, type ElToolbarState } from '@/editor/pm-element-toolbar'
 import { createCodeblockChromePlugin, openLangEditorFor } from '@/editor/pm-codeblock-chrome'
@@ -1751,16 +1753,55 @@ function onHostPasteTsv(e: ClipboardEvent): void {
  *  普通纯文本、代码块内、单行文本不接管，仍走默认粘贴（逐字/纯文本段落）。 */
 const MD_PASTE_PAT = /^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|~~~|\|.*\|)|\*\*[^*\n]+\*\*|__[^_\n]+__|!\[[^\]]*\]\([^)]+\)|\[[^\]\n]+\]\([^)]+\)/m
 
-function onHostPasteMarkdown(e: ClipboardEvent): void {
-  const view = getView()
-  if (!view || !e.clipboardData) return
-  const el = e.target as HTMLElement | null
-  if (!el || !view.dom.contains(el)) return
-  if (inCodeBlock(view.state)) return
-  if (e.clipboardData.getData('text/html')) return // 富文本来源（浏览器复制）交给默认/TSV 逻辑
-  const text = e.clipboardData.getData('text/plain')
-  if (!text || text.includes('\t')) return // TSV 由表格粘贴逻辑接管
-  if (!text.includes('\n') || !MD_PASTE_PAT.test(text)) return
+/** 多行 Markdown → 文档片段插入（DOM paste 与右键「粘贴」共用）。
+ *  返回 true 表示已按 Markdown 解析并插入。 */
+function pasteMarkdownStructured(view: EditorView, text: string): boolean {
+  if (!text || text.includes('\t')) return false
+  if (!text.includes('\n') || !MD_PASTE_PAT.test(text)) return false
+  if (inCodeBlock(view.state)) return false
+  // 表格单元格只能放行内内容。剪贴板本身是表格时，用户要的是「粘出这张表」——
+  // 插到当前表格之后（正文级）；其余多行文本仍按纯文本插进单元格（换行折成空格），
+  // 否则默认粘贴会再按 Markdown 解析，把整表拆成多列。
+  if (inTable(view.state)) {
+    if (!(view.state.selection instanceof TextSelection)) return false
+    let slice: Slice | null = null
+    editor?.action((ctx) => {
+      try {
+        const doc = ctx.get(parserCtx)(text)
+        slice = new Slice(doc.content, 0, 0)
+      } catch {
+        slice = null
+      }
+    })
+    const parsed = slice as Slice | null
+    if (parsed) {
+      let hasTable = false
+      parsed.content.descendants((n) => {
+        if (n.type.name === 'table') hasTable = true
+        return !hasTable
+      })
+      if (hasTable) {
+        const { $from } = view.state.selection
+        let depth = -1
+        for (let d = $from.depth; d > 0; d--) {
+          if ($from.node(d).type.name === 'table') {
+            depth = d
+            break
+          }
+        }
+        if (depth > 0) {
+          const after = $from.after(depth)
+          // 注意用 replace 而不是 insert：insert 只接受 Node/Fragment，传 Slice 会
+          // 抛 RangeError（Can not convert … to a Fragment），事件回落到默认粘贴会拆表
+          view.dispatch(view.state.tr.replace(after, after, parsed).scrollIntoView())
+          return true
+        }
+      }
+    }
+    const { from, to } = view.state.selection
+    view.dispatch(view.state.tr.insertText(text.replace(/\r?\n/g, ' '), from, to))
+    return true
+  }
   let ok = false
   editor?.action((ctx) => {
     try {
@@ -1773,10 +1814,42 @@ function onHostPasteMarkdown(e: ClipboardEvent): void {
       ok = false
     }
   })
-  if (ok) {
+  return ok
+}
+
+/** 右键「粘贴」的智能路径：与 Ctrl+V 同一套规则（TSV 建表 / Markdown 结构）。
+ *  返回 false 时调用方退回纯文本插入。 */
+function pasteSmartText(view: EditorView, text: string): boolean {
+  if (!text || inCodeBlock(view.state)) return false
+  if (text.includes('\t')) return pmPasteTsv(view, text)
+  return pasteMarkdownStructured(view, text)
+}
+
+function onHostPasteMarkdown(e: ClipboardEvent): void {
+  const view = getView()
+  if (!view || !e.clipboardData) return
+  const el = e.target as HTMLElement | null
+  if (!el || !view.dom.contains(el)) return
+  if (e.clipboardData.getData('text/html')) return // 富文本来源（浏览器复制）交给默认/TSV 逻辑
+  const text = e.clipboardData.getData('text/plain')
+  if (!text || text.includes('\t')) return // TSV 由表格粘贴逻辑接管
+  if (pasteMarkdownStructured(view, text)) {
     e.preventDefault()
     e.stopPropagation()
   }
+}
+
+/** 单元格多选复制：写 TSV（逐格）+ HTML 表格。粘贴时按区域从落点格填充
+ *  （WPS/Excel 语义）；单元格内的文字选区不接管，仍按普通文本复制。 */
+function onHostCopy(e: ClipboardEvent): void {
+  const view = getView()
+  if (!view || !e.clipboardData) return
+  const data = cellSelectionClipboard(view.state)
+  if (!data) return
+  e.clipboardData.setData('text/plain', data.tsv)
+  e.clipboardData.setData('text/html', data.html)
+  e.preventDefault()
+  e.stopPropagation()
 }
 
 function onHostOver(e: MouseEvent): void {
@@ -2346,9 +2419,10 @@ function selectPmTableCell(
 
 /* ---------- 表格右键菜单（2.3）：菜单动作 → Milkdown gfm 命令 ----------
    contextmenu 已把光标落到点击单元格（Chromium 原生行为），行列定位用
-   findTableSelection 按当前选区复算，不依赖浮层工具条的状态。 */
+   findTableSelection 按当前选区复算，不依赖浮层工具条的状态。
+   tablePos：右键时锁定的表格位置（复制/转文本用它，避免落点未落光标时复制错表）。 */
 
-function executeTableMenuAction(action: TableMenuAction): boolean {
+function executeTableMenuAction(action: TableMenuAction, tablePos?: number): boolean {
   if (!editor) return false
   const run = (fn: () => void): boolean => {
     fn()
@@ -2441,10 +2515,11 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
     case 'copy-tsv': {
       // 复制为 TSV（6.4b）：单元格文本逐行制表符连接，Excel 可直接贴
       const view = getView()
-      const t = view ? findTableSelection(view) : null
-      if (!view || !t) return false
-      const node = view.state.doc.nodeAt(t.pos)
-      if (!node) return false
+      if (!view) return false
+      const pos = tablePos ?? findTableSelection(view)?.pos
+      if (pos == null) return false
+      const node = view.state.doc.nodeAt(pos)
+      if (!node || node.type.name !== 'table') return false
       const rows: string[] = []
       node.forEach((row) => {
         const cells: string[] = []
@@ -2484,33 +2559,37 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
     case 'copy-table':
     case 'to-text': {
       const view = getView()
-      const t = view ? findTableSelection(view) : null
-      if (!view || !t) return false
-      const node = view.state.doc.nodeAt(t.pos)
-      if (!node) return false
-      const lines: string[] = []
-      node.forEach((row) => {
+      if (!view) return false
+      // 以右键时锁定的表格位置为准；没有（键盘路径）才回退当前选区
+      const pos = tablePos ?? findTableSelection(view)?.pos
+      if (pos == null) return false
+      const node = view.state.doc.nodeAt(pos)
+      if (!node || node.type.name !== 'table') return false
+      const rows: string[][] = []
+      let aligns: (string | null)[] = []
+      node.forEach((row, _off, rowIndex) => {
         const cells: string[] = []
-        row.forEach((cell) => cells.push(cell.textContent.trim()))
-        lines.push(`| ${cells.join(' | ')} |`)
+        const rowAligns: (string | null)[] = []
+        row.forEach((cell) => {
+          cells.push(cell.textContent.trim())
+          rowAligns.push((cell.attrs.alignment as string | null) ?? null)
+        })
+        if (rowIndex === 0) aligns = rowAligns
+        rows.push(cells)
       })
       if (action === 'copy-table') {
-        void writeClipboard(lines.join('\n'))
+        // 必须带表头分隔行，否则粘回去只是带竖线的普通段落（不是表格）
+        void writeClipboard(gfmTable(rows, aligns))
         return true
       }
       // 转文本：表格 → 每行一段、制表符分隔单元格（不可逆）
       const schema = view.state.schema
-      const paras = lines.map((l) => {
-        const text = l
-          .replace(/^\|/, '')
-          .replace(/\|$/, '')
-          .split('|')
-          .map((c) => c.trim())
-          .join('\t')
+      const paras = rows.map((cells) => {
+        const text = cells.join('\t')
         return schema.nodes.paragraph.create(null, text ? schema.text(text) : undefined)
       })
       const tr = view.state.tr
-      tr.replaceWith(t.pos, t.pos + node.nodeSize, paras)
+      tr.replaceWith(pos, pos + node.nodeSize, paras)
       view.dispatch(tr)
       return true
     }
@@ -2520,6 +2599,8 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
   }
 }
 registerPmTableExecutor(executeTableMenuAction)
+// 右键「粘贴」与 Ctrl+V 同一套解析（TSV 建表 / Markdown 结构），而非裸 insertText
+registerPmSmartPaste(pasteSmartText)
 
 /** 浮层定位(贴元素上方,顶到可视区时钳在可见范围内) */
 const elToolbarStyle = computed(() => {
@@ -2558,6 +2639,8 @@ onMounted(() => {
   host.value.addEventListener('error', onHostImgError, { capture: true })
   // TSV 粘贴建表/填格（6.4a）：捕获层先于 milkdown 剪贴板插件接管
   host.value.addEventListener('paste', onHostPasteTsv, { capture: true })
+  // 单元格多选复制 → TSV/HTML（须在 PM 序列化前拦截）
+  host.value.addEventListener('copy', onHostCopy, { capture: true })
   host.value.addEventListener('paste', onHostPasteMarkdown, { capture: true })
   // 用户滚轮即接管：停用切签锚点的自动重对齐
   host.value.addEventListener(
@@ -2821,6 +2904,7 @@ onBeforeUnmount(() => {
   host.value?.removeEventListener('mouseout', onHostOut)
   host.value?.removeEventListener('scroll', onHostScroll)
   host.value?.removeEventListener('paste', onHostPasteTsv, { capture: true })
+  host.value?.removeEventListener('copy', onHostCopy, { capture: true })
   host.value?.removeEventListener('paste', onHostPasteMarkdown, { capture: true })
   host.value?.removeEventListener('load', onHostImgLoad, { capture: true })
   host.value?.removeEventListener('error', onHostImgError, { capture: true })

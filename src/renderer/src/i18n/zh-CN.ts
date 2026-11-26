@@ -208,6 +208,8 @@ export const zh = {
   'table.formatTable': '格式化表格源码',
   'table.toText': '转为纯文本',
   'table.autoWidth': '自适应宽度（清除列宽）',
+  'table.copyFailed': '复制失败：无法写入剪贴板',
+  'table.pasteFailed': '粘贴失败：无法读取剪贴板',
 
   // 块悬浮工具栏
   'block.bold': '加粗 (Ctrl+B)',

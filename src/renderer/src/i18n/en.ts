@@ -206,6 +206,8 @@ export const en: MsgSchema = {
   'table.formatTable': 'Format table source',
   'table.toText': 'Convert to plain text',
   'table.autoWidth': 'Auto width (clear column widths)',
+  'table.copyFailed': 'Copy failed: could not write to the clipboard',
+  'table.pasteFailed': 'Paste failed: could not read the clipboard',
 
   // Block toolbar
   'block.bold': 'Bold (Ctrl+B)',
