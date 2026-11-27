@@ -83,13 +83,17 @@ function toggleMark(id: string): void {
       @mousedown.prevent
       @contextmenu.prevent
     >
+      <!-- 图标统一：全条一套线稿（同 24 网格、同线宽、同 14px 视觉体量），与表格工具条/代码块工具栏同语言 -->
       <button
         class="fmt-btn"
         :class="{ on: formatBar.marks.strong }"
         :title="$t('sc.bold')"
         @click="toggleMark('strong')"
       >
-        <span class="glyph bold">B</span>
+        <svg class="glyph-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
+          <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z" />
+        </svg>
       </button>
       <button
         class="fmt-btn"
@@ -97,7 +101,11 @@ function toggleMark(id: string): void {
         :title="$t('sc.italic')"
         @click="toggleMark('emphasis')"
       >
-        <span class="glyph italic">I</span>
+        <svg class="glyph-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 4h-9" />
+          <path d="M14 20H5" />
+          <path d="m15 4-6 16" />
+        </svg>
       </button>
       <button
         class="fmt-btn"
@@ -105,7 +113,11 @@ function toggleMark(id: string): void {
         :title="$t('sc.strike')"
         @click="toggleMark('strike_through')"
       >
-        <span class="glyph strike">S</span>
+        <svg class="glyph-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 4H9a3 3 0 0 0-2.83 4" />
+          <path d="M14 12a4 4 0 0 1 0 8H6" />
+          <path d="M4 12h16" />
+        </svg>
       </button>
       <button
         class="fmt-btn"
@@ -113,7 +125,11 @@ function toggleMark(id: string): void {
         :title="$t('sc.inlineCode')"
         @click="toggleMark('inlineCode')"
       >
-        <span class="glyph code">&lt;/&gt;</span>
+        <svg class="glyph-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m18 16 4-4-4-4" />
+          <path d="m6 8-4 4 4 4" />
+          <path d="m14.5 4-5 16" />
+        </svg>
       </button>
       <button
         class="fmt-btn"
@@ -121,14 +137,20 @@ function toggleMark(id: string): void {
         :title="$t('block.highlight')"
         @click="toggleMark('mark')"
       >
-        <span class="glyph hl">H</span>
+        <svg class="glyph-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11.5 10.5 18.6 3.45a2.8 2.8 0 0 1 3.95 3.96L15.5 14.5z" />
+          <path d="M11.5 10.5 2 20h8l5.5-5.5" />
+        </svg>
       </button>
       <button
         class="fmt-btn"
         :title="$t('sc.link')"
         @click="toggleMark('link')"
       >
-        <span class="glyph link">🔗</span>
+        <svg class="glyph-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
       </button>
       <span v-if="formatBar.canHeading" class="fmt-sep" />
       <button
@@ -137,8 +159,14 @@ function toggleMark(id: string): void {
         :title="$t('ctx.paraConvert')"
         @click="openHeadingMenu"
       >
-        <span class="glyph">{{ formatBar.heading ? `H${formatBar.heading}` : 'H' }}</span>
-        <span class="caret">▾</span>
+        <svg class="glyph-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 4v16" />
+          <path d="M18 4v16" />
+          <path d="M6 12h12" />
+        </svg>
+        <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m6 9 6 6 6-6" />
+        </svg>
       </button>
     </div>
 
@@ -193,7 +221,7 @@ function toggleMark(id: string): void {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 3px;
   min-width: 28px;
   height: 28px;
   padding: 0 5px;
@@ -212,49 +240,24 @@ function toggleMark(id: string): void {
   color: var(--accent-strong);
 }
 
-.glyph {
-  font-size: 13.5px;
-  line-height: 1;
-}
-
-.glyph.bold {
-  font-weight: 700;
-}
-
-.glyph.italic {
-  font-style: italic;
-  font-family: Georgia, 'Times New Roman', serif;
-}
-
-.glyph.strike {
-  text-decoration: line-through;
-}
-
-.glyph.code {
-  font-family: var(--font-code, ui-monospace, monospace);
-  font-size: 11.5px;
-  letter-spacing: -0.5px;
-}
-
-.glyph.hl {
-  background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
-  border-radius: 3px;
-  padding: 1px 3px;
-  font-size: 11.5px;
-  font-weight: 600;
-}
-
-.glyph.link {
-  font-size: 12.5px;
+/* 全条一套线稿图标：同 24 网格、同 2.25 线宽（渲染 ≈1.3px）、同 14px 视觉体量。
+   以前是字形（衬线 B/I/S/H）+ 等宽 </> + 线稿混搭，风格和大小都对不齐 */
+.glyph-icon {
+  display: block;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
 }
 
 .fmt-btn.heading {
-  min-width: 34px;
+  min-width: 38px;
 }
 
 .caret {
-  font-size: 9px;
+  width: 10px;
+  height: 10px;
   opacity: 0.7;
+  flex-shrink: 0;
 }
 
 .fmt-sep {

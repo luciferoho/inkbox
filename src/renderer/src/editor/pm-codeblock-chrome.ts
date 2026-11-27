@@ -6,10 +6,16 @@ import type { Node as PMNode } from '@milkdown/kit/prose/model'
 import { t } from '@/i18n'
 import { applyCopiedFeedback, COPY_ICON, writeClipboard } from './code-copy'
 import { FENCE_LANGS } from './cm-fence-completion'
+import { isFormatSupported, pmFormatCodeAt } from './code-format'
+
+/** 格式化按钮图标（对齐复制的线性描边风格） */
+const FORMAT_ICON =
+  '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5h10M3 8h6M3 12.5h8"/><path d="M11.5 6.5l2 2-3.5 3.5H8v-2z"/></svg>'
 
 /**
  * 即显模式代码块 chrome：为每个 code_block 节点上方插入
- * 「语言标签 + 复制按钮」widget 栏（与预览管线观感一致）。
+ * 「语言标签 +（右侧：格式化/复制按钮组）」widget 栏（与预览管线观感一致）；
+ * 格式化按钮仅在 isFormatSupported 的语言上渲染。
  * - widget 内容不可编辑；按钮 mousedown 阻止默认，避免 PM 光标跳动
  * - 点击复制读相邻 pre 的文本（widget 与 pre 同级相邻）
  * - 语言标签可点击：原地换成输入框 + 语言补全菜单（5.2），Enter/点选提交
@@ -88,7 +94,31 @@ function buildDecorations(state: EditorState, ref: ViewRef): DecorationSet {
       })
     })
 
-    bar.append(langEl, btn)
+    // 右侧动作组：格式化 + 复制并排靠右（语言标签独占左侧）；
+    // 格式化按钮只在支持的语言上出现（不支持的连入口都不给，与右键菜单同判据）
+    const actions = document.createElement('div')
+    actions.className = 'md-code-actions'
+    if (isFormatSupported(lang)) {
+      // 格式化按钮（6.3）：prettier/sql-formatter/ruff 惰性加载；失败 toast 在模块内
+      const fmtBtn = document.createElement('button')
+      fmtBtn.type = 'button'
+      fmtBtn.className = 'md-code-fmt'
+      fmtBtn.innerHTML = FORMAT_ICON
+      fmtBtn.title = t('code.format')
+      fmtBtn.setAttribute('aria-label', t('code.format'))
+      fmtBtn.addEventListener('mousedown', (e) => e.preventDefault())
+      fmtBtn.addEventListener('click', () => {
+        const v = ref.view
+        if (!v) return
+        void pmFormatCodeAt(v, pos).then((o) => {
+          if (o.applied) applyCopiedFeedback(fmtBtn, t('code.formatted'), t('code.format'))
+        })
+      })
+      actions.append(fmtBtn)
+    }
+    actions.append(btn)
+
+    bar.append(langEl, actions)
     decos.push(
       Decoration.widget(pos, bar, { side: -1, key: `cb-chrome-${pos}`, ignoreSelection: true })
     )

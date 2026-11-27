@@ -20,6 +20,8 @@ export interface AppConfig {
     spellcheck?: boolean
     /** 选区浮动格式条（即显选中文字浮现，5.5），默认开 */
     formatBar?: boolean
+    /** 段落内回车=真实分段（Typora 语义）；默认关=软换行、空行分段（与双栏源码一致） */
+    enterSplits?: boolean
   }
   autosave: {
     enabled: boolean
@@ -147,7 +149,7 @@ export interface RecentFile {
 export const defaultConfig: AppConfig = {
   theme: 'system',
   locale: 'system',
-  editor: { fontSize: 16, lineHeight: 1.7, contentWidth: CONTENT_WIDTH_MAX },
+  editor: { fontSize: 16, lineHeight: 1.7, contentWidth: CONTENT_WIDTH_MAX, enterSplits: false },
   autosave: { enabled: true, intervalMs: 15000, silent: true },
   restoreTabs: true,
   restoreFolders: true,

@@ -11,6 +11,18 @@ import { cmViews } from './cm-registry'
 import { pmViews } from './pm-registry'
 import { INSERT_COMMANDS, runInsertCommand } from './insert-commands'
 import { pmSetHeading } from './pm-heading'
+import { cmListBlockAt, cmMoveListItem } from './cm-commands'
+import { pmInList, pmMoveListItem } from './list-move'
+import { tryPmSmartPaste } from './paste-smart'
+import { cmPasteTsv } from './tsv-paste'
+import { readClipboardText } from '@/services/clipboard'
+import {
+  cmFenceLang,
+  cmFormatCodeBlock,
+  isFormatSupported,
+  pmCodeLangAt,
+  pmFormatCodeBlock
+} from './code-format'
 import { useUiStore } from '@/stores/ui'
 
 /**
@@ -93,10 +105,12 @@ function cmInBlock(): boolean {
 }
 
 function buildItems(target: 'pm' | 'cm'): TextMenuItem[] {
+  const pmV = livePm()
+  const cmV = liveCm()
   const selEmpty =
     target === 'pm'
-      ? (livePm()?.state.selection.empty ?? true)
-      : (liveCm()?.state.selection.main.empty ?? true)
+      ? (pmV?.state.selection.empty ?? true)
+      : (cmV?.state.selection.main.empty ?? true)
   const inBlock = target === 'pm' ? pmInBlock() : cmInBlock()
   /** labelKey 动态串走 string 签名（键由调用处静态保证） */
   const tl = (k: string): string => (t as unknown as (key: string) => string)(k)
@@ -107,7 +121,14 @@ function buildItems(target: 'pm' | 'cm'): TextMenuItem[] {
     { id: 'paste', label: tl('ctx.paste'), accel: 'Ctrl+V' },
     { id: 'selectAll', label: tl('ctx.selectAll'), accel: 'Ctrl+A' }
   ]
-  if (inBlock) return clipboard
+  if (inBlock) {
+    // 代码块内且语言支持格式化才出「格式化代码」（与块上按钮同判据；公式/HTML 表/yaml 不算）
+    const lang = target === 'pm' ? (pmV ? pmCodeLangAt(pmV) : null) : cmV ? cmFenceLang(cmV) : null
+    if (lang !== null && isFormatSupported(lang)) {
+      clipboard.push({ id: 'codefmt', label: tl('code.format'), accel: 'Shift+Alt+F' })
+    }
+    return clipboard
+  }
 
   const paraItems: TextMenuItem[] = [
     { id: 'para:h1', label: tl('ctx.paraH1'), accel: 'Ctrl+1' },
@@ -137,12 +158,32 @@ function buildItems(target: 'pm' | 'cm'): TextMenuItem[] {
     accel: ACCENTS[c.id] ?? (c.id === 'image' ? commandAccel('file:insertImage') : '')
   }))
 
-  return [
+  const groups: TextMenuItem[] = [
     ...clipboard,
     { id: 'sep1', label: '-' },
-    { id: 'para', label: t('ctx.paraConvert'), children: paraItems },
-    { id: 'insert', label: t('ctx.insert'), children: insertItems }
+    { id: 'para', label: t('ctx.paraConvert'), children: paraItems }
   ]
+  // 列表项内：整项上移/下移（6.1，Ctrl+Shift+↑/↓ 同语义）
+  const inList =
+    target === 'pm'
+      ? pmV
+        ? pmInList(pmV.state)
+        : false
+      : cmV
+        ? cmListBlockAt(cmV) !== null
+        : false
+  if (inList) {
+    groups.push({
+      id: 'listItem',
+      label: tl('ctx.listItem'),
+      children: [
+        { id: 'listItem:up', label: tl('ctx.listItemUp'), accel: 'Ctrl+Shift+↑' },
+        { id: 'listItem:down', label: tl('ctx.listItemDown'), accel: 'Ctrl+Shift+↓' }
+      ]
+    })
+  }
+  groups.push({ id: 'insert', label: t('ctx.insert'), children: insertItems })
+  return groups
 }
 
 /* ---------- 执行 ---------- */
@@ -156,6 +197,27 @@ export function runTextMenuAction(id: string): void {
   }
   if (id.startsWith('para:')) {
     runParaAction(id.slice(5), target)
+    return
+  }
+  if (id === 'codefmt') {
+    if (target === 'pm') {
+      const v = livePm()
+      if (v) void pmFormatCodeBlock(v)
+    } else {
+      const v = liveCm()
+      if (v) void cmFormatCodeBlock(v)
+    }
+    return
+  }
+  if (id === 'listItem:up' || id === 'listItem:down') {
+    const dir = id === 'listItem:up' ? -1 : 1
+    if (target === 'pm') {
+      const v = livePm()
+      if (v) pmMoveListItem(v, dir)
+    } else {
+      const v = liveCm()
+      if (v) cmMoveListItem(v, dir)
+    }
     return
   }
   // 剪贴板走系统语义（execCommand 让原生编辑行为处理选区/粘贴清洗）
@@ -204,17 +266,21 @@ export function runTextMenuAction(id: string): void {
 
 async function pasteViaClipboard(target: 'pm' | 'cm'): Promise<void> {
   try {
-    const text = await navigator.clipboard.readText()
+    const text = await readClipboardText()
     if (!text) return
     const v = target === 'pm' ? livePm() : liveCm()
     if (!v) return
     if (target === 'pm') {
       const view = v as PMView
       if (!(view.state.selection instanceof TextSelection)) return
+      // 与 Ctrl+V 同一套解析（TSV 建表 / 多行 Markdown 结构）；不接管才纯文本插入
+      if (tryPmSmartPaste(view, text)) return
       const { from, to } = view.state.selection
       view.dispatch(view.state.tr.insertText(text, from, to))
     } else {
       const view = v as NonNullable<ReturnType<typeof cmViews>>[number]
+      // TSV（Excel/单元格区域复制）在源码侧按表格数据填充
+      if (cmPasteTsv(view, text)) return
       const head = view.state.selection.main.head
       view.dispatch(
         view.state.update({

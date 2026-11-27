@@ -131,7 +131,7 @@ onBeforeUnmount(() => {
     >
       <!-- 剪贴板项（Typora 表格右键同样置顶） -->
       <button
-        v-for="item in tableMenuTop({ readOnly: tableMenu.readOnly })"
+        v-for="item in tableMenuTop({ readOnly: tableMenu.readOnly, canCopy: tableMenu.canCopy, canCut: tableMenu.canCut })"
         :key="item.action"
         class="tbl-ctx-item"
         :disabled="item.disabled"

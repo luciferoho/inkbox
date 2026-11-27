@@ -8,6 +8,7 @@ import {
   editorViewCtx,
   serializerCtx,
   remarkCtx,
+  parserCtx,
   remarkPluginsCtx,
   remarkStringifyOptionsCtx
 } from '@milkdown/kit/core'
@@ -42,7 +43,7 @@ import { listener, listenerCtx } from '@milkdown/kit/plugin/listener'
 import { history } from '@milkdown/kit/plugin/history'
 import { replaceAll, $prose, callCommand } from '@milkdown/kit/utils'
 import { NodeSelection, TextSelection, type EditorState } from '@milkdown/kit/prose/state'
-import { Fragment, type Node as PMNode } from '@milkdown/kit/prose/model'
+import { Fragment, Slice, type Node as PMNode } from '@milkdown/kit/prose/model'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { lift } from '@milkdown/kit/prose/commands'
 import { liftListItem, sinkListItem } from '@milkdown/kit/prose/schema-list'
@@ -67,25 +68,36 @@ import { applyCachedImageSizes, rememberImgSize } from '@/editor/img-size-cache'
 import { createWysiwygImagePlugin } from '@/editor/pm-wysiwyg-image'
 import { createPasteLinkPlugin } from '@/editor/paste-link'
 import { openTableGrid } from '@/editor/table-grid'
+import { pmMoveListItem, pmMoveBlock } from '@/editor/list-move'
+import { pmPasteTsv } from '@/editor/tsv-paste'
+import { pmFormatCodeBlock } from '@/editor/code-format'
+import { pmDuplicate } from '@/editor/duplicate'
 import { createEmojiCompletionPlugin } from '@/editor/pm-emoji-completion'
 import { createLinkHoverTipPlugin } from '@/editor/pm-link-hover-tip'
 import { createHeadingFoldPlugin } from '@/editor/pm-heading-fold'
 import {
   beginColResize,
   clearColWidths,
+  colDragMaxTotal,
   createTableWidthsPlugin,
   endColResize,
   headerKeyOf,
-  hitColumnBoundary,
+  hideColBoundaryFeedback,
+  hitColumnBoundaryAt,
+  isColResizing,
   normalizeWidthsToTable,
   onColWidthsChanged,
   refreshTableWidths,
+  resizeWidths,
   setColWidths,
+  showColBoundaryFeedback,
   tableKey,
   widthsFromDom,
 } from '@/editor/table-widths'
 import { pmTableSpan, registerPmTableExecutor, type TableMenuAction } from '@/editor/table-context-menu'
-import { normalizeTables } from '@/editor/table-utils'
+import { registerPmSmartPaste } from '@/editor/paste-smart'
+import { cellSelectionClipboard } from '@/editor/table-cell-copy'
+import { normalizeTables, cellSortCmp, gfmTable } from '@/editor/table-utils'
 import { writeClipboard } from '@/editor/code-copy'
 import { createElementToolbar, findTableSelection, type ElToolbarState } from '@/editor/pm-element-toolbar'
 import { createCodeblockChromePlugin, openLangEditorFor } from '@/editor/pm-codeblock-chrome'
@@ -96,6 +108,7 @@ import { createLeafDeletePlugin } from '@/editor/pm-leaf-delete'
 import { hrView } from '@/editor/pm-hr-view'
 import { wrappedTableView } from '@/editor/pm-table-view'
 import { createTaskTogglePlugin } from '@/editor/pm-task-toggle'
+import { registerWysiwygFlush } from '@/editor/wysiwyg-flush'
 import { parseAltMods, buildAltMods, stepWidth, luciToDisplaySrc, type ImageMods } from '@/editor/image-utils'
 import { splitAdjacentOrderedLists, parseOutline } from '@/services/markdown'
 // 单换行 → 硬换行：与预览管线 markdown-it 的 breaks:true 对齐（否则即显把
@@ -126,6 +139,9 @@ import {
   footnoteReferenceSchema,
   footnoteDefinitionSchema,
   footnoteReferenceInputRule,
+  taskListBulletInputRule,
+  imageInlineInputRule,
+  inlineLinkInputRule,
   yamlSchema,
   tocSchema,
   tocView,
@@ -178,6 +194,23 @@ function applyReplace(markdown: string): void {
   } finally {
     applying = false
   }
+}
+
+/* 保存前同步（P14）：markdownUpdated 有防抖，saveTab 直读 store 会截掉最后
+   一段输入。组件跨标签复用（tabId 随 activeId watch 更新），注册跟随 tabId
+   重挂，卸载时解绑 */
+let unregisterFlush: (() => void) | null = null
+function serializeNow(): string | null {
+  if (!editor || tabId === null) return null
+  return editor.action((ctx) => {
+    const ser = ctx.get(serializerCtx)
+    const view = ctx.get(editorViewCtx)
+    return fromWysiwygSource(String(ser(view.state.doc)))
+  })
+}
+function registerFlush(): void {
+  unregisterFlush?.()
+  unregisterFlush = tabId === null ? null : registerWysiwygFlush(tabId, serializeNow)
 }
 
 /* ---------- 代码块编辑体验 ---------- */
@@ -304,12 +337,14 @@ function pmSetHeading(view: EditorView, level: number): boolean {
   )
 }
 
-/** 标题升级/降级（与源码 shiftHeading 一致）：无标题按方向落到 h1/h2，封顶 h1/h6 */
+/** 标题升级/降级：与源码 shiftHeading 同语义——
+ *  delta<0 提升（h1 → 正文、正文 → h1、hN → h(N-1)）；delta>0 降级（正文 → h2、hN → h(N+1)，封顶 h6） */
 function pmShiftHeading(view: EditorView, delta: number): boolean {
   const cur = curHeadingLevel(view.state)
-  const level = cur === null ? (delta > 0 ? 2 : 1) : Math.min(6, Math.max(1, cur + delta))
+  const level = cur === null ? (delta > 0 ? 2 : 1) : Math.min(6, Math.max(0, cur + delta))
   if (cur === level) return true // 已到边界：吞掉按键（拦住浏览器缩放），内容不动
-  return pmSetHeading(view, level)
+  // level 0 = 正文（h1 再提升），与 Ctrl+0 同一实现
+  return level === 0 ? milkCmd(callCommand(turnIntoTextCommand.key)) : pmSetHeading(view, level)
 }
 
 /** 切换引用块：在引用内 → 当前提出；不在 → 包一层 */
@@ -427,11 +462,13 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     }
     if (!event.shiftKey && (key === '=' || key === '+')) {
       event.preventDefault()
-      return pmShiftHeading(view, 1)
+      // 与源码 cmdHeadingUp 一致：提升 = 标题级别变小（h2 → h1，h1 → 正文）
+      return pmShiftHeading(view, -1)
     }
     if (!event.shiftKey && key === '-') {
       event.preventDefault()
-      return pmShiftHeading(view, -1)
+      // 与源码 cmdHeadingDown 一致：降级 = 级别变大（h1 → h2，正文 → h2）
+      return pmShiftHeading(view, 1)
     }
     if (event.shiftKey && key === 'K') {
       event.preventDefault()
@@ -506,8 +543,51 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     }
   }
 
-  /* 表格内 Ctrl+Enter：下方插入一行（Typora 同键位） */
-  if (event.ctrlKey && !event.altKey && !event.shiftKey && event.key === 'Enter' && inTable(state)) {
+  /* Ctrl+Shift+↑/↓：列表项内=整项移动（6.1）；表格内不接管；其余=顶层块移动（6.2） */
+  if (
+    event.ctrlKey &&
+    event.shiftKey &&
+    !event.altKey &&
+    (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+  ) {
+    const dir = event.key === 'ArrowUp' ? -1 : 1
+    if (inListItem(state)) {
+      event.preventDefault()
+      return pmMoveListItem(view, dir)
+    }
+    if (!inTable(state)) {
+      event.preventDefault()
+      return pmMoveBlock(view, dir)
+    }
+  }
+
+  /* 代码块内 Shift+Alt+F：就地格式化（6.3，与源码同键位；失败 toast 在模块内） */
+  if (
+    event.altKey &&
+    event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    (event.key.toLowerCase() === 'f' || event.code === 'KeyF') &&
+    inCodeBlock(state)
+  ) {
+    event.preventDefault()
+    const v = getView()
+    if (v) void pmFormatCodeBlock(v)
+    return true
+  }
+
+  /* Ctrl+D：重复当前块/列表项（6.5，与源码同键位） */
+  if (
+    event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey &&
+    (event.key.toLowerCase() === 'd' || event.code === 'KeyD')
+  ) {
+    event.preventDefault()
+    return pmDuplicate(view)
+  }
+
+  /* 表格内 Ctrl+Enter：下方插入一行（Typora 同键位） */  if (event.ctrlKey && !event.altKey && !event.shiftKey && event.key === 'Enter' && inTable(state)) {
     event.preventDefault()
     elTable(callCommand(addRowAfterCommand.key))
     return true
@@ -522,12 +602,26 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   if (event.key === 'Tab') {
     // 始终拦截:普通段落放行 Tab 会被浏览器抢走焦点(跳到状态栏按钮)
     event.preventDefault()
-    // 表格单元格：Tab/Shift+Tab 跳到下/上一个单元格（prosemirror-tables 命令）
+    // 表格单元格：Tab/Shift+Tab 跳到下/上一个单元格（prosemirror-tables 命令）；
+    // 跳不动（选区引用没变 = 命令没派发事务）即真尾格：追加一行并跳进新行首格
+    //（6.4d，Typora 行为）。不按行列号预判——仅表头表/尾部空行这类退化结构里
+    // 「当前格之后的行没有任何单元格」，按 childCount 判会同时卡死跳格与加行。
     if (inTable(state)) {
       if (editor) {
-        elTable(
-          callCommand((event.shiftKey ? goToPrevTableCellCommand : goToNextTableCellCommand).key)
-        )
+        if (event.shiftKey) {
+          elTable(callCommand(goToPrevTableCellCommand.key))
+          return true
+        }
+        const view = getView()
+        const before = view ? view.state.selection : null
+        const meta = view ? findTableSelection(view) : null
+        elTable(callCommand(goToNextTableCellCommand.key))
+        const view2 = getView()
+        const moved = !!view2 && !!before && view2.state.selection !== before
+        if (!moved && view2 && meta) {
+          elTable(callCommand(addRowAfterCommand.key))
+          selectPmTableCell(getView() ?? view2, meta.pos, meta.row + 1, 0)
+        }
       }
       return true
     }
@@ -644,9 +738,62 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
       return true
     }
   }
-  // 回车 = 软换行（与双栏源码「回车只换一行」一致）；光标紧贴换行后再按回车
-  // 升级为真实分段（对应双栏的「空行分段」）。列表/表格/标题/代码块保持默认
+  // 脚注定义内回车：提出到定义之后的正文（定义在文末则补一个空段落）。
+  // 定义块不支持分割，默认回车会变成软换行——后续键入全部被吞进定义
+  // （2026-11-20 F8：v1 产物三个章节被吞进定义实证）
   if (
+    event.key === 'Enter' &&
+    !event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey
+  ) {
+    const { $from } = state.selection
+    for (let d = $from.depth; d > 0; d--) {
+      if ($from.node(d).type.name === 'footnote_definition') {
+        event.preventDefault()
+        const after = $from.after(d)
+        const tr = state.tr
+        if (after >= state.doc.content.size) {
+          tr.insert(after, state.schema.nodes.paragraph.create())
+        }
+        const $pos = tr.doc.resolve(Math.min(after + 1, tr.doc.content.size))
+        tr.setSelection(TextSelection.near($pos))
+        view.dispatch(tr.scrollIntoView())
+        return true
+      }
+    }
+  }
+  // 段落输入 ```lang 后回车 → 代码块（Typora 语义）。preset 的输入规则要求
+  // 围栏后先敲一个空格才触发，` ```js` 直接回车命中不了，这里在 Enter 上补齐
+  if (
+    event.key === 'Enter' &&
+    !event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey &&
+    !inCodeBlock(state) &&
+    !inListItem(state) &&
+    !inTable(state)
+  ) {
+    const { $from } = state.selection
+    const text = $from.parent.type.name === 'paragraph' ? $from.parent.textContent : ''
+    const fm = /^```([A-Za-z0-9+#._-]*)$/.exec(text)
+    if (fm) {
+      event.preventDefault()
+      const codeT = state.schema.nodes.code_block
+      const from = $from.before()
+      const tr = state.tr.replaceWith(from, $from.after(), codeT.create({ language: fm[1] ?? '' }))
+      tr.setSelection(TextSelection.near(tr.doc.resolve(from + 1)))
+      view.dispatch(tr)
+      return true
+    }
+  }
+  // 回车 = 软换行（与双栏源码「回车只换一行」一致）；光标紧贴换行后再按回车
+  // 升级为真实分段（对应双栏的「空行分段」）。列表/表格/标题/代码块保持默认。
+  // 「回车即分段」（enterSplits，Typora 习惯）开启时不拦截，走分段的默认行为
+  if (
+    !ui.editorPrefs.enterSplits &&
     event.key === 'Enter' &&
     !event.shiftKey &&
     !event.ctrlKey &&
@@ -777,6 +924,13 @@ function fromWysiwygSource(md: string): string {
         : // 列表项内空段落：`2. <br />` / `- <br />` / `- [ ] <br />` → 干净的空列表项
           // （只归一化有序项曾漏掉任务项，源码里留下字面 <br /> 标签占位）
           l.replace(/^([ \t]*(?:\d+[.)]|[-*+])[ \t]+(?:\[[ xX]\][ \t]+)?)<br\s*\/?>[ \t]*$/i, '$1')
+    )
+    .map((l) =>
+      // 引用内空段落：`> <br />` → `>`。引用行的空段落不归一会落盘字面 <br />，
+      // 重开解析不等价 → 打开即脏（2026-11-20 P15，与列表行同族）
+      /^[ \t]*(?:>[ \t]*)+<br\s*\/?>[ \t]*$/i.test(l)
+        ? l.replace(/^([ \t]*(?:>[ \t]*)+)<br\s*\/?>[ \t]*$/i, '$1').replace(/[ \t]+$/, '')
+        : l
     )
     .join('\n')
     .replace(/^(\s*\d+)\)/gm, '$1.')
@@ -1011,17 +1165,25 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
   if (!(table instanceof HTMLTableElement)) return
   const view = getView()
   if (!view) return
-  const col = hitColumnBoundary(table, e.clientX)
-  if (col === null) return
+  const hit = hitColumnBoundaryAt(table, e.clientX)
+  if (!hit) return
+  const col = hit.col
   const measured = widthsFromDom(table)
   if (!measured) return
   // 边界按下即进入拖拽态：阻止默认行为，避免拖动过程选中表格文字
   e.preventDefault()
   e.stopPropagation()
   const startWidths = normalizeWidthsToTable(table, measured)
+  const startTotal = startWidths.reduce((a, b) => a + b, 0)
+  const cells = table.rows[0].cells
+  // 只有表格右缘（最后一列右边界）受内容列宽上限约束；内部列边界自由变宽
+  const maxTotal = col === cells.length - 1 ? colDragMaxTotal(table, startTotal) : Number.POSITIVE_INFINITY
   const tableIndex = Array.from(view.dom.querySelectorAll('table')).indexOf(table)
   const key = tableKey(tabId ?? 'x', tableIndex, headerKeyOf(table))
   const startX = e.clientX
+  // 高亮线纵向只画在编辑区可视范围内（滚动容器可能比表格矮）
+  const hostRect = host.value?.getBoundingClientRect()
+  const clip = hostRect ? { top: hostRect.top, bottom: hostRect.bottom } : null
   beginColResize()
   let active = false
   let latest: number[] = startWidths
@@ -1036,18 +1198,30 @@ function onHostMouseDownTableWidths(e: MouseEvent): void {
       active = true
     }
     window.getSelection()?.removeAllRanges()
-    const next = [...startWidths]
-    next[col] = Math.max(24, Math.round(startWidths[col] + dx))
-    latest = next
+    latest = resizeWidths(startWidths, col, dx, maxTotal)
     // 每个 mousemove 立即应用：不依赖 rAF（窗口不可见/后台时 rAF 会被暂停，
     // 拖拽会变成松手才生效）；PM 事务 + 装饰器重算在这个体量下足够轻
     setColWidths(key, latest, true) // 本侧自己刷新装饰器，不触发广播
     if (editor) refreshTableWidths(view)
+    // 内容/CSS 最小宽会挡住「更窄」：把实际渲染宽度写回，否则存档是 24、渲染是 57，
+    // 表格会比外壳(总宽=存档和)宽出一条，白出一根横向滚动条
+    const actual = table.rows[0].cells[col]?.getBoundingClientRect().width
+    if (actual && actual - latest[col] >= 1) {
+      latest = [...latest]
+      latest[col] = Math.round(actual)
+      setColWidths(key, latest, true)
+      if (editor) refreshTableWidths(view)
+    }
+    // 线按「实际渲染出来的边界」定位：列宽被内容最小宽 / 内容列宽上限钳住时，
+    // 指针还会继续走，但线必须停在真正的分割线上
+    const edge = table.rows[0].cells[col]?.getBoundingClientRect().right
+    if (edge) showColBoundaryFeedback(table, edge, clip)
   }
   const onUp = (): void => {
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
     endColResize()
+    hideColBoundaryFeedback()
     if (!active) return // 纯点击：不提交、不广播
     setColWidths(key, latest) // 松手广播：预览侧同步
     if (editor) refreshTableWidths(view)
@@ -1292,14 +1466,21 @@ function scheduleHideTableHandles(): void {
   }, 350)
 }
 
-/** 指针离开编辑器：移向把手时保留，否则延迟收起 */
+/** 指针离开编辑器：移向把手时保留，否则延迟收起（顺手收起列边界反馈） */
 function onHostLeaveForHandles(e: MouseEvent): void {
+  hideColBoundaryFeedback()
   const rt = e.relatedTarget as Node | null
   if (rt && (colHandleLayer?.contains(rt) || rowHandleLayer?.contains(rt))) {
     cancelHandleHide()
     return
   }
   scheduleHideTableHandles()
+}
+
+/** 滚动：表格跟着位移，把手与边界高亮线立即收起避免残影 */
+function onHostScrollTables(): void {
+  hideTableHandles()
+  hideColBoundaryFeedback()
 }
 
 /** 只在「当前列」表头上方显示列把手 */
@@ -1380,7 +1561,7 @@ function syncTableHandles(target: HTMLElement | null): void {
   showRowHandle(table, rowEl instanceof HTMLTableRowElement ? rowEl.rowIndex : -1)
 }
 
-/** 表头列边界 hover：光标变 col-resize（el-table 手感）；rAF 节流避免每次移动查布局 */
+/** 表头列边界 hover：光标变 col-resize + 分割线高亮（el-table 手感）；rAF 节流避免每次移动查布局 */
 let cursorRaf = 0
 function onHostMouseMoveTableCursor(e: MouseEvent): void {
   const x = e.clientX
@@ -1388,16 +1569,23 @@ function onHostMouseMoveTableCursor(e: MouseEvent): void {
   const table = target?.closest?.('table')
   // 把手同步：不挂 rAF——窗口被遮挡/后台时 rAF 会暂停，把手就永远不出现
   syncTableHandles(target)
+  // 列宽拖拽期间由拖拽逻辑自己维护高亮线，悬浮反馈让位
+  if (isColResizing()) return
   if (!(table instanceof HTMLTableElement)) {
-    host.value?.style.removeProperty('cursor')
+    hideColBoundaryFeedback()
     return
   }
   if (cursorRaf) return
   cursorRaf = window.requestAnimationFrame(() => {
     cursorRaf = 0
-    const col = hitColumnBoundary(table, x)
-    if (col !== null) host.value?.style.setProperty('cursor', 'col-resize')
-    else host.value?.style.removeProperty('cursor')
+    if (isColResizing()) return
+    const hit = hitColumnBoundaryAt(table, x)
+    if (!hit) {
+      hideColBoundaryFeedback()
+      return
+    }
+    const hostRect = host.value?.getBoundingClientRect()
+    showColBoundaryFeedback(table, hit.edgeX, hostRect ? { top: hostRect.top, bottom: hostRect.bottom } : null)
   })
 }
 
@@ -1544,6 +1732,126 @@ async function copyImgSrc(): Promise<void> {
 
 const imgTip = ref<{ x: number; y: number; w: number; text: string } | null>(null)
 
+/** TSV 粘贴建表/填格（6.4a）：剪贴板 text/plain 含制表符即视为表格数据——
+ *  表格内从光标格起填充、表格外自动建表。代码块内不接管（原样文本） */
+function onHostPasteTsv(e: ClipboardEvent): void {
+  const view = getView()
+  if (!view || !e.clipboardData) return
+  const el = e.target as HTMLElement | null
+  if (!el || !view.dom.contains(el)) return
+  if (inCodeBlock(view.state)) return
+  const text = e.clipboardData.getData('text/plain')
+  if (!text || !text.includes('\t')) return
+  if (pmPasteTsv(view, text)) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+}
+
+/** 纯文本 Markdown 粘贴（P4）：剪贴板是多行 Markdown（围栏/标题/列表/引用/
+ *  表格/强调/链接等结构语法）时按 Markdown 解析成节点插入，与 Typora 一致。
+ *  普通纯文本、代码块内、单行文本不接管，仍走默认粘贴（逐字/纯文本段落）。 */
+const MD_PASTE_PAT = /^\s*(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|~~~|\|.*\|)|\*\*[^*\n]+\*\*|__[^_\n]+__|!\[[^\]]*\]\([^)]+\)|\[[^\]\n]+\]\([^)]+\)/m
+
+/** 多行 Markdown → 文档片段插入（DOM paste 与右键「粘贴」共用）。
+ *  返回 true 表示已按 Markdown 解析并插入。 */
+function pasteMarkdownStructured(view: EditorView, text: string): boolean {
+  if (!text || text.includes('\t')) return false
+  if (!text.includes('\n') || !MD_PASTE_PAT.test(text)) return false
+  if (inCodeBlock(view.state)) return false
+  // 表格单元格只能放行内内容。剪贴板本身是表格时，用户要的是「粘出这张表」——
+  // 插到当前表格之后（正文级）；其余多行文本仍按纯文本插进单元格（换行折成空格），
+  // 否则默认粘贴会再按 Markdown 解析，把整表拆成多列。
+  if (inTable(view.state)) {
+    if (!(view.state.selection instanceof TextSelection)) return false
+    let slice: Slice | null = null
+    editor?.action((ctx) => {
+      try {
+        const doc = ctx.get(parserCtx)(text)
+        slice = new Slice(doc.content, 0, 0)
+      } catch {
+        slice = null
+      }
+    })
+    const parsed = slice as Slice | null
+    if (parsed) {
+      let hasTable = false
+      parsed.content.descendants((n) => {
+        if (n.type.name === 'table') hasTable = true
+        return !hasTable
+      })
+      if (hasTable) {
+        const { $from } = view.state.selection
+        let depth = -1
+        for (let d = $from.depth; d > 0; d--) {
+          if ($from.node(d).type.name === 'table') {
+            depth = d
+            break
+          }
+        }
+        if (depth > 0) {
+          const after = $from.after(depth)
+          // 注意用 replace 而不是 insert：insert 只接受 Node/Fragment，传 Slice 会
+          // 抛 RangeError（Can not convert … to a Fragment），事件回落到默认粘贴会拆表
+          view.dispatch(view.state.tr.replace(after, after, parsed).scrollIntoView())
+          return true
+        }
+      }
+    }
+    const { from, to } = view.state.selection
+    view.dispatch(view.state.tr.insertText(text.replace(/\r?\n/g, ' '), from, to))
+    return true
+  }
+  let ok = false
+  editor?.action((ctx) => {
+    try {
+      const parser = ctx.get(parserCtx)
+      const doc = parser(text)
+      // 整段文档内容作为片段插入（replaceSelection 保留前后文）
+      view.dispatch(view.state.tr.replaceSelection(new Slice(doc.content, 0, 0)).scrollIntoView())
+      ok = true
+    } catch {
+      ok = false
+    }
+  })
+  return ok
+}
+
+/** 右键「粘贴」的智能路径：与 Ctrl+V 同一套规则（TSV 建表 / Markdown 结构）。
+ *  返回 false 时调用方退回纯文本插入。 */
+function pasteSmartText(view: EditorView, text: string): boolean {
+  if (!text || inCodeBlock(view.state)) return false
+  if (text.includes('\t')) return pmPasteTsv(view, text)
+  return pasteMarkdownStructured(view, text)
+}
+
+function onHostPasteMarkdown(e: ClipboardEvent): void {
+  const view = getView()
+  if (!view || !e.clipboardData) return
+  const el = e.target as HTMLElement | null
+  if (!el || !view.dom.contains(el)) return
+  if (e.clipboardData.getData('text/html')) return // 富文本来源（浏览器复制）交给默认/TSV 逻辑
+  const text = e.clipboardData.getData('text/plain')
+  if (!text || text.includes('\t')) return // TSV 由表格粘贴逻辑接管
+  if (pasteMarkdownStructured(view, text)) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+}
+
+/** 单元格多选复制：写 TSV（逐格）+ HTML 表格。粘贴时按区域从落点格填充
+ *  （WPS/Excel 语义）；单元格内的文字选区不接管，仍按普通文本复制。 */
+function onHostCopy(e: ClipboardEvent): void {
+  const view = getView()
+  if (!view || !e.clipboardData) return
+  const data = cellSelectionClipboard(view.state)
+  if (!data) return
+  e.clipboardData.setData('text/plain', data.tsv)
+  e.clipboardData.setData('text/html', data.html)
+  e.preventDefault()
+  e.stopPropagation()
+}
+
 function onHostOver(e: MouseEvent): void {
   const target = e.target
   if (!(target instanceof HTMLImageElement) || !target.closest('.luci-prose')) return
@@ -1631,9 +1939,11 @@ function saveWysiwygProgress(id: number | null): void {
 }
 
 /** 恢复浏览进度（切签与重挂载共用）。多阶段补拍（nextTick/60ms/250ms）
- *  覆盖面板可见性与 PM 渲染的时序竞态；图片加载期间另有逐张重钉 */
+ *  覆盖面板可见性与 PM 渲染的时序竞态；图片加载期间另有逐张重钉。
+ *  新标签无记录时按 0 落位（host 是复用的滚动容器，scrollTop 会残留
+ *  上一标签的位置——置 null 会让 apply 早退、永不归零） */
 function restoreWysiwygScroll(): void {
-  pendingFrac = loadView(tabId)?.frac ?? null
+  pendingFrac = loadView(tabId)?.frac ?? 0
   const apply = (): void => {
     if (!host.value) return
     applyCachedImageSizes(host.value)
@@ -2109,9 +2419,10 @@ function selectPmTableCell(
 
 /* ---------- 表格右键菜单（2.3）：菜单动作 → Milkdown gfm 命令 ----------
    contextmenu 已把光标落到点击单元格（Chromium 原生行为），行列定位用
-   findTableSelection 按当前选区复算，不依赖浮层工具条的状态。 */
+   findTableSelection 按当前选区复算，不依赖浮层工具条的状态。
+   tablePos：右键时锁定的表格位置（复制/转文本用它，避免落点未落光标时复制错表）。 */
 
-function executeTableMenuAction(action: TableMenuAction): boolean {
+function executeTableMenuAction(action: TableMenuAction, tablePos?: number): boolean {
   if (!editor) return false
   const run = (fn: () => void): boolean => {
     fn()
@@ -2201,36 +2512,84 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
     }
     case 'auto-width':
       return run(() => resetWysiwygTableWidths())
-    case 'copy-table':
-    case 'to-text': {
+    case 'copy-tsv': {
+      // 复制为 TSV（6.4b）：单元格文本逐行制表符连接，Excel 可直接贴
       const view = getView()
-      const t = view ? findTableSelection(view) : null
-      if (!view || !t) return false
-      const node = view.state.doc.nodeAt(t.pos)
-      if (!node) return false
-      const lines: string[] = []
+      if (!view) return false
+      const pos = tablePos ?? findTableSelection(view)?.pos
+      if (pos == null) return false
+      const node = view.state.doc.nodeAt(pos)
+      if (!node || node.type.name !== 'table') return false
+      const rows: string[] = []
       node.forEach((row) => {
         const cells: string[] = []
         row.forEach((cell) => cells.push(cell.textContent.trim()))
-        lines.push(`| ${cells.join(' | ')} |`)
+        rows.push(cells.join('\t'))
+      })
+      void writeClipboard(rows.join('\n'))
+      return true
+    }
+    case 'col-sort-asc':
+    case 'col-sort-desc': {
+      // 按列排序（6.4c）：数据行按右键列单元格文本重排（数值感知），表头不动，
+      // 光标/选区跟随；整表节点一次替换 = 单事务可撤销
+      const view = getView()
+      const meta = view ? findTableSelection(view) : null
+      if (!view || !meta) return false
+      const table = view.state.doc.nodeAt(meta.pos)
+      if (!table || table.childCount < 2) return false
+      const col = Math.min(meta.col, table.child(0).childCount - 1)
+      const text = (row: PMNode, c: number): string =>
+        row.child(Math.min(c, row.childCount - 1))?.textContent.trim() ?? ''
+      const data: PMNode[] = []
+      table.forEach((row, _off, i) => {
+        if (i > 0) data.push(row)
+      })
+      const mul = action === 'col-sort-asc' ? 1 : -1
+      data.sort((a, b) => mul * cellSortCmp(text(a, col), text(b, col)))
+      const tr = view.state.tr
+      tr.replaceWith(
+        meta.pos,
+        meta.pos + table.nodeSize,
+        table.copy(Fragment.fromArray([table.child(0), ...data]))
+      )
+      view.dispatch(tr.scrollIntoView())
+      return true
+    }
+    case 'copy-table':
+    case 'to-text': {
+      const view = getView()
+      if (!view) return false
+      // 以右键时锁定的表格位置为准；没有（键盘路径）才回退当前选区
+      const pos = tablePos ?? findTableSelection(view)?.pos
+      if (pos == null) return false
+      const node = view.state.doc.nodeAt(pos)
+      if (!node || node.type.name !== 'table') return false
+      const rows: string[][] = []
+      let aligns: (string | null)[] = []
+      node.forEach((row, _off, rowIndex) => {
+        const cells: string[] = []
+        const rowAligns: (string | null)[] = []
+        row.forEach((cell) => {
+          cells.push(cell.textContent.trim())
+          rowAligns.push((cell.attrs.alignment as string | null) ?? null)
+        })
+        if (rowIndex === 0) aligns = rowAligns
+        rows.push(cells)
       })
       if (action === 'copy-table') {
-        void writeClipboard(lines.join('\n'))
+        // 必须带表头分隔行，否则粘回去只是带竖线的普通段落（不是表格）
+        void writeClipboard(gfmTable(rows, aligns))
         return true
       }
       // 转文本：表格 → 每行一段、制表符分隔单元格（不可逆）
       const schema = view.state.schema
-      const paras = lines.map((l) => {
-        const text = l
-          .replace(/^\|/, '')
-          .replace(/\|$/, '')
-          .split('|')
-          .map((c) => c.trim())
-          .join('\t')
+      const paras = rows.map((cells) => {
+        const text = cells.join('\t')
         return schema.nodes.paragraph.create(null, text ? schema.text(text) : undefined)
       })
       const tr = view.state.tr
-      tr.replaceWith(t.pos, t.pos + node.nodeSize, paras)
+      tr.replaceWith(pos, pos + node.nodeSize, paras)
       view.dispatch(tr)
       return true
     }
@@ -2240,6 +2599,8 @@ function executeTableMenuAction(action: TableMenuAction): boolean {
   }
 }
 registerPmTableExecutor(executeTableMenuAction)
+// 右键「粘贴」与 Ctrl+V 同一套解析（TSV 建表 / Markdown 结构），而非裸 insertText
+registerPmSmartPaste(pasteSmartText)
 
 /** 浮层定位(贴元素上方,顶到可视区时钳在可见范围内) */
 const elToolbarStyle = computed(() => {
@@ -2267,7 +2628,7 @@ onMounted(() => {
   // 表格列边界 hover 光标（el-table 手感）+ 表头上方列序把手
   host.value.addEventListener('mousemove', onHostMouseMoveTableCursor, { passive: true })
   host.value.addEventListener('mouseleave', onHostLeaveForHandles)
-  host.value.addEventListener('scroll', hideTableHandles, { passive: true })
+  host.value.addEventListener('scroll', onHostScrollTables, { passive: true })
   // 图片悬浮地址提示（mouseover/out 冒泡委托）;滚动即收起避免提示漂移
   host.value.addEventListener('mouseover', onHostOver)
   host.value.addEventListener('mouseout', onHostOut)
@@ -2276,6 +2637,11 @@ onMounted(() => {
   host.value.addEventListener('load', onHostImgLoad, { capture: true, passive: true })
   // 图片加载失败：标记破图占位（缺文件时 0×0 隐身，用户无从察觉），成功后由 load 摘除
   host.value.addEventListener('error', onHostImgError, { capture: true })
+  // TSV 粘贴建表/填格（6.4a）：捕获层先于 milkdown 剪贴板插件接管
+  host.value.addEventListener('paste', onHostPasteTsv, { capture: true })
+  // 单元格多选复制 → TSV/HTML（须在 PM 序列化前拦截）
+  host.value.addEventListener('copy', onHostCopy, { capture: true })
+  host.value.addEventListener('paste', onHostPasteMarkdown, { capture: true })
   // 用户滚轮即接管：停用切签锚点的自动重对齐
   host.value.addEventListener(
     'wheel',
@@ -2316,7 +2682,34 @@ onMounted(() => {
         ...prev,
         // spellcheck 初始值按设置（4.2）；切换广播见 onSpellcheckBroadcast
         attributes: { class: 'luci-prose', spellcheck: ui.editorPrefs.spellcheck ? 'true' : 'false' },
-        handleKeyDown: (view, event) => handleKeys(view, event)
+        handleKeyDown: (view, event) => handleKeys(view, event),
+        // 多行（块级）粘贴后光标会停在粘贴内容末尾的开放容器里，紧接着敲的
+        // 正文被吞进引用/脚注定义（2026-11-20 P16）。放行默认粘贴，异步把
+        // 光标提出这两类容器；列表项不逃逸（粘贴列表后续打字续写是预期行为）
+        handlePaste: (view, event) => {
+          const text = event.clipboardData?.getData('text/plain') ?? ''
+          if (!text.trim() || !text.trimEnd().includes('\n')) return false
+          requestAnimationFrame(() => {
+            // 重读 view.state：默认粘贴在返回 false 后才完成，此刻才是插入后的状态
+            const st = view.state
+            const { $from } = st.selection
+            for (let d = $from.depth; d > 0; d--) {
+              const name = $from.node(d).type.name
+              if (name === 'blockquote' || name === 'footnote_definition') {
+                const after = $from.after(d)
+                const tr = st.tr
+                if (after >= st.doc.content.size) {
+                  tr.insert(after, st.schema.nodes.paragraph.create())
+                }
+                const $pos = tr.doc.resolve(Math.min(after + 1, tr.doc.content.size))
+                tr.setSelection(TextSelection.near($pos))
+                view.dispatch(tr)
+                return
+              }
+            }
+          })
+          return false
+        }
       }))
     })
     .use(commonmark)
@@ -2342,6 +2735,10 @@ onMounted(() => {
     .use(footnoteReferenceSchema)
     .use(footnoteDefinitionSchema)
     .use(footnoteReferenceInputRule)
+    // 任务列表 `- [ ] `、图片 `![alt](src)`、链接 `[text](href)` 键入即转换
+    .use(taskListBulletInputRule)
+    .use(imageInlineInputRule)
+    .use(inlineLinkInputRule)
     .use(footnoteRefView)
     .use(createFootnoteJumpPlugin)
     // front matter + [TOC]
@@ -2420,13 +2817,21 @@ onMounted(() => {
               type?: string
               alt?: unknown
               title?: unknown
+              checked?: unknown
               children?: DebugMdastNode[]
             }
             const tree = proc.runSync(proc.parse(src)) as unknown as DebugMdastNode
-            const walk = (n: DebugMdastNode): unknown =>
-              n.type === 'image'
-                ? { type: n.type, alt: n.alt, title: n.title }
-                : { type: n.type, kids: (n.children ?? []).map(walk) }
+            // 保留全部属性（checked/ordered/url…），只剥掉 position——定位解析层丢字段的场景
+            const walk = (n: DebugMdastNode): unknown => {
+              const plain = JSON.parse(
+                JSON.stringify(n, (k, v) => (k === 'position' ? undefined : v))
+              ) as Record<string, unknown>
+              if (Array.isArray(plain.children)) {
+                plain.kids = (plain.children as DebugMdastNode[]).map(walk)
+                delete plain.children
+              }
+              return plain
+            }
             return JSON.stringify(walk(tree))
           }),
         contentInfo: () =>
@@ -2466,11 +2871,13 @@ onMounted(() => {
       applyCachedImageSizes(hostEl)
       applyWysiwygProgress()
     })
+    registerFlush()
     pullFind(tabId, true) // 编辑器就绪后恢复当前标签共享的查找条状态
   })
 })
 
 onBeforeUnmount(() => {
+  unregisterFlush?.()
   offTableWidths?.()
   window.removeEventListener('inkbox:theme-applied', onThemeApplied)
   window.removeEventListener('inkbox:spellcheck', onSpellcheckBroadcast)
@@ -2488,13 +2895,17 @@ onBeforeUnmount(() => {
   host.value?.removeEventListener('mousedown', onHostMousedown)
   host.value?.removeEventListener('mousemove', onHostMouseMoveTableCursor)
   host.value?.removeEventListener('mouseleave', onHostLeaveForHandles)
-  host.value?.removeEventListener('scroll', hideTableHandles)
+  host.value?.removeEventListener('scroll', onHostScrollTables)
   colHandleLayer?.remove()
   colHandleLayer = null
   colHandleTable = null
+  hideColBoundaryFeedback()
   host.value?.removeEventListener('mouseover', onHostOver)
   host.value?.removeEventListener('mouseout', onHostOut)
   host.value?.removeEventListener('scroll', onHostScroll)
+  host.value?.removeEventListener('paste', onHostPasteTsv, { capture: true })
+  host.value?.removeEventListener('copy', onHostCopy, { capture: true })
+  host.value?.removeEventListener('paste', onHostPasteMarkdown, { capture: true })
   host.value?.removeEventListener('load', onHostImgLoad, { capture: true })
   host.value?.removeEventListener('error', onHostImgError, { capture: true })
   host.value?.removeEventListener(
@@ -2581,6 +2992,7 @@ watch(
   (id, old) => {
     saveWysiwygProgress(old)
     tabId = id
+    registerFlush() // flush 注册跟随当前标签（保存前同步按 tabId 寻址）
     const markdown = docs.active?.content ?? ''
     if (editor) applyReplace(markdown)
     else pending = markdown

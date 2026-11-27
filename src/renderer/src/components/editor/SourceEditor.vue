@@ -78,6 +78,7 @@ import {
   type TableInfo,
   type TableOp
 } from '@/editor/table-utils'
+import { cmPasteTsv } from '@/editor/tsv-paste'
 import {
   parseImageLine,
   applyImageMods,
@@ -550,6 +551,8 @@ onMounted(() => {
   view.scrollDOM.addEventListener('scroll', onScrollDom, { passive: true })
   // 点击编辑区任意位置（含内边距/行号间隙）都要拿到焦点，避免"点了但打不了字"
   host.value.addEventListener('mousedown', onHostMousedown)
+  // TSV 粘贴建表/填格（6.4a）：捕获层先于 CM 默认粘贴接管（围栏内不接管，判定在模块内）
+  host.value.addEventListener('paste', onHostPasteTsv, { capture: true })
   // 拼写检查开关（4.2）：按设置应用 + 跟随设置切换广播
   applySpellcheckAttr(ui.editorPrefs.spellcheck ? 'true' : 'false')
   window.addEventListener('inkbox:spellcheck', onSpellcheckBroadcast)
@@ -575,9 +578,23 @@ function onHostMousedown(): void {
   if (view && !view.hasFocus) view.focus()
 }
 
+/** TSV 粘贴建表/填格（6.4a）：剪贴板 text/plain 含制表符即视为表格数据 */
+function onHostPasteTsv(e: ClipboardEvent): void {
+  if (!view || !e.clipboardData) return
+  const el = e.target as HTMLElement | null
+  if (!el || !view.dom.contains(el)) return
+  const text = e.clipboardData.getData('text/plain')
+  if (!text || !text.includes('\t')) return
+  if (cmPasteTsv(view, text)) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+}
+
 onBeforeUnmount(() => {
   pushFind() // 卸载前最后推一次（正常情况下每次变化都已实时推送，这里是兜底）
   host.value?.removeEventListener('mousedown', onHostMousedown)
+  host.value?.removeEventListener('paste', onHostPasteTsv, { capture: true })
   window.removeEventListener('inkbox:spellcheck', onSpellcheckBroadcast)
   view?.scrollDOM.removeEventListener('scroll', onScrollDom)
   unregisterCm?.()

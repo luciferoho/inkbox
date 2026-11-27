@@ -33,10 +33,11 @@
 }
 
 .wysiwyg-host .luci-prose p {
-  margin: 0.75em 0;
+  margin: 0.85em 0;
 }
 
-/* 标题 */
+/* 标题：与 preview.css 同一套「釉珠」符号（一级墨起线、二级实心菱珠、
+   三级空心菱珠）；折叠箭头是绝对定位的 widget，不占流，菱珠用行内盒 */
 .wysiwyg-host .luci-prose h1,
 .wysiwyg-host .luci-prose h2,
 .wysiwyg-host .luci-prose h3,
@@ -45,60 +46,139 @@
 .wysiwyg-host .luci-prose h6 {
   font-family: var(--font-body);
   font-weight: 700;
-  line-height: 1.4;
+  line-height: 1.35;
   margin: 1.3em 0 0.6em;
 }
 .wysiwyg-host .luci-prose h1 {
-  font-size: 1.7em;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--border);
+  position: relative;
+  font-size: 1.9em;
+  margin: 1.6em 0 0.8em;
+  padding-bottom: 0.42em;
+}
+.wysiwyg-host .luci-prose h1::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, var(--border) 0 58%, transparent 94%);
+}
+.wysiwyg-host .luci-prose h1::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 2.3em;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent) 0 52%, color-mix(in srgb, var(--accent) 40%, transparent));
 }
 .wysiwyg-host .luci-prose h2 {
-  font-size: 1.42em;
-  padding-bottom: 0.25em;
-  border-bottom: 1px solid var(--border);
+  font-size: 1.45em;
+  margin: 1.9em 0 0.7em;
+}
+.wysiwyg-host .luci-prose h2::before {
+  content: '';
+  display: inline-block;
+  width: 0.38em;
+  height: 0.38em;
+  margin-right: 0.6em;
+  vertical-align: 0.16em;
+  border-radius: 22%;
+  background: var(--accent);
+  transform: rotate(45deg);
 }
 .wysiwyg-host .luci-prose h3 {
   font-size: 1.22em;
+  margin: 1.65em 0 0.55em;
+}
+.wysiwyg-host .luci-prose h3::before {
+  content: '';
+  display: inline-block;
+  box-sizing: border-box;
+  width: 0.36em;
+  height: 0.36em;
+  margin-right: 0.8em;
+  vertical-align: 0.17em;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 80%, transparent);
+  border-radius: 22%;
+  transform: rotate(45deg);
 }
 .wysiwyg-host .luci-prose h4 {
-  font-size: 1.08em;
+  font-size: 1.06em;
+  margin: 1.4em 0 0.5em;
 }
-.wysiwyg-host .luci-prose h5,
-.wysiwyg-host .luci-prose h6 {
-  font-size: 1em;
+.wysiwyg-host .luci-prose h5 {
+  font-size: 0.98em;
+  font-weight: 600;
   color: var(--text-2);
+  margin: 1.3em 0 0.45em;
+}
+.wysiwyg-host .luci-prose h6 {
+  font-size: 0.94em;
+  font-weight: 600;
+  color: var(--text-2);
+  letter-spacing: 0.02em;
+  margin: 1.2em 0 0.4em;
 }
 
-/* 链接 */
+/* 链接：真下划线（跨行逐行续画），淡青线，悬停转实 */
 .wysiwyg-host .luci-prose a {
   color: var(--accent);
-  text-decoration: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
 }
 .wysiwyg-host .luci-prose a:hover {
-  border-bottom-color: var(--accent);
+  color: var(--accent-strong);
+  text-decoration-color: currentColor;
+}
+/* 光标进入链接就地展开源码时不画下划线 */
+.wysiwyg-host .luci-prose a .luci-link-src-text {
+  text-decoration: none;
 }
 
-/* 行内代码与代码块（墨块） */
+/* 行内代码（淡青药丸）与代码块（浅米底 + 顶部信息带） */
 .wysiwyg-host .luci-prose code {
   font-family: var(--font-code);
   font-size: 0.86em;
   background: var(--inline-code-bg);
   color: var(--inline-code-fg);
-  border: 1px solid var(--inline-code-border);
-  border-radius: 4px;
-  padding: 0.13em 0.4em;
+  border: 0;
+  border-radius: 5px;
+  padding: 0.12em 0.42em;
+}
+
+/* 粗体 / 键帽（与预览同一套；上下标规则在下面的公式区旁） */
+.wysiwyg-host .luci-prose strong,
+.wysiwyg-host .luci-prose b {
+  font-weight: 600;
+}
+.wysiwyg-host .luci-prose kbd {
+  font-family: var(--font-code);
+  font-size: 0.78em;
+  padding: 0.12em 0.5em;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text);
 }
 
 .wysiwyg-host .luci-prose pre {
-  background: var(--code-bg);
+  background:
+    linear-gradient(var(--code-bar), var(--code-bar)) 0 0 / 100% 30px no-repeat,
+    linear-gradient(var(--code-edge), var(--code-edge)) 0 29px / 100% 1px no-repeat,
+    var(--code-bg);
   color: var(--code-fg);
   border-radius: 10px;
-  padding: 14px 16px;
+  padding: 30px 18px 16px;
   overflow-x: auto;
   margin: 1em 0;
-  line-height: 1.6;
+  line-height: 1.65;
   box-shadow: inset 0 0 0 1px var(--code-edge);
   /* 代码块自带横向滚动条：外壳用箭头光标（否则悬停滚动条是输入光标），
      文本光标交给内部 code 元素 */
@@ -113,24 +193,32 @@
   cursor: text;
 }
 
-/* 代码块 chrome：语言标签栏 + 复制按钮（pm-codeblock-chrome 的 widget 栏 + 相邻 pre） */
+/* 代码块 chrome：语言标签栏 + 复制按钮（pm-codeblock-chrome 的 widget 栏 + 相邻 pre）。
+   内置模式同样把栏做成「浮在 pre 信息带里的浮层」：与主题模式观感一致，
+   皮肤（圆角/信息带）在 pre 上，栏本身透明 */
 .wysiwyg-host .luci-prose .md-code-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 6px 4px 14px;
-  margin: 1em 0 0;
-  background: var(--code-bar);
-  border: 1px solid var(--code-edge);
-  border-bottom: 0;
-  border-radius: 10px 10px 0 0;
+  position: relative;
+  /* 与主题模式浮层同一层级值（内置只需盖住 pre 的信息带，取值保持一致便于两模式对齐） */
+  z-index: 101;
+  height: 30px;
+  margin: 1em 0 -30px;
+  padding: 0 8px 0 18px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  pointer-events: none;
   user-select: none;
 }
+.wysiwyg-host .luci-prose .md-code-bar > * {
+  pointer-events: auto;
+}
+/* pre 顶边与浮层顶边对齐（栏高被负 margin 抵消，间距由栏的上外边距给） */
 .wysiwyg-host .luci-prose .md-code-bar + pre {
   margin-top: 0;
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
 }
 
 /* Typora 主题模式：语言栏不再整条隐藏——隐藏后语言项根本点不到（5.2 语言
@@ -159,6 +247,7 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-bar {
   pointer-events: none;
 }
 html[data-theme-css] .wysiwyg-host .luci-prose .md-code-bar .md-code-lang,
+html[data-theme-css] .wysiwyg-host .luci-prose .md-code-bar .md-code-fmt,
 html[data-theme-css] .wysiwyg-host .luci-prose .md-code-bar .md-code-copy {
   pointer-events: auto;
 }
@@ -176,7 +265,8 @@ html[data-theme-css] .wysiwyg-host .luci-prose pre {
 .wysiwyg-host .luci-prose .md-code-lang {
   font-family: var(--font-code);
   font-size: 11px;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--code-comment);
   cursor: pointer;
   position: relative;
@@ -271,12 +361,40 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   background: var(--accent-soft) !important;
   color: var(--accent-strong) !important;
 }
+.wysiwyg-host .luci-prose .md-code-fmt {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--code-comment);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.wysiwyg-host .luci-prose .md-code-fmt:hover {
+  color: var(--code-fg);
+  background: var(--code-edge);
+}
+.wysiwyg-host .luci-prose .md-code-fmt svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+/* 右侧动作组：格式化 + 复制并排靠右（space-between 下语言标签独占左侧） */
+.wysiwyg-host .luci-prose .md-code-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
 .wysiwyg-host .luci-prose .md-code-copy {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border: 0;
   border-radius: 6px;
   background: none;
@@ -297,32 +415,84 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   display: block;
 }
 
-/* 引用：琥珀细条 + 淡琥珀底（与 preview.css 同一套语言,勿用选区蓝） */
-.wysiwyg-host .luci-prose blockquote {
-  margin: 1em 0;
-  padding: 0.5em 1em;
-  border-left: 3px solid var(--accent);
-  background: var(--accent-soft);
+/* 引用：淡青底 + 左侧青线 + 齐首行的悬挂引号（与 preview.css 同一套语言） */
+.wysiwyg-host .luci-prose blockquote:not(.md-alert) {
+  position: relative;
+  margin: 1.2em 0;
+  padding: 0.72em 1.15em 0.72em 2.2em;
+  border: none;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  border-radius: 0 10px 10px 0;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  color: var(--text);
+}
+.wysiwyg-host .luci-prose blockquote::before {
+  content: '\201C';
+  position: absolute;
+  left: 0.62em;
+  top: 0.62em;
+  font-family: Georgia, 'Times New Roman', 'Songti SC', serif;
+  font-size: 1.7em;
+  line-height: 1;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--accent) 50%, transparent);
+  pointer-events: none;
+}
+.wysiwyg-host .luci-prose blockquote > :first-child {
+  margin-top: 0;
+}
+.wysiwyg-host .luci-prose blockquote > :last-child:not(pre) {
+  margin-bottom: 0;
+}
+.wysiwyg-host .luci-prose blockquote blockquote:not(.md-alert) {
+  margin: 0.6em 0;
+  padding: 0.55em 1em 0.55em 1.1em;
+  border-left-width: 2px;
   border-radius: 0 8px 8px 0;
-  color: var(--text-2);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
-.wysiwyg-host .luci-prose blockquote p {
-  margin: 0.3em 0;
+.wysiwyg-host .luci-prose blockquote blockquote:not(.md-alert)::before {
+  content: none;
 }
+/* 提示块自带标签图标与色条，不再叠加悬挂引号（特异性要高过上面的
+   .wysiwyg-host .luci-prose blockquote::before，否则引号会画在提示块上） */
+.wysiwyg-host .luci-prose blockquote.md-alert::before {
+  content: none;
+}
+/* 引用块内段落沿用正文段落间距（设计稿如此）；首尾块由 first/last-child 归零 */
+
 
 /* 列表 */
 .wysiwyg-host .luci-prose ul,
 .wysiwyg-host .luci-prose ol {
-  padding-left: 1.5em;
-  margin: 0.75em 0;
+  padding-left: 1.6em;
+  margin: 0.5em 0;
 }
 
 .wysiwyg-host .luci-prose li {
-  margin: 0.28em 0;
+  margin: 0.3em 0;
+  /* Typora 基准：主题的列表装饰伪元素（绝对定位）依赖它；内置无装饰时无副作用 */
+  position: relative;
+}
+
+.wysiwyg-host .luci-prose li::marker {
+  color: color-mix(in srgb, var(--accent) 78%, transparent);
+  font-weight: 600;
 }
 
 .wysiwyg-host .luci-prose li p {
   margin: 0;
+}
+.wysiwyg-host .luci-prose li > p + p {
+  margin-top: 0.5em;
+}
+.wysiwyg-host .luci-prose li > ul,
+.wysiwyg-host .luci-prose li > ol {
+  margin: 0.3em 0 0.1em;
+}
+/* 末项不拖尾边距（写在 ul/ol 之后：同特异度靠后覆盖，嵌套列表末项不再多 0.1em） */
+.wysiwyg-host .luci-prose li > :last-child {
+  margin-bottom: 0;
 }
 
 .wysiwyg-host .luci-prose input[type='checkbox'] {
@@ -330,12 +500,12 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   margin-right: 7px;
 }
 
-/* 表格：内容自适应宽度（窄窗口横向滚动，不压扁成竖排文字）。
+/* 表格：完整框线（与 preview.css 同款：外框略深、内线发丝、四角圆角、表头淡底）。
    滚动外壳由 pm-table-view 的 nodeView 提供（与预览 md-table-wrap 同构）：
    表格 width:max-content 超出内容列时在壳内横向滚动，不再顶破整页布局 */
 .wysiwyg-host .luci-prose .luci-table-wrap {
   max-width: 100%;
-  margin: 1em 0;
+  margin: 1.3em 0;
   overflow-x: auto;
   overflow-y: hidden;
   /* 横向滚动条用箭头光标：外壳是滚动容器，光标落在它身上，不覆盖单元格 */
@@ -343,11 +513,13 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
 }
 
 .wysiwyg-host .luci-prose table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   margin: 0;
   width: max-content;
   min-width: 100%;
-  font-size: 0.94em;
+  font-size: 0.93em;
+  line-height: 1.6;
   cursor: text;
 }
 /* 外壳自身的上下外边距已留白：表格在壳内不再叠一次，避免双倍间距 */
@@ -357,42 +529,107 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
 
 .wysiwyg-host .luci-prose th,
 .wysiwyg-host .luci-prose td {
-  border: 1px solid var(--border);
-  padding: 6px 12px;
+  border: 0;
+  border-right: 1px solid color-mix(in srgb, var(--text-2) 30%, var(--bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--text-2) 30%, var(--bg));
+  padding: 0.58em 0.95em;
   text-align: left;
   position: relative;
-  word-break: break-word;
-  overflow-wrap: anywhere;
+  vertical-align: top;
+  word-break: normal;
+  overflow-wrap: break-word;
+  /* 与主题模式一致的列下限：auto 布局会把可断行列压成一字宽 */
+  min-width: 4em;
+}
+.wysiwyg-host .luci-prose table > :first-child > tr:first-child > th,
+.wysiwyg-host .luci-prose table > :first-child > tr:first-child > td {
+  border-top: 1px solid color-mix(in srgb, var(--text-2) 52%, var(--bg));
+}
+.wysiwyg-host .luci-prose tr > th:first-child,
+.wysiwyg-host .luci-prose tr > td:first-child {
+  border-left: 1px solid color-mix(in srgb, var(--text-2) 52%, var(--bg));
+}
+.wysiwyg-host .luci-prose table > :last-child > tr:last-child > th,
+.wysiwyg-host .luci-prose table > :last-child > tr:last-child > td {
+  border-bottom-color: color-mix(in srgb, var(--text-2) 52%, var(--bg));
+}
+.wysiwyg-host .luci-prose tr > th:last-child,
+.wysiwyg-host .luci-prose tr > td:last-child {
+  border-right-color: color-mix(in srgb, var(--text-2) 52%, var(--bg));
+}
+html:not([data-theme-css]) .wysiwyg-host .luci-prose table > :first-child > tr:first-child > :first-child {
+  border-top-left-radius: 8px;
+}
+html:not([data-theme-css]) .wysiwyg-host .luci-prose table > :first-child > tr:first-child > :last-child {
+  border-top-right-radius: 8px;
+}
+html:not([data-theme-css]) .wysiwyg-host .luci-prose table > :last-child > tr:last-child > :first-child {
+  border-bottom-left-radius: 8px;
+}
+html:not([data-theme-css]) .wysiwyg-host .luci-prose table > :last-child > tr:last-child > :last-child {
+  border-bottom-right-radius: 8px;
 }
 
 .wysiwyg-host .luci-prose th {
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
   font-family: var(--font-body);
   font-weight: 600;
+}
+.wysiwyg-host .luci-prose th > p,
+.wysiwyg-host .luci-prose td > p {
+  margin: 0;
+  padding: 0;
 }
 
 /* 分隔线 / 图片 */
 /* 即显分割线（luci-hr wrap）：wrap 撑出 18px 点击判定区（nodeView 点击
-   → NodeSelection，选中后 Backspace 删除）；内部真 <hr> 由主题 hr 线规则
-   接管（border/背景样式原样生效），本体只占线的高度 */
+   → NodeSelection，选中后 Backspace 删除）；内部真 <hr> 画线（两端渐隐 +
+   正中缺口 + 实心菱珠），本体只占线的高度 */
 .wysiwyg-host .luci-prose .luci-hr {
   display: flex;
   align-items: center;
   height: 18px;
+  margin: 2.4em 0;
   cursor: default;
 }
 
 .wysiwyg-host .luci-prose .luci-hr hr {
   flex: 1;
-  margin: 0 auto;
+  margin: 0;
 }
 
-/* 非主题模式（无 data-theme-css）的 hr 线样式（原规则，主题模式由主题接管） */
+/* 非主题模式（无 data-theme-css）的 hr 线样式（主题模式由主题接管） */
 .wysiwyg-host .luci-prose hr {
   border: none;
-  border-top: 1px solid var(--border);
-  width: 62%;
+  height: 1px;
+  width: 100%;
+  margin: 2.4em 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0,
+    var(--border) 12%,
+    var(--border) calc(50% - 20px),
+    transparent calc(50% - 11px),
+    transparent calc(50% + 11px),
+    var(--border) calc(50% + 20px),
+    var(--border) 88%,
+    transparent 100%
+  );
+  position: relative;
+  overflow: visible;
   cursor: default;
+}
+.wysiwyg-host .luci-prose hr::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 22%;
+  background: color-mix(in srgb, var(--accent) 72%, var(--text-2));
+  transform: rotate(45deg);
 }
 
 /* 选中态：wrap 描边提示（与图片选中外框一致） */
@@ -403,7 +640,8 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
 
 .wysiwyg-host .luci-prose img {
   max-width: 100%;
-  border-radius: 8px;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 85%, transparent);
 }
 
 /* 破图占位：加载失败的图片不再 0×0 隐身——虚线框 + 底色，
@@ -413,6 +651,9 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   min-height: 56px;
   border: 1.5px dashed color-mix(in srgb, var(--text-2) 55%, transparent);
   background: color-mix(in srgb, var(--text-2) 7%, transparent);
+  /* 破图不画圆角收边（虚线框自身就是边界） */
+  border-radius: 0;
+  box-shadow: none;
   object-fit: none;
   overflow: hidden;
   padding: 4px 8px;
@@ -484,18 +725,51 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   }
 }
 
-/* ---------- 任务列表：原生 checkbox（与预览 .task-item-checkbox 同款样式） ---------- */
+/* ---------- 任务列表：自绘方框（与预览 .task-item-checkbox 同款样式） ---------- */
 
 .wysiwyg-host li[data-item-type='task'] {
   list-style: none;
-  margin-left: -1.4em;
+  margin-left: 0;
 }
 
 .wysiwyg-host .task-item-checkbox {
-  accent-color: var(--accent);
-  margin-right: 7px;
-  vertical-align: -1.5px;
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  font: inherit;
+  position: absolute;
+  left: -1.5em;
+  top: 0.5lh;
+  translate: 0 -50%;
+  width: 1em;
+  height: 1em;
+  margin: 0;
+  border: 1.5px solid color-mix(in srgb, var(--text-2) 65%, transparent);
+  border-radius: 4px;
+  background: transparent;
   cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.wysiwyg-host .task-item-checkbox::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 0.3em;
+  height: 0.52em;
+  margin: -0.28em 0 0 -0.16em;
+  border: solid var(--check-fg);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.wysiwyg-host .task-item-checkbox:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.wysiwyg-host .task-item-checkbox:checked::after {
+  opacity: 1;
 }
 
 .wysiwyg-host li[data-item-type='task'][data-checked='true'] p {
@@ -514,7 +788,7 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
 
 .wysiwyg-host .luci-prose math-block {
   display: block;
-  margin: 0.9em 0;
+  margin: 1.2em 0;
 }
 
 .wysiwyg-host .luci-prose .luci-math-render {
@@ -578,6 +852,13 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   display: inline-block;
 }
 
+.wysiwyg-host .luci-prose math-inline .katex,
+.wysiwyg-host .luci-prose math-block .katex,
+.wysiwyg-host .luci-prose .luci-math-render .katex {
+  /* 压过 katex.min.css 的 .katex{font-size:1.21em}：与正文比例对齐（预览侧同值） */
+  font-size: 1.06em;
+}
+
 /* 编辑态渲染区：行内公式空间不够，保持隐藏（离开编辑态呈现）；
    块级公式实时预览（Typora 语义）：源码在上，KaTeX 实时渲染在下，
    update() 里编辑中同步重渲染 */
@@ -609,8 +890,12 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
    pre 外壳与语言标签栏/复制按钮（pm-codeblock-chrome）完全兼容 */
 .wysiwyg-host .luci-prose pre.md-mermaid {
   position: relative;
-  /* 图表块整体是渲染卡片，无行号：顶部收紧（语言栏与图表间距对齐 Typora，2026-10-31 反馈） */
-  padding: 8px 16px 14px;
+  /* 图表块整体是渲染卡片：淡底圆角卡（与预览 .mermaid 同观感），
+     顶部留出语言栏的位置（36px = 30 栏高 + 6 呼吸） */
+  padding: 36px 18px 18px;
+  background: var(--surface-2);
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .wysiwyg-host .luci-prose .md-mermaid-render {
@@ -618,16 +903,16 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
   justify-content: center;
   align-items: center;
   min-height: 56px;
-  padding: 12px 16px;
-  border-radius: 8px;
-  background: var(--surface-2);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
   cursor: pointer;
   /* 图表是展示层（SVG 文本碎片），不可选中——编辑走源码态（2026-10-31 反馈） */
   user-select: none;
 }
 
 .wysiwyg-host .luci-prose .md-mermaid-render:hover {
-  outline: 1px solid var(--border);
+  outline: none;
 }
 
 .wysiwyg-host .luci-prose .md-mermaid-render svg {
@@ -669,16 +954,18 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
 
 /* ---------- 高亮/上下标/脚注（ROADMAP 1.3/1.4）---------- */
 .wysiwyg-host .luci-prose mark {
-  background: color-mix(in srgb, var(--accent) 26%, transparent);
-  color: var(--text);
-  padding: 0 3px;
-  border-radius: 3px;
+  background: var(--mark-bg);
+  color: inherit;
+  padding: 0.06em 0.32em;
+  border-radius: 4px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 .wysiwyg-host .luci-prose sup,
 .wysiwyg-host .luci-prose sub {
   font-size: 0.72em;
-  line-height: 1;
+  line-height: 0;
 }
 
 .wysiwyg-host .luci-prose sup.footnote-ref {
@@ -707,10 +994,11 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
 
 /* 定义排版对齐 Typora：与正文齐平、无边框，行首 [^id]： 标记、行尾 ↩ 回跳 */
 .wysiwyg-host .luci-prose .footnote-def {
-  margin: 0.4em 0;
+  margin: 0.5em 0;
   padding: 0;
   color: var(--text-2);
-  font-size: 0.95em;
+  font-size: 0.92em;
+  text-align: left;
 }
 
 /* 行首 [^id]： 标记（pm-footnote widget，Typora 同款标识符形态） */
@@ -795,38 +1083,53 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
 
 /* ---------- YAML front matter / [TOC]（ROADMAP 1.7/1.6）---------- */
 .wysiwyg-host .luci-prose .fm-block {
-  margin: 0.9em 0;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: 6px;
+  margin: 1.2em 0;
+  padding: 0.9em 1.2em;
+  border: 1px dashed color-mix(in srgb, var(--text-2) 40%, transparent);
+  border-radius: 10px;
   background: var(--surface-2);
   font-family: var(--font-code);
-  font-size: 0.86em;
-  line-height: 1.6;
+  font-size: 0.84em;
+  line-height: 1.65;
   color: var(--text-2);
   white-space: pre-wrap;
   outline: none;
 }
 
 .wysiwyg-host .luci-prose .luci-toc {
-  margin: 0.9em 0;
-  padding: 12px 18px;
+  margin: 1.4em 0;
+  padding: 0.9em 1.2em;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-2);
-  font-size: 0.94em;
+  border-radius: 10px;
+  background: none;
+  font-size: 0.93em;
 }
 
 .wysiwyg-host .luci-prose .luci-toc-title {
-  margin: 0 0 6px;
-  font-weight: 700;
-  color: var(--text);
+  display: block;
+  margin: 0 0 0.6em;
+  font-size: 0.74em;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+/* 题头前一枚实心菱珠：与二级标题同款符号 */
+.wysiwyg-host .luci-prose .luci-toc-title::before {
+  content: '';
+  display: inline-block;
+  width: 0.42em;
+  height: 0.42em;
+  margin-right: 0.75em;
+  vertical-align: 0.12em;
+  border-radius: 22%;
+  background: var(--accent);
+  transform: rotate(45deg);
 }
 
 .wysiwyg-host .luci-prose .luci-toc ul {
   margin: 0;
-  padding-left: 1.3em;
+  padding-left: 0;
   list-style: none;
 }
 
@@ -835,23 +1138,23 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
 }
 
 .wysiwyg-host .luci-prose .luci-toc li {
-  margin: 2px 0;
-  line-height: 1.6;
+  margin-block: 0.12em;
+  line-height: 1.75;
 }
 
 /* 扁平条目的层级缩进兜底（:where 零特异性，主题模式下让位主题的
    .md-toc-hN margin-left——目录条目已拍平，缩进不能再靠嵌套 ul） */
 .wysiwyg-host .luci-prose .luci-toc :where(.md-toc-h2) {
-  margin-left: 1.4em;
+  margin-left: 0;
 }
 .wysiwyg-host .luci-prose .luci-toc :where(.md-toc-h3) {
-  margin-left: 2.8em;
+  margin-left: 1.2em;
 }
 .wysiwyg-host .luci-prose .luci-toc :where(.md-toc-h4) {
-  margin-left: 3.6em;
+  margin-left: 2.4em;
 }
 .wysiwyg-host .luci-prose .luci-toc :where(.md-toc-h5) {
-  margin-left: 4.2em;
+  margin-left: 3.6em;
 }
 .wysiwyg-host .luci-prose .luci-toc :where(.md-toc-h6) {
   margin-left: 4.8em;
@@ -968,63 +1271,57 @@ html[data-theme-css] .wysiwyg-host .luci-prose .md-code-lang-item.is-active {
 }
 
 /* ---------- GitHub / Typora 警告块（装饰器产出 .md-alert 结构） ----------
-   主题配色接管逻辑同预览侧；这里是无主题时的内置观感 */
+   主题配色接管逻辑同预览侧；这里是无主题时的内置观感：左侧色条 +
+   该色 9% 淡底 + 小字大写感标签 */
 .wysiwyg-host .md-alert {
-  padding: 10px 16px;
-  margin: 1em 0;
+  position: relative;
+  padding: 0.75em 1.1em 0.75em 1.15em;
+  margin: 1.1em 0;
   border: none;
-  border-radius: 10px;
+  border-left: 3px solid var(--al);
+  border-radius: 0 10px 10px 0;
+  background: color-mix(in srgb, var(--al) 9%, transparent);
+  color: var(--text);
 }
 .wysiwyg-host .md-alert-text-container {
   display: inline-flex;
   align-items: center;
-  padding: 2px 10px;
-  border-radius: 50px;
+  padding: 0;
+  border-radius: 0;
   font-weight: 600;
-  font-size: 13px;
-  background: color-mix(in srgb, var(--surface) 60%, transparent);
-  margin-bottom: 6px;
+  font-size: 0.8em;
+  letter-spacing: 0.06em;
+  background: none;
+  color: var(--al);
+  margin-bottom: 0.2em;
 }
 .wysiwyg-host .md-alert-text {
   display: inline-flex;
   align-items: center;
+  color: inherit;
 }
 .wysiwyg-host .md-alert-text svg {
   fill: currentColor;
-  width: 1em;
-  height: 1em;
-  margin-right: 6px;
+  width: 1.1em;
+  height: 1.1em;
+  margin-right: 0.45em;
   flex-shrink: 0;
 }
+/* 五个类型只负责给 --al 赋值 */
 .wysiwyg-host .md-alert-note {
-  background: rgba(108, 92, 231, 0.1);
-}
-.wysiwyg-host .md-alert-text-note {
-  color: #6c5ce7;
+  --al: var(--alert-note);
 }
 .wysiwyg-host .md-alert-tip {
-  background: rgba(0, 184, 148, 0.1);
-}
-.wysiwyg-host .md-alert-text-tip {
-  color: #009472;
+  --al: var(--alert-tip);
 }
 .wysiwyg-host .md-alert-important {
-  background: rgba(255, 118, 117, 0.12);
-}
-.wysiwyg-host .md-alert-text-important {
-  color: #e0526d;
+  --al: var(--alert-important);
 }
 .wysiwyg-host .md-alert-warning {
-  background: rgba(253, 203, 110, 0.16);
-}
-.wysiwyg-host .md-alert-text-warning {
-  color: #b58105;
+  --al: var(--alert-warning);
 }
 .wysiwyg-host .md-alert-caution {
-  background: rgba(214, 48, 49, 0.1);
-}
-.wysiwyg-host .md-alert-text-caution {
-  color: #d63031;
+  --al: var(--alert-caution);
 }
 
 /* Typora 分页标记：编辑器内不可见 */

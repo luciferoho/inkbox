@@ -2,6 +2,7 @@ import { Plugin } from '@milkdown/kit/prose/state'
 import type { EditorView } from '@milkdown/kit/prose/view'
 import { useUiStore } from '@/stores/ui'
 import { t } from '@/i18n'
+import { writeClipboardText } from '@/services/clipboard'
 
 /**
  * 链接悬浮提示条（5.10）：即显模式鼠标停在链接上 400ms 浮出地址条，
@@ -90,8 +91,7 @@ export function createLinkHoverTipPlugin(): Plugin {
         copy.addEventListener('mousedown', (e) => {
           e.preventDefault()
           e.stopPropagation()
-          void navigator.clipboard
-            .writeText(href)
+          void writeClipboardText(href)
             .then(() => useUiStore().showToast(t('link.tipCopied')))
             .catch(() => useUiStore().showToast(t('link.tipCopyFail')))
           hide()

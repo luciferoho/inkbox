@@ -10,6 +10,7 @@ import remarkGemoji from 'remark-gemoji'
 import remarkFootnotes from 'remark-footnotes'
 import remarkFrontmatter from 'remark-frontmatter'
 import { sanitizeHtmlTableBlock, rewriteHtmlImgSrc } from '@/services/markdown'
+import { imageSchema, linkSchema } from '@milkdown/kit/preset/commonmark'
 
 /**
  * 即显扩展语法（ROADMAP 1.3/1.4/1.5）：==高亮==、^上标^、~下标~、脚注、emoji。
@@ -1266,3 +1267,96 @@ export function createLinkSourcePlugin(): Plugin {
     }
   })
 }
+
+/* ---------- 输入规则补齐（7.x 实测反馈）：任务列表/图片/链接 ---------- */
+
+/**
+ * 任务列表输入规则（P2）：gfm 自带的 wrapInTaskListInputRule 只认裸 `[ ] `
+ * （要求光标已在列表项内）。这里补齐 Typora 的两种键入习惯：
+ * 1. `- [ ] ` / `+ [ ] ` / `* [ ] `——`- `+空格已被 commonmark 规则先转成无序
+ *    列表（前缀文本随之消失），续打的 `[ ] `+空格落到本规则把该项转成任务项；
+ * 2. 空行/段落行首直接打 `[ ] `（无任何列表符）——gfm 原规则没有列表上下文
+ *    不会命中，这里就地新建任务列表，匹配后的剩余文本并入任务项（Typora 行为）。
+ */
+export const taskListBulletInputRule = $inputRule((ctx: Ctx) =>
+  new InputRule(/^(\s*[-+*]\s)?\[(?<checked>\s|x)\]\s$/, (state, match, start, end) => {
+    const pos = state.doc.resolve(start)
+    // 已有列表上下文：仅普通列表项可转任务项（checked==null）；已是任务项的不重复处理
+    for (let d = pos.depth; d > 0; d--) {
+      const node = pos.node(d)
+      if (node.type.name === 'list_item') {
+        if (node.attrs.checked != null) return null
+        const checked = Boolean(match.groups?.checked === 'x')
+        return state.tr.deleteRange(start, end).setNodeMarkup(pos.before(d), undefined, {
+          ...node.attrs,
+          checked
+        })
+      }
+    }
+    // 无列表上下文：裸 [ ] 在段落行首 → 就地新建任务列表（单元格等放不下时放行）
+    const bl = state.schema.nodes.bullet_list
+    const li = state.schema.nodes.list_item
+    const para = state.schema.nodes.paragraph
+    if (!bl || !li || !para || pos.parent.type.name !== 'paragraph') return null
+    if (start !== pos.start()) return null // 仅行首（^ 锚定下正文中间不会命中，防御）
+    try {
+      const checked = Boolean(match.groups?.checked === 'x')
+      // 匹配后的剩余文本并入任务项段落（Typora 行为）：整段替换，原段落不留副本
+      const item = li.create({ checked }, para.create(null, pos.parent.content.cut(end - pos.start())))
+      const blockFrom = pos.before()
+      const blockTo = blockFrom + pos.parent.nodeSize
+      const tr = state.tr.replaceWith(blockFrom, blockTo, bl.create(null, [item]))
+      return tr.setSelection(TextSelection.near(tr.doc.resolve(blockFrom + 3)))
+    } catch {
+      return null
+    }
+  })
+)
+
+/**
+ * 图片输入规则（P5）：`![alt](src)` 键入完成即转图片节点。
+ * preset-commonmark 定义了 insertImageInputRule 但未纳入组合的 inputRules
+ * 数组（上游遗漏），这里按同语义自建并显式注册。
+ */
+export const imageInlineInputRule = $inputRule((ctx: Ctx) =>
+  new InputRule(
+    /!\[(?<alt>[^\]]*)\]\((?<src>[^)\s]+)(?:\s+"(?<title>[^"]*)")?\)$/,
+    (state, match, start, end) => {
+      const src = match.groups?.src ?? ''
+      if (!src) return null
+      const type = imageSchema.type(ctx)
+      // title 属性类型是 string（传 null 会抛 RangeError），无 title 时用空串
+      return state.tr.replaceWith(
+        start,
+        end,
+        type.create({ src, alt: match.groups?.alt ?? '', title: match.groups?.title ?? '' })
+      )
+    }
+  )
+)
+
+/**
+ * 链接输入规则（P5）：`[文本](href)` 键入完成即加链接标记。
+ * preset-commonmark 无链接输入规则（只有命令/工具栏入口），补齐 Typora 语义。
+ */
+export const inlineLinkInputRule = $inputRule((ctx: Ctx) =>
+  new InputRule(
+    /\[(?<text>[^\]\n]+)\]\((?<href>[^)\s]+)(?:\s+"(?<title>[^"]*)")?\)$/,
+    (state, match, start, end) => {
+      const href = match.groups?.href ?? ''
+      const text = match.groups?.text ?? ''
+      if (!href || !text) return null
+      const type = linkSchema.type(ctx)
+      const tr = state.tr.replaceWith(
+        start,
+        end,
+        state.schema.text(text, [type.create({ href, title: match.groups?.title ?? null })])
+      )
+      // 光标落链尾并清 storedMarks：不这么做光标带着链接 mark（ArrowRight 也
+      // 出不去），紧跟着敲的说明文字全被吞进链接文字（2026-11-20 P16）
+      return tr
+        .setSelection(TextSelection.create(tr.doc, start + text.length))
+        .setStoredMarks([])
+    }
+  )
+)

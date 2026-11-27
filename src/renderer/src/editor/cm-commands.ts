@@ -1,9 +1,10 @@
 import { type Command, type KeyBinding, type EditorView } from '@codemirror/view'
-import { EditorSelection, type Line } from '@codemirror/state'
+import { EditorSelection, type Line, type Text } from '@codemirror/state'
 import { syntaxTree } from '@codemirror/language'
 import type { SyntaxNode } from '@lezer/common'
 import { applyTableOp, cellStart, detectTable, type TableOp } from './table-utils'
 import { openTableGrid } from './table-grid'
+import { cmInFence, cmFormatCodeBlock } from './code-format'
 
 /** 选区包裹/解包标记：有选中且已包裹时解包；光标紧邻一对标记（含空对）时移除 */
 function wrapSelection(view: Parameters<Command>[0], open: string, close = open): boolean {
@@ -357,6 +358,7 @@ export const deleteListMarker: Command = (view) => {
 
 const LIST_LINE_RE = /^(\s*)((?:[-*+]|\d+[.)])(?:[ \t]+|$))(.*)$/
 const ORDERED_RE = /^(\s*)(\d+)([.)])(?:[ \t]+|$)(.*)$/
+const LEADING_WS_RE = /^(\s*)/
 
 /**
  * 有序列表重排号（Tab/Shift+Tab 后随缩进变更一起做，Typora 语义）：
@@ -586,6 +588,422 @@ function renumberGroupAt(view: EditorView, startLine: number, seen: Set<number>)
   return true
 }
 
+/* ---------- 列表项整体上移/下移（M6 6.1；即显侧在 list-move.ts） ---------- */
+
+interface ListBlock {
+  start: number
+  end: number
+  indent: number
+}
+
+/** 编号槽：新序中各项首行的编号信息（组边界规则与 renumberOrdered 一致） */
+interface MoveSlot {
+  moved: boolean
+  origFrom: number | null // 未移动行 = 原文档行首（补号 change 走原文档坐标）
+  num: number | null // 原字面号（无序行 null）
+  wsLen: number
+  numLen: number
+  lineText: string // 移动行 = insert 片的首行，补号后回填
+}
+
+/** 项块向下吞并：缩进更深的行（续行/嵌套子树）归属本项；空行/同级项断块 */
+function blockEndOf(doc: Text, start: number, indent: number): number {
+  let end = start
+  while (end < doc.lines) {
+    const t = doc.line(end + 1).text
+    if (!t.trim()) break
+    const pm = LIST_LINE_RE.exec(t)
+    if (pm && pm[1].length <= indent) break
+    end++
+  }
+  return end
+}
+
+/** 光标所属列表项块：光标行即列表行 = 项首行；续行向上找最近的、缩进小于本行的
+ *  列表首行。空行视为不在项内（保守：含空行的松散列表不参与移动）。非列表 → null */
+export function cmListBlockAt(view: EditorView): ListBlock | null {
+  const { doc, selection } = view.state
+  const headLine = doc.lineAt(selection.main.head)
+  const headM = LIST_LINE_RE.exec(headLine.text)
+  let start = headLine.number
+  let indent = -1
+  if (headM) {
+    indent = headM[1].length
+  } else {
+    const headLead = LEADING_WS_RE.exec(headLine.text)?.[1].length ?? 0
+    for (let n = headLine.number - 1; n >= 1; n--) {
+      const t = doc.line(n).text
+      if (!t.trim()) return null
+      const pm = LIST_LINE_RE.exec(t)
+      if (pm && pm[1].length < headLead) {
+        start = n
+        indent = pm[1].length
+        break
+      }
+    }
+  }
+  if (indent < 0) return null
+  return { start, end: blockEndOf(doc, start, indent), indent }
+}
+
+/** 从边界行向 dir 走找相邻同级项：'sibling' = 相邻兄弟首行；'parent' = 撞到浅层行
+ *  （dir=-1 时该行即父项首行；dir=+1 撞到的可能是叔项，父项另行向上找）；null = 边界 */
+function adjacentItem(
+  doc: Text,
+  fromLine: number,
+  dir: -1 | 1,
+  indent: number
+): { kind: 'sibling' | 'parent'; line: number } | null {
+  let q = fromLine
+  for (;;) {
+    const nq = q + dir
+    if (nq < 1 || nq > doc.lines) return null
+    const t = doc.line(nq).text
+    if (!t.trim()) return null
+    const pm = LIST_LINE_RE.exec(t)
+    if (pm) {
+      if (pm[1].length === indent) return { kind: 'sibling', line: nq }
+      if (pm[1].length < indent) return { kind: 'parent', line: nq }
+      q = nq // 更深的子树行，继续
+      continue
+    }
+    if ((LEADING_WS_RE.exec(t)?.[1].length ?? 0) > indent) {
+      q = nq // 兄长/父项的续行，继续
+      continue
+    }
+    return null
+  }
+}
+
+/** 光标项的父项首行（向上跳过兄弟与更深层）；无 → -1 */
+function parentItemLine(doc: Text, start: number, indent: number): number {
+  for (let n = start - 1; n >= 1; n--) {
+    const t = doc.line(n).text
+    if (!t.trim()) return -1
+    const pm = LIST_LINE_RE.exec(t)
+    if (pm && pm[1].length < indent) return n
+  }
+  return -1
+}
+
+/** 有序组成员收集（renumberOrdered 同规则）：同级有序项为成员，同级无序/空行/
+ *  浅层普通文本断组，更深子列表跳过 */
+function orderedMembers(doc: Text, anchor: number, dir: -1 | 1, indent: number): number[] {
+  const out: number[] = []
+  let q = anchor
+  for (;;) {
+    const nq = q + dir
+    if (nq < 1 || nq > doc.lines) break
+    const t = doc.line(nq).text
+    if (!t.trim()) break
+    const om = ORDERED_RE.exec(t)
+    if (om && om[1].length === indent) {
+      out.push(nq)
+      q = nq
+      continue
+    }
+    const pm = LIST_LINE_RE.exec(t)
+    if (pm && pm[1].length > indent) {
+      q = nq // 更深子列表跳过
+      continue
+    }
+    break
+  }
+  return out
+}
+
+function slotOf(doc: Text, lineNo: number): MoveSlot {
+  const line = doc.line(lineNo)
+  const m = ORDERED_RE.exec(line.text)
+  return {
+    moved: false,
+    origFrom: line.from,
+    num: m ? Number(m[2]) : null,
+    wsLen: m ? m[1].length : 0,
+    numLen: m ? m[2].length : 0,
+    lineText: line.text
+  }
+}
+
+/** 新序编号：连续有序段起始号取段首字面号（保留「3. 1922 年」类意图，与即显
+ *  <ol> 位置计数语义一致），无序行断段复位。未移动行出原文档坐标的补号 change；
+ *  移动行返回补丁首行，由调用方回填进 insert 文本 */
+function renumberMoved(
+  slots: MoveSlot[],
+  changes: { from: number; to: number; insert: string }[]
+): Map<MoveSlot, string> {
+  const movedPatch = new Map<MoveSlot, string>()
+  let runBase = 1
+  let runIdx = 0
+  for (const s of slots) {
+    if (s.num === null) {
+      runBase = 1
+      runIdx = 0
+      continue
+    }
+    if (runIdx === 0) runBase = s.num
+    const expect = runBase + runIdx
+    runIdx++
+    if (expect === s.num) continue
+    if (s.moved) {
+      movedPatch.set(
+        s,
+        s.lineText.slice(0, s.wsLen) + String(expect) + s.lineText.slice(s.wsLen + s.numLen)
+      )
+    } else if (s.origFrom !== null) {
+      changes.push({
+        from: s.origFrom + s.wsLen,
+        to: s.origFrom + s.wsLen + s.numLen,
+        insert: String(expect)
+      })
+    }
+  }
+  return movedPatch
+}
+
+/** 补号后的首行回填进文本片（首行整体替换，其余行原样） */
+function patchPiece(piece: string, patch: string | undefined): string {
+  if (patch === undefined) return piece
+  const i = piece.indexOf('\n')
+  return i < 0 ? patch : patch + piece.slice(i)
+}
+
+/** 列表项整体上移/下移（源码侧，Ctrl+Shift+↑/↓ 与右键「列表项」组共用）：
+ *  相邻兄弟 = 两块文本对调（总长不变、行数不变）；首项上移/末项下移 = 整项提出
+ *  子列表落父项外侧（缩进降为父级，父项剥掉该子列表）。单事务单历史项 */
+export function cmMoveListItem(view: EditorView, dir: -1 | 1): boolean {
+  const blk = cmListBlockAt(view)
+  if (!blk) return false
+  const doc = view.state.doc
+  const sel = view.state.selection.main
+  const curFrom = doc.line(blk.start).from
+  const curTo = doc.line(blk.end).to
+  const curText = doc.sliceString(curFrom, curTo)
+  const curFirst = curText.split('\n')[0]
+  const c0 = ORDERED_RE.exec(curFirst)
+
+  /* 路径判定：兄弟交换 or 边界提升 */
+  let sibLine = -1
+  let liftParent = -1
+  if (dir < 0) {
+    const prev = adjacentItem(doc, blk.start, -1, blk.indent)
+    if (prev?.kind === 'sibling') sibLine = prev.line
+    else if (prev?.kind === 'parent') liftParent = prev.line
+    else return false
+  } else {
+    const next = adjacentItem(doc, blk.end, 1, blk.indent)
+    if (next?.kind === 'sibling') sibLine = next.line
+    else if (next?.kind === 'parent') liftParent = parentItemLine(doc, blk.start, blk.indent)
+    else return false
+  }
+
+  const changes: { from: number; to: number; insert: string }[] = []
+
+  if (liftParent >= 1) {
+    /* ---- 边界提升：整项提出子列表，落父项外侧 ---- */
+    const pM = LIST_LINE_RE.exec(doc.line(liftParent).text)
+    if (!pM) return false
+    const pIndent = pM[1].length
+    // 嵌套列表首行：父项头之后第一个更深层列表行
+    let nlStart = -1
+    for (let n = liftParent + 1; n <= blk.start; n++) {
+      const pm = LIST_LINE_RE.exec(doc.line(n).text)
+      if (pm && pm[1].length > pIndent) {
+        nlStart = n
+        break
+      }
+    }
+    if (nlStart < 0) return false
+    // 父项整块末行（含子列表与松散续行）
+    let pEnd = liftParent
+    while (pEnd < doc.lines) {
+      const t = doc.line(pEnd + 1).text
+      if (!t.trim()) break
+      const x = LIST_LINE_RE.exec(t)
+      if ((x ? x[1].length : (LEADING_WS_RE.exec(t)?.[1].length ?? 0)) > pIndent) pEnd++
+      else break
+    }
+    const mainFrom = doc.line(liftParent).from
+    const mainTo = doc.line(pEnd).to
+    const A = doc.sliceString(mainFrom, doc.line(nlStart).from) // 父项头（含尾 \n）
+    const B = blk.end < pEnd ? doc.sliceString(curTo + 1, mainTo) : '' // 项后内容（cur 原占的换行随项移走）
+    const d = blk.indent - pIndent
+    const curPiece = curText.replace(new RegExp(`^ {1,${d}}`, 'gm'), '')
+    const patchedCur = curPiece.split('\n')[0]
+    const parentFirst = doc.line(liftParent).text
+    const p0 = ORDERED_RE.exec(parentFirst)
+    const slots: MoveSlot[] = []
+    for (const n of orderedMembers(doc, liftParent, -1, pIndent)) slots.push(slotOf(doc, n))
+    const curSlot: MoveSlot = {
+      moved: true,
+      origFrom: null,
+      num: c0 ? Number(c0[2]) : null,
+      wsLen: c0 ? c0[1].length : 0,
+      numLen: c0 ? c0[2].length : 0,
+      lineText: patchedCur
+    }
+    const parentSlot: MoveSlot = {
+      moved: true,
+      origFrom: null,
+      num: p0 ? Number(p0[2]) : null,
+      wsLen: p0 ? p0[1].length : 0,
+      numLen: p0 ? p0[2].length : 0,
+      lineText: parentFirst
+    }
+    if (dir < 0) slots.push(curSlot, parentSlot)
+    else slots.push(parentSlot, curSlot)
+    for (const n of orderedMembers(doc, pEnd, 1, pIndent)) slots.push(slotOf(doc, n))
+    const movedPatch = renumberMoved(slots, changes)
+    const curP = patchPiece(curPiece, movedPatch.get(curSlot))
+    const aP = patchPiece(A, movedPatch.get(parentSlot))
+    const insert = dir < 0 ? curP + '\n' + aP + B : aP + B + (B ? '\n' : '') + curP
+    const newCurStart = dir < 0 ? mainFrom : mainFrom + aP.length + B.length + (B ? 1 : 0)
+    // 选区映射：块内相对偏移平移，光标行缩进被削的列差一并扣除
+    const mapPos = (pos: number): number => {
+      const ln = doc.lineAt(pos)
+      const col = pos - ln.from
+      const stripped = Math.min(d, LEADING_WS_RE.exec(ln.text)?.[1].length ?? 0, col)
+      return Math.max(1, newCurStart + (pos - curFrom - stripped))
+    }
+    changes.push({ from: mainFrom, to: mainTo, insert })
+    changes.sort((a, b) => a.from - b.from)
+    view.dispatch({
+      changes,
+      selection: { anchor: mapPos(sel.anchor), head: mapPos(sel.head) },
+      scrollIntoView: true
+    })
+    return true
+  }
+
+  /* ---- 相邻兄弟交换：总长/行数不变，其他行位置稳定 ---- */
+  const sibEnd = blockEndOf(doc, sibLine, blk.indent)
+  const sibFrom = doc.line(sibLine).from
+  const sibTo = doc.line(sibEnd).to
+  const mainFrom = dir < 0 ? sibFrom : curFrom
+  const mainTo = dir < 0 ? curTo : sibTo
+  // 兄弟块体（不含它与当前项之间的那个换行——该换行随当前项移动）
+  const sibBody = dir < 0 ? doc.sliceString(sibFrom, curFrom - 1) : doc.sliceString(curTo + 1, sibTo)
+  const sibFirst = sibBody.split('\n')[0]
+  const s0 = ORDERED_RE.exec(sibFirst)
+  const slots: MoveSlot[] = []
+  for (const n of orderedMembers(doc, dir < 0 ? sibLine : blk.start, -1, blk.indent))
+    slots.push(slotOf(doc, n))
+  const curSlot: MoveSlot = {
+    moved: true,
+    origFrom: null,
+    num: c0 ? Number(c0[2]) : null,
+    wsLen: c0 ? c0[1].length : 0,
+    numLen: c0 ? c0[2].length : 0,
+    lineText: curFirst
+  }
+  const sibSlot: MoveSlot = {
+    moved: true,
+    origFrom: null,
+    num: s0 ? Number(s0[2]) : null,
+    wsLen: s0 ? s0[1].length : 0,
+    numLen: s0 ? s0[2].length : 0,
+    lineText: sibFirst
+  }
+  if (dir < 0) slots.push(curSlot, sibSlot)
+  else slots.push(sibSlot, curSlot)
+  for (const n of orderedMembers(doc, dir < 0 ? blk.end : sibEnd, 1, blk.indent))
+    slots.push(slotOf(doc, n))
+  const movedPatch = renumberMoved(slots, changes)
+  const insert =
+    dir < 0
+      ? patchPiece(curText, movedPatch.get(curSlot)) +
+        '\n' +
+        patchPiece(sibBody, movedPatch.get(sibSlot))
+      : patchPiece(sibBody, movedPatch.get(sibSlot)) +
+        '\n' +
+        patchPiece(curText, movedPatch.get(curSlot))
+  const newCurStart = dir < 0 ? mainFrom : mainFrom + sibBody.length + 1
+  const mapPos = (pos: number): number => Math.max(1, newCurStart + (pos - curFrom))
+  changes.push({ from: mainFrom, to: mainTo, insert })
+  changes.sort((a, b) => a.from - b.from)
+  view.dispatch({
+    changes,
+    selection: { anchor: mapPos(sel.anchor), head: mapPos(sel.head) },
+    scrollIntoView: true
+  })
+  return true
+}
+
+/** 围栏内 Shift+Alt+F 入口：先同步判围栏（不在围栏返回 false 放行键位） */
+function cmFormatKey(view: EditorView): boolean {
+  if (!cmInFence(view)) return false
+  void cmFormatCodeBlock(view)
+  return true
+}
+
+/** 顶层块上移/下移（M6 6.2 源码侧）：lezer 顶层节点定位当前块（标题/段落/围栏/
+ *  表格/引用/列表整块），与相邻顶层块对调（两块间空行随 insert 重组、长度不变）；
+ *  首末块边界不动作。单事务单历史项 */
+export function cmMoveBlock(view: EditorView, dir: -1 | 1): boolean {
+  const { state } = view
+  const head = state.selection.main.head
+  const top = syntaxTree(state).topNode
+  let cur = null
+  for (let ch = top.firstChild; ch; ch = ch.nextSibling) {
+    if (head >= ch.from && head < ch.to) {
+      cur = ch
+      break
+    }
+  }
+  if (!cur) {
+    // 文档末尾光标：落最后一个顶层块
+    for (let ch = top.lastChild; ch; ch = ch.prevSibling) {
+      if (head <= ch.to) {
+        cur = ch
+        break
+      }
+    }
+  }
+  if (!cur) return false
+  const sib = dir < 0 ? cur.prevSibling : cur.nextSibling
+  if (!sib) return false
+  const curText = state.sliceDoc(cur.from, cur.to)
+  const sibText = state.sliceDoc(sib.from, sib.to)
+  const gap = state.sliceDoc(dir < 0 ? sib.to : cur.to, dir < 0 ? cur.from : sib.from)
+  const aFrom = Math.min(cur.from, sib.from)
+  const bTo = Math.max(cur.to, sib.to)
+  const insert = dir < 0 ? curText + gap + sibText : sibText + gap + curText
+  const newCurStart = dir < 0 ? aFrom : aFrom + sibText.length + gap.length
+  const off = Math.min(head - cur.from, curText.length)
+  view.dispatch({
+    changes: { from: aFrom, to: bTo, insert },
+    selection: { anchor: newCurStart + off, head: newCurStart + off },
+    scrollIntoView: true
+  })
+  return true
+}
+
+/** 重复当前块/行（M6 6.5 源码侧）：有选区复制选区插到其后；无选区复制当前行
+ *  （含换行插到行后），光标落副本行同列。单事务可撤销 */
+export function cmDuplicate(view: EditorView): boolean {
+  const sel = view.state.selection.main
+  if (!sel.empty) {
+    const text = view.state.sliceDoc(sel.from, sel.to)
+    if (!text) return false
+    view.dispatch({
+      changes: { from: sel.to, insert: text },
+      selection: { anchor: sel.to + text.length },
+      scrollIntoView: true
+    })
+    return true
+  }
+  const line = view.state.doc.lineAt(sel.head)
+  // 副本插到行后：换行打头（'行文本 + \n' 会让副本与本行同行）
+  const insert = '\n' + line.text
+  const col = sel.head - line.from
+  view.dispatch({
+    changes: { from: line.to, insert },
+    selection: { anchor: line.to + 1 + Math.min(col, line.text.length) },
+    scrollIntoView: true
+  })
+  return true
+}
+
 export const formattingKeymap: KeyBinding[] = [
   { key: 'Mod-b', run: cmdBold },
   { key: 'Mod-i', run: cmdItalic },
@@ -618,7 +1036,14 @@ export const formattingKeymap: KeyBinding[] = [
   { key: 'Alt-ArrowLeft', run: cmTableStructural('col-move-left') },
   { key: 'Alt-ArrowRight', run: cmTableStructural('col-move-right') },
   { key: 'Mod-Enter', run: cmTableStructural('row-below') },
-  { key: 'Mod-Shift-Backspace', run: cmTableStructural('row-delete') }
+  { key: 'Mod-Shift-Backspace', run: cmTableStructural('row-delete') },
+  /* 列表项内 Ctrl+Shift+↑/↓：整项上移/下移（6.1）；非列表 = 顶层块移动（6.2） */
+  { key: 'Mod-Shift-ArrowUp', run: (view) => cmMoveListItem(view, -1) || cmMoveBlock(view, -1) },
+  { key: 'Mod-Shift-ArrowDown', run: (view) => cmMoveListItem(view, 1) || cmMoveBlock(view, 1) },
+  /* 围栏内 Shift+Alt+F：就地格式化（6.3；非围栏放行，失败 toast 在模块内） */
+  { key: 'Shift-Alt-f', run: (view) => cmFormatKey(view) },
+  /* Ctrl+D：重复当前行/选区（6.5） */
+  { key: 'Mod-d', run: cmDuplicate }
 ]
 
 /** 光标处表格结构操作（不在表格内返回 false 放行方向键/回车原有行为） */

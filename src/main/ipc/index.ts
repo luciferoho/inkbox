@@ -4,6 +4,7 @@ import { registerConfigIpc } from './config'
 import { registerWinIpc } from './win'
 import { registerExportIpc } from './export'
 import { registerDraftsIpc } from './drafts'
+import { registerClipboardIpc } from './clipboard'
 import { registerSearchIpc } from './search'
 import { registerNetIpc } from './net'
 import { registerPluginsIpc } from './plugins'
@@ -21,6 +22,7 @@ export function registerIpcHandlers(): void {
   registerWinIpc()
   registerExportIpc()
   registerDraftsIpc()
+  registerClipboardIpc()
   registerSearchIpc()
   registerNetIpc()
   registerPluginsIpc()

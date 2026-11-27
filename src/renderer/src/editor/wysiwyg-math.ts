@@ -290,6 +290,12 @@ class MathNodeView implements NodeView {
     })
     this.innerView.focus()
     this.editing = true
+    // selectNode 发生在外层事务 dispatch 过程中，外层视图收尾时会夺回焦点
+    // （插入命令后直接打字落到块外段落，2026-11-20 F7）。宏任务里再抢一次，
+    // 与下方 placeCaret 的 setTimeout 同时序收敛
+    window.setTimeout(() => {
+      if (this.editing && this.innerView) this.innerView.focus()
+    }, 0)
     // 光标落 TeX 末尾。focus() 后 Chromium 会把 DOM 光标放到起点，selectionchange
     // 会把起点反向同步进模型——同步放一次 + 宏任务后再放一次，两种时序都收敛到末尾。
     // 注意节点作为 doc 时合法位置是 0..content.size（终点即 content.size，+1 会越界）
