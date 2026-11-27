@@ -18,6 +18,7 @@ import { requestLinkSourceFocus } from './wysiwyg-extensions'
 import { openLangEditorFor } from './pm-codeblock-chrome'
 import { insertImageFromDisk } from './insert-image'
 import { openEmojiPicker } from './emoji-picker'
+import { openDatePicker } from './date-picker'
 import { openTableGrid } from './table-grid'
 
 /**
@@ -34,8 +35,11 @@ export type InsertTarget = 'pm' | 'cm'
 export function detectInsertTarget(): InsertTarget {
   for (const v of pmViews()) if (v.hasFocus()) return 'pm'
   for (const v of cmViews()) if (v && v.hasFocus) return 'cm'
-  // 无焦点记录（右键后焦点还在文档上时走不到这）：按默认回落
-  return 'pm'
+  // 无焦点记录（点了侧栏/标签栏后再唤起面板时谁都没焦点）：谁在场上就归谁，都在时（双栏）
+  // 默认回落即显。CodeMirror 的 hasFocus 是布尔取值器，上面那句是真在判焦点，
+  // 不能指望它兜住「源码模式但没焦点」——否则源码模式下插入命令全部静默落空
+  if (pm()) return 'pm'
+  return cm() ? 'cm' : 'pm'
 }
 
 function pm(): PMView | null {
@@ -227,15 +231,6 @@ function pmInsertFootnote(view: PMView): boolean {
   return true
 }
 
-function pmInsertText(view: PMView, text: string): boolean {
-  const { state } = view
-  if (!(state.selection instanceof TextSelection)) return false
-  const { from, to } = state.selection
-  const tr = state.tr.insertText(text, from, to)
-  view.dispatch(tr.scrollIntoView())
-  return true
-}
-
 /* ---------- CodeMirror 侧插入实现 ---------- */
 
 /** 尺寸化表格（5.6 网格选择器）：当前行尾插入 N 列表头 + 分隔行 + (rows-1) 空正文行 */
@@ -383,9 +378,8 @@ export const INSERT_COMMANDS: InsertCommand[] = [
   both('footnote', 'ip.footnote', pmInsertFootnote, cmInsertFootnote),
   both('hr', 'ip.hr', pmInsertHr, cmInsertHr),
   both('emoji', 'ip.emoji', () => openEmojiPicker('pm'), () => openEmojiPicker('cm')),
-  both('date', 'ip.date', (v) => pmInsertText(v, new Date().toISOString().slice(0, 10)), (v) =>
-    cmInsertTextAtCursor(v, new Date().toISOString().slice(0, 10))
-  )
+  // 不直接插今天：弹月历选一天（默认高亮今天，Enter 即插今天）
+  both('date', 'ip.date', () => openDatePicker('pm'), () => openDatePicker('cm'))
 ]
 
 export function runInsertCommand(id: string, target: InsertTarget): boolean {
