@@ -524,6 +524,7 @@ export const zh = {
   'updater.retry': '重试',
   'updater.skipVersion': '跳过此版本',
   'updater.releasedAt': '发布于 {date}',
+  'updater.notesCount': '{n} 项',
   'titlebar.updateDownloading': '正在下载更新 {percent}%',
   'titlebar.updateReady': '更新已就绪，点击查看',
   'titlebar.updateAvailable': '有可用更新',
