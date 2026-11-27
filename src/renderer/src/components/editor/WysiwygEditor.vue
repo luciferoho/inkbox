@@ -438,8 +438,55 @@ function pmToggleLink(view: EditorView): boolean {
 }
 
 
+/**
+ * 段落里只写了 ``` 或 ```lang（停顿/空格/回车触发）时就地换成代码块（Typora 语义）；
+ * 未带语言时直接进入语言选择——与 Ctrl+Shift+K、插入面板建块后的行为一致。
+ * preset 自带的输入规则只在敲空格时触发、且建块后不会唤起语言选择，这里统一接管。
+ */
+function fenceToCodeBlock(view: EditorView, state: EditorState): boolean {
+  if (inCodeBlock(state) || inListItem(state) || inTable(state)) return false
+  const { $from } = state.selection
+  if ($from.parent.type.name !== 'paragraph' || $from.parent.content.size === 0) return false
+  const fm = /^```([A-Za-z0-9+#._-]*)$/.exec($from.parent.textContent)
+  const codeT = state.schema.nodes.code_block
+  if (!fm || !codeT) return false
+  const from = $from.before()
+  const tr = state.tr.replaceWith(from, $from.after(), codeT.create({ language: fm[1] ?? '' }))
+  tr.setSelection(TextSelection.near(tr.doc.resolve(from + 1)))
+  view.dispatch(tr)
+  // dispatch 已完成、块与 chrome 语言标签已挂载：没写语言就先进编辑态（已写语言会自行返回）
+  openLangEditorFor(view, from)
+  return true
+}
+
+/**
+ * 敲完第三个反引号、停顿一下即建块并弹语言候选（不必等空格/回车）。
+ * 停顿窗口内继续敲字（```js）则本次检查自然落空，仍由回车/空格带语言建块；
+ * 若是停顿后才接着敲，焦点已在语言候选框里，打 js 就是过滤候选。
+ */
+const FENCE_PROBE_MS = 400
+let fenceProbeTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleFenceProbe(view: EditorView): void {
+  if (fenceProbeTimer) clearTimeout(fenceProbeTimer)
+  fenceProbeTimer = setTimeout(() => {
+    fenceProbeTimer = null
+    if (!view.dom.isConnected) return
+    // 只在「当前段落恰好就是 ``` / ```lang、光标紧随其后」时转换，避免误伤别处
+    const { $from } = view.state.selection
+    const text = $from.parent.type.name === 'paragraph' ? $from.parent.textContent : ''
+    if (!/^```[A-Za-z0-9+#._-]*$/.test(text) || $from.parentOffset !== text.length) return
+    fenceToCodeBlock(view, view.state)
+  }, FENCE_PROBE_MS)
+}
+
 function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
   const { state } = view
+
+  // 反引号：计划一次「停顿即建块」检查（不拦按键，让它照常输入）
+  if (event.key === '`' && !event.isComposing && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    scheduleFenceProbe(view)
+  }
 
   /* 结构类格式化快捷键（键位与源码/双栏 formattingKeymap 完全一致，Typora 习惯）：
      Mod-1..6 标题（同级再按退回正文）/ Mod-0 正文 / Ctrl+= Ctrl+- 标题升降级 /
@@ -765,27 +812,17 @@ function handleKeys(view: EditorView, event: KeyboardEvent): boolean {
     }
   }
   // 段落输入 ```lang 后回车 → 代码块（Typora 语义）。preset 的输入规则要求
-  // 围栏后先敲一个空格才触发，` ```js` 直接回车命中不了，这里在 Enter 上补齐
+  // 围栏后先敲一个空格才触发，` ```js` 直接回车命中不了，这里在 Enter 上补齐；
+  // 空格（围栏 + 空格）两端都接管，建块后统一进入语言选择（未写语言时）
   if (
-    event.key === 'Enter' &&
+    (event.key === 'Enter' || event.key === ' ') &&
     !event.shiftKey &&
     !event.ctrlKey &&
     !event.metaKey &&
-    !event.altKey &&
-    !inCodeBlock(state) &&
-    !inListItem(state) &&
-    !inTable(state)
+    !event.altKey
   ) {
-    const { $from } = state.selection
-    const text = $from.parent.type.name === 'paragraph' ? $from.parent.textContent : ''
-    const fm = /^```([A-Za-z0-9+#._-]*)$/.exec(text)
-    if (fm) {
+    if (fenceToCodeBlock(view, state)) {
       event.preventDefault()
-      const codeT = state.schema.nodes.code_block
-      const from = $from.before()
-      const tr = state.tr.replaceWith(from, $from.after(), codeT.create({ language: fm[1] ?? '' }))
-      tr.setSelection(TextSelection.near(tr.doc.resolve(from + 1)))
-      view.dispatch(tr)
       return true
     }
   }
@@ -2877,6 +2914,10 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (fenceProbeTimer) {
+    clearTimeout(fenceProbeTimer)
+    fenceProbeTimer = null
+  }
   unregisterFlush?.()
   offTableWidths?.()
   window.removeEventListener('inkbox:theme-applied', onThemeApplied)
