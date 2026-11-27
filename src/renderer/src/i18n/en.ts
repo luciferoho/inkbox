@@ -526,6 +526,7 @@ export const en: MsgSchema = {
   'updater.retry': 'Retry',
   'updater.skipVersion': 'Skip This Version',
   'updater.releasedAt': 'Released {date}',
+  'updater.notesCount': '{n} items',
   'titlebar.updateDownloading': 'Downloading update {percent}%',
   'titlebar.updateReady': 'Update ready — click to view',
   'titlebar.updateAvailable': 'Update available',
